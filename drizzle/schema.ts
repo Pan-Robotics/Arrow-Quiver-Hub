@@ -1,17 +1,10 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
  */
 export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -25,4 +18,49 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+/**
+ * Drones table - stores information about connected drones
+ */
+export const drones = mysqlTable("drones", {
+  id: int("id").autoincrement().primaryKey(),
+  droneId: varchar("droneId", { length: 64 }).notNull().unique(),
+  name: text("name"),
+  lastSeen: timestamp("lastSeen").defaultNow().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Drone = typeof drones.$inferSelect;
+export type InsertDrone = typeof drones.$inferInsert;
+
+/**
+ * Point cloud scans table - stores metadata about each scan
+ */
+export const scans = mysqlTable("scans", {
+  id: int("id").autoincrement().primaryKey(),
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  timestamp: timestamp("timestamp").notNull(),
+  pointCount: int("pointCount").notNull(),
+  minDistance: int("minDistance"),
+  maxDistance: int("maxDistance"),
+  avgQuality: int("avgQuality"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Scan = typeof scans.$inferSelect;
+export type InsertScan = typeof scans.$inferInsert;
+
+/**
+ * API keys table - for authenticating incoming point cloud data
+ */
+export const apiKeys = mysqlTable("apiKeys", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  description: text("description"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = typeof apiKeys.$inferInsert;

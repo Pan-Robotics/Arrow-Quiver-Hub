@@ -1,11 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -89,4 +88,88 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Drone management
+export async function upsertDrone(drone: InsertDrone) {
+  const db = await getDb();
+  if (!db) return null;
+
+  await db.insert(drones).values(drone).onDuplicateKeyUpdate({
+    set: {
+      lastSeen: drone.lastSeen || new Date(),
+      isActive: true,
+    },
+  });
+
+  const result = await db.select().from(drones).where(eq(drones.droneId, drone.droneId)).limit(1);
+  return result[0];
+}
+
+export async function getDroneByDroneId(droneId: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.select().from(drones).where(eq(drones.droneId, droneId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getAllDrones() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(drones).orderBy(desc(drones.lastSeen));
+}
+
+// Scan management
+export async function insertScan(scan: InsertScan) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(scans).values(scan);
+  return result;
+}
+
+export async function getRecentScans(droneId: string, limit: number = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(scans)
+    .where(eq(scans.droneId, droneId))
+    .orderBy(desc(scans.timestamp))
+    .limit(limit);
+}
+
+export async function getScanStats(droneId: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(scans)
+    .where(eq(scans.droneId, droneId))
+    .orderBy(desc(scans.timestamp))
+    .limit(1);
+
+  if (result.length === 0) return null;
+
+  return result[0];
+}
+
+// API key validation
+export async function validateApiKey(key: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(apiKeys)
+    .where(eq(apiKeys.key, key))
+    .limit(1);
+
+  if (result.length === 0 || !result[0].isActive) {
+    return null;
+  }
+
+  return result[0];
+}
