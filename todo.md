@@ -36,3 +36,7 @@
 - [ ] Environment configuration
 - [ ] Production build
 - [ ] Documentation
+
+## Critical Bugs
+
+- [x] tRPC endpoint not accepting external HTTP POST requests - create REST endpoint for point cloud ingestion

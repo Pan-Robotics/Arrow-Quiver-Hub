@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO apiKeys (`key`, droneId, description, isActive) VALUES ('sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M', 'quiver_001', 'Test API key for RPLidar C1 drone', 1)",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute INSERT INTO apiKeys (`key`, droneId, description, isActive) VALUES ('sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M', 'quiver_001', 'Test API key for RPLidar C1 drone', 1)",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 80
+}
