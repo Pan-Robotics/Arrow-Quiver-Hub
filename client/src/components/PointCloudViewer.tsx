@@ -38,34 +38,89 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
   const [zoom, setZoom] = useState(1.0);
   const [maxRange, setMaxRange] = useState(12000); // 12 meters default
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection with polling fallback
   useEffect(() => {
-    const socketInstance = io({
-      path: "/socket.io/",
-    });
+    let socketInstance: Socket | null = null;
+    let pollingInterval: NodeJS.Timeout | null = null;
 
-    socketInstance.on("connect", () => {
-      console.log("WebSocket connected");
-      setConnected(true);
-      socketInstance.emit("subscribe", droneId);
-    });
+    // Try WebSocket first
+    try {
+      socketInstance = io({
+        path: "/socket.io/",
+        timeout: 5000,
+      });
 
-    socketInstance.on("disconnect", () => {
-      console.log("WebSocket disconnected");
-      setConnected(false);
-    });
+      socketInstance.on("connect", () => {
+        console.log("WebSocket connected");
+        setConnected(true);
+        socketInstance!.emit("subscribe", droneId);
+        // Clear polling if WebSocket connects
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+        }
+      });
 
-    socketInstance.on("pointcloud", (data: PointCloudData) => {
-      if (data.drone_id === droneId) {
-        setLatestData(data);
-      }
-    });
+      socketInstance.on("disconnect", () => {
+        console.log("WebSocket disconnected");
+        setConnected(false);
+        // Start polling fallback
+        startPolling();
+      });
 
-    setSocket(socketInstance);
+      socketInstance.on("pointcloud", (data: PointCloudData) => {
+        if (data.drone_id === droneId) {
+          setLatestData(data);
+        }
+      });
+
+      socketInstance.on("connect_error", (error) => {
+        console.warn("WebSocket connection error, falling back to polling:", error);
+        setConnected(false);
+        startPolling();
+      });
+
+      setSocket(socketInstance);
+    } catch (error) {
+      console.warn("Failed to initialize WebSocket, using polling:", error);
+      startPolling();
+    }
+
+    // Polling fallback function
+    function startPolling() {
+      if (pollingInterval) return; // Already polling
+      
+      console.log("Starting polling fallback for drone:", droneId);
+      
+      // Poll every 100ms (10 Hz)
+      pollingInterval = setInterval(async () => {
+        try {
+          const response = await fetch(`/api/rest/pointcloud/latest/${droneId}`);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+              setLatestData(result.data);
+              setConnected(true);
+            }
+          } else if (response.status === 404) {
+            // No data yet, keep polling
+            setConnected(false);
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+          setConnected(false);
+        }
+      }, 100);
+    }
 
     return () => {
-      socketInstance.emit("unsubscribe", droneId);
-      socketInstance.disconnect();
+      if (socketInstance) {
+        socketInstance.emit("unsubscribe", droneId);
+        socketInstance.disconnect();
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
     };
   }, [droneId]);
 

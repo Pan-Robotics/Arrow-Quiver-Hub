@@ -48,3 +48,7 @@
 - [x] Verify WebSocket broadcasting
 - [x] Verify frontend visualization displays mock data
 - [x] Document final API URLs
+
+## Published Site Issues
+
+- [x] WebSocket not working on published site - implement polling fallback for real-time updates

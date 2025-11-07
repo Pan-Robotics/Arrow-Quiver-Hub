@@ -14,6 +14,9 @@ import type { PointCloudMessage } from "./websocket";
 
 const router = Router();
 
+// In-memory buffer for recent scans (for polling fallback)
+const lastScans = new Map<string, PointCloudMessage>();
+
 /**
  * POST /api/rest/pointcloud/ingest
  * Receive point cloud data from companion computer
@@ -127,6 +130,9 @@ router.post("/pointcloud/ingest", async (req: Request, res: Response) => {
       points,
       stats,
     };
+    // Store in memory for polling fallback
+    lastScans.set(drone_id, message);
+
     broadcastPointCloud(message);
 
     // Return success
@@ -159,6 +165,38 @@ router.get("/health", (req: Request, res: Response) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /api/rest/pointcloud/latest/:droneId
+ * Get latest scan for a specific drone (polling fallback)
+ */
+router.get("/pointcloud/latest/:droneId", (req: Request, res: Response) => {
+  try {
+    const { droneId } = req.params;
+    
+    const latestScan = lastScans.get(droneId);
+    
+    if (!latestScan) {
+      return res.status(404).json({
+        success: false,
+        error: "No data available for this drone",
+        drone_id: droneId,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: latestScan,
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/pointcloud/latest:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 });
 
 export default router;
