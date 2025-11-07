@@ -40,3 +40,11 @@
 ## Critical Bugs
 
 - [x] tRPC endpoint not accepting external HTTP POST requests - create REST endpoint for point cloud ingestion
+
+## Mock Data Testing
+
+- [x] Create mock lidar data generator
+- [x] Test REST API with mock data
+- [x] Verify WebSocket broadcasting
+- [x] Verify frontend visualization displays mock data
+- [x] Document final API URLs
