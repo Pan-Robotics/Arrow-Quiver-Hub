@@ -85,3 +85,8 @@
 - [x] Update meta tags and descriptions
 - [x] Reflect RPLidar as subordinate app in branding
 
+
+## Documentation
+
+- [x] Update README with Quiver Hub architecture and future direction
+
