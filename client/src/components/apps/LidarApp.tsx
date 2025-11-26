@@ -22,8 +22,8 @@ export default function LidarApp() {
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold">LiDAR Terrain Mapping</h2>
-            <p className="text-sm text-muted-foreground">Real-time point cloud visualization</p>
+            <h2 className="text-xl font-semibold">RPLidar Terrain Mapping</h2>
+            <p className="text-sm text-muted-foreground">Real-time LiDAR point cloud visualization</p>
           </div>
 
           {/* Drone Selector */}

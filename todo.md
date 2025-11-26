@@ -76,3 +76,12 @@
 - [ ] App registry/management system
 - [ ] Multi-app layout system
 
+
+## Rebranding to Quiver Hub
+
+- [x] Update site title to "Quiver Hub"
+- [ ] Update environment variable VITE_APP_TITLE (user must update via Settings UI)
+- [x] Update all page titles and headers
+- [x] Update meta tags and descriptions
+- [x] Reflect RPLidar as subordinate app in branding
+

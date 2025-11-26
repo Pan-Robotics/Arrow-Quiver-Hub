@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { APP_TITLE } from "@/const";
+// Quiver Hub branding
+const HUB_TITLE = "Quiver Hub";
+const HUB_SUBTITLE = "UAV Data Pipeline Platform";
 import { Radio, Map, Package } from "lucide-react";
 import AppSidebar, { App } from "@/components/AppSidebar";
 import LidarApp from "@/components/apps/LidarApp";
@@ -10,7 +12,7 @@ export default function Home() {
   const apps: App[] = [
     {
       id: "lidar",
-      name: "LiDAR Mapping",
+      name: "RPLidar Terrain Mapping",
       icon: Radio,
       enabled: true,
     },
@@ -71,8 +73,8 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <Radio className="text-primary" size={28} />
               <div>
-                <h1 className="text-xl font-bold">{APP_TITLE}</h1>
-                <p className="text-xs text-muted-foreground">UAV Data Hub</p>
+                <h1 className="text-xl font-bold">{HUB_TITLE}</h1>
+                <p className="text-xs text-muted-foreground">{HUB_SUBTITLE}</p>
               </div>
             </div>
           </div>
