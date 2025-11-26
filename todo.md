@@ -52,3 +52,27 @@
 ## Published Site Issues
 
 - [x] WebSocket not working on published site - implement polling fallback for real-time updates
+
+## Performance Issues
+
+- [x] Forwarder only sending at 0.1 Hz (should be 10 Hz) - 99% packet drop rate
+- [x] Identify HTTP request bottleneck
+- [x] Fix forwarder to achieve 10 Hz forwarding rate
+
+## Critical Issues After Restart
+
+- [x] Forwarder still at 0.1 Hz TX rate despite optimization (not using new defaults)
+- [x] RX rate wildly unstable: 450 Hz → 60 Hz → 10 Hz after restart (was cumulative average display)
+- [x] Request timeouts and connection errors occurring (was point format mismatch)
+- [x] Old forwarder file still running (optimization not applied) - fixed with verification script
+
+## UAV Data Hub Transformation
+
+- [x] Left sidebar navigation with app icons
+- [x] App switcher functionality (toggle between different data pipelines)
+- [x] Refactor LiDAR visualization as modular app component
+- [x] Add "+" button at bottom of sidebar for app store access
+- [x] App store placeholder page
+- [ ] App registry/management system
+- [ ] Multi-app layout system
+

@@ -1,0 +1,17 @@
+{
+  "query": "SELECT id, `key`, droneId, description, isActive FROM apiKeys",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT id, `key`, droneId, description, isActive FROM apiKeys",
+  "rows": [
+    {
+      "id": "1",
+      "key": "sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M",
+      "droneId": "quiver_001",
+      "description": "Test API key for RPLidar C1 drone",
+      "isActive": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tkey\tdroneId\tdescription\tisActive\n1\tsp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M\tquiver_001\tTest API key for RPLidar C1 drone\t1\n",
+  "stderr": "",
+  "execution_time_ms": 129
+}

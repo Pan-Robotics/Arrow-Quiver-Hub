@@ -172,13 +172,13 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
     ctx.lineTo(width, centerY);
     ctx.stroke();
 
-    // Draw axis labels
+    // Draw axis labels (0° = RIGHT, 90° = UP, 180° = LEFT, 270° = DOWN)
     ctx.fillStyle = "#606060";
     ctx.font = "12px monospace";
-    ctx.fillText("0°", centerX, 15);
-    ctx.fillText("90°", width - 30, centerY - 5);
-    ctx.fillText("180°", centerX - 20, height - 5);
-    ctx.fillText("270°", 5, centerY - 5);
+    ctx.fillText("90°", centerX - 15, 15);        // Top = 90°
+    ctx.fillText("0°", width - 25, centerY - 5);  // Right = 0°
+    ctx.fillText("270°", centerX - 20, height - 5); // Bottom = 270°
+    ctx.fillText("180°", 5, centerY - 5);         // Left = 180°
 
     // Draw lidar position
     ctx.fillStyle = "#3b82f6";
