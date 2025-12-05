@@ -11,9 +11,11 @@ import {
   getRecentScans,
   getScanStats,
   validateApiKey,
+  insertTelemetry,
+  getRecentTelemetry,
 } from "./db";
-import { broadcastPointCloud } from "./websocket";
-import type { PointCloudMessage } from "./websocket";
+import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
+import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 
 export const appRouter = router({
   system: systemRouter,
@@ -119,6 +121,101 @@ export const appRouter = router({
       .input(z.object({ droneId: z.string() }))
       .query(async ({ input }) => {
         return await getScanStats(input.droneId);
+      }),
+  }),
+
+  // Telemetry data ingestion
+  telemetry: router({
+    // Receive telemetry data from companion computer
+    ingest: publicProcedure
+      .input(
+        z.object({
+          api_key: z.string(),
+          drone_id: z.string(),
+          timestamp: z.string(),
+          telemetry: z.object({
+            attitude: z.object({
+              roll_deg: z.number(),
+              pitch_deg: z.number(),
+              yaw_deg: z.number(),
+              timestamp: z.string(),
+            }).nullable(),
+            position: z.object({
+              latitude_deg: z.number(),
+              longitude_deg: z.number(),
+              absolute_altitude_m: z.number(),
+              relative_altitude_m: z.number(),
+              timestamp: z.string(),
+            }).nullable(),
+            gps: z.object({
+              num_satellites: z.number(),
+              fix_type: z.number(),
+              timestamp: z.string(),
+            }).nullable(),
+            battery_fc: z.object({
+              voltage_v: z.number(),
+              remaining_percent: z.number(),
+              timestamp: z.string(),
+            }).nullable(),
+            battery_uavcan: z.object({
+              battery_id: z.number(),
+              voltage_v: z.number(),
+              current_a: z.number(),
+              temperature_k: z.number(),
+              state_of_charge_pct: z.number(),
+              timestamp: z.string(),
+            }).nullable(),
+            in_air: z.boolean(),
+          }),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Validate API key
+        const apiKeyRecord = await validateApiKey(input.api_key);
+        if (!apiKeyRecord) {
+          throw new Error("Invalid API key");
+        }
+
+        // Verify drone ID matches API key
+        if (apiKeyRecord.droneId !== input.drone_id) {
+          throw new Error("Drone ID mismatch");
+        }
+
+        // Update drone last seen
+        await upsertDrone({
+          droneId: input.drone_id,
+          lastSeen: new Date(input.timestamp),
+          isActive: true,
+        });
+
+        // Store telemetry in database
+        await insertTelemetry({
+          droneId: input.drone_id,
+          timestamp: new Date(input.timestamp),
+          telemetryData: input.telemetry,
+        });
+
+        // Broadcast to WebSocket clients
+        const message: TelemetryMessage = {
+          drone_id: input.drone_id,
+          timestamp: input.timestamp,
+          telemetry: input.telemetry,
+        };
+        broadcastTelemetry(message);
+
+        return { success: true };
+      }),
+
+    // Get recent telemetry for a drone
+    getRecentTelemetry: publicProcedure
+      .input(
+        z.object({
+          droneId: z.string(),
+          limit: z.number().optional().default(100),
+        })
+      )
+      .query(async ({ input }) => {
+        return await getRecentTelemetry(input.droneId, input.limit);
       }),
   }),
 });

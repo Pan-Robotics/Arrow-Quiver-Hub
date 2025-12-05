@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -64,3 +64,17 @@ export const apiKeys = mysqlTable("apiKeys", {
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type InsertApiKey = typeof apiKeys.$inferInsert;
+
+/**
+ * Telemetry table - stores flight controller and battery telemetry
+ */
+export const telemetry = mysqlTable("telemetry", {
+  id: int("id").autoincrement().primaryKey(),
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  timestamp: timestamp("timestamp").notNull(),
+  telemetryData: json("telemetryData").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Telemetry = typeof telemetry.$inferSelect;
+export type InsertTelemetry = typeof telemetry.$inferInsert;

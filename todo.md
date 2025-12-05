@@ -90,3 +90,16 @@
 
 - [x] Update README with Quiver Hub architecture and future direction
 
+
+## Flight Telemetry Pipeline
+
+- [x] Design telemetry data schema (attitude, position, GPS, battery)
+- [x] Create multi-threaded telemetry forwarder (MAVLink + UAVCAN)
+- [x] Add REST API endpoint for telemetry ingestion
+- [x] Add WebSocket broadcast for real-time telemetry
+- [x] Create TelemetryApp component with attitude indicator
+- [x] Add position display (lat/lon/alt)
+- [x] Add GPS status widget
+- [x] Add battery status widgets (FC + UAVCAN)
+- [x] Integrate telemetry app into sidebar
+- [ ] Test concurrent operation with RPLidar pipeline

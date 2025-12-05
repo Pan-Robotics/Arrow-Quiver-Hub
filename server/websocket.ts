@@ -1,6 +1,45 @@
 import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 
+export interface TelemetryMessage {
+  drone_id: string;
+  timestamp: string;
+  telemetry: {
+    attitude: {
+      roll_deg: number;
+      pitch_deg: number;
+      yaw_deg: number;
+      timestamp: string;
+    } | null;
+    position: {
+      latitude_deg: number;
+      longitude_deg: number;
+      absolute_altitude_m: number;
+      relative_altitude_m: number;
+      timestamp: string;
+    } | null;
+    gps: {
+      num_satellites: number;
+      fix_type: number;
+      timestamp: string;
+    } | null;
+    battery_fc: {
+      voltage_v: number;
+      remaining_percent: number;
+      timestamp: string;
+    } | null;
+    battery_uavcan: {
+      battery_id: number;
+      voltage_v: number;
+      current_a: number;
+      temperature_k: number;
+      state_of_charge_pct: number;
+      timestamp: string;
+    } | null;
+    in_air: boolean;
+  };
+}
+
 export interface PointCloudMessage {
   drone_id: string;
   timestamp: string;
@@ -68,6 +107,22 @@ export function broadcastPointCloud(message: PointCloudMessage) {
     drone_id: message.drone_id,
     timestamp: message.timestamp,
     point_count: message.stats.point_count,
+  });
+}
+
+export function broadcastTelemetry(message: TelemetryMessage) {
+  if (!io) {
+    console.warn('[WebSocket] Cannot broadcast: server not initialized');
+    return;
+  }
+
+  // Broadcast to all clients subscribed to this drone
+  io.to(`drone:${message.drone_id}`).emit('telemetry', message);
+  
+  // Also broadcast to general channel for dashboard
+  io.emit('telemetry_update', {
+    drone_id: message.drone_id,
+    timestamp: message.timestamp,
   });
 }
 

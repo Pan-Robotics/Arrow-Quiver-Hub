@@ -1,6 +1,6 @@
 import { eq, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys } from "../drizzle/schema";
+import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, telemetry, InsertTelemetry } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -172,4 +172,25 @@ export async function validateApiKey(key: string) {
   }
 
   return result[0];
+}
+
+// Telemetry management
+export async function insertTelemetry(telem: InsertTelemetry) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(telemetry).values(telem);
+  return result;
+}
+
+export async function getRecentTelemetry(droneId: string, limit: number = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(telemetry)
+    .where(eq(telemetry.droneId, droneId))
+    .orderBy(desc(telemetry.timestamp))
+    .limit(limit);
 }

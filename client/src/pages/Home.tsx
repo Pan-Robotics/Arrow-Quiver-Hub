@@ -2,9 +2,10 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
-import { Radio, Map, Package } from "lucide-react";
+import { Radio, Gauge, Package } from "lucide-react";
 import AppSidebar, { App } from "@/components/AppSidebar";
 import LidarApp from "@/components/apps/LidarApp";
+import TelemetryApp from "@/components/apps/TelemetryApp";
 import AppStore from "@/components/apps/AppStore";
 
 export default function Home() {
@@ -18,9 +19,9 @@ export default function Home() {
     },
     {
       id: "telemetry",
-      name: "Telemetry",
-      icon: Map,
-      enabled: false, // Placeholder for future app
+      name: "Flight Telemetry",
+      icon: Gauge,
+      enabled: true,
     },
   ];
 
@@ -39,6 +40,8 @@ export default function Home() {
     switch (activeAppId) {
       case "lidar":
         return <LidarApp />;
+      case "telemetry":
+        return <TelemetryApp droneId="quiver_001" />;
       default:
         return (
           <div className="h-full flex items-center justify-center">
