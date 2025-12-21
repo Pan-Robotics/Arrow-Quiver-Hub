@@ -17,6 +17,7 @@ import {
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
+import { extractSchema } from "./schemaExtractor";
 
 export const appRouter = router({
   system: systemRouter,
@@ -250,6 +251,14 @@ export const appRouter = router({
       .input(z.object({ parserCode: z.string() }))
       .query(({ input }) => {
         return validateParserCode(input.parserCode);
+      }),
+
+    // Extract SCHEMA from parser code
+    extractSchema: publicProcedure
+      .input(z.object({ parserCode: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await extractSchema(input.parserCode);
+        return result;
       }),
   }),
 });

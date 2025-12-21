@@ -163,3 +163,25 @@
 - [ ] Add debugging tools for custom apps
 - [ ] Implement app analytics dashboard
 
+
+## File Upload & Output Format
+
+- [x] Add file upload button to AppBuilder UI for .py files
+- [x] Implement file reading and validation on upload
+- [x] Define standardized output data format for REST endpoints
+- [x] Update parser template with output format specification
+- [x] Document output format requirements
+
+## UI Builder Implementation
+
+- [x] Design UI builder schema (widget types, layouts, data bindings)
+- [x] Create database table for UI configurations (already exists in customApps.uiSchema)
+- [x] Build widget palette component
+- [x] Implement drag-and-drop canvas (grid-based positioning)
+- [x] Create property editor for widget configuration
+- [x] Implement data binding system (connect widgets to parser output fields)
+- [x] Add preview mode for testing custom app UI
+- [x] Backend schema extraction API (extractSchema endpoint)
+- [ ] Debug schema extraction workflow
+- [ ] Create dynamic component renderer
+- [ ] Test complete app creation workflow (parser + UI)

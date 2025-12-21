@@ -1,12 +1,14 @@
 import { useState } from "react";
+import UIBuilder from "./UIBuilder";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Play, Save } from "lucide-react";
+import { ArrowLeft, Upload, Play, Save, FileUp } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useRef } from "react";
 
 interface DataField {
   name: string;
@@ -24,7 +26,16 @@ export default function AppBuilder({ onBack }: AppBuilderProps) {
   const [appDescription, setAppDescription] = useState("");
   const [parserCode, setParserCode] = useState(
     `# Payload Parser Template
-# This function receives raw data and returns structured output
+# Transform raw payload data into structured format for UI visualization
+#
+# OUTPUT FORMAT REQUIREMENTS:
+# 1. parse_payload() must return a dictionary
+# 2. All output fields must be defined in SCHEMA
+# 3. Field types: "number", "string", or "boolean"
+# 4. Include units for number fields (e.g., "°C", "km/h", "%")
+# 5. Set min/max for gauges and charts
+#
+# See docs/PARSER_OUTPUT_FORMAT.md for complete specification
 
 def parse_payload(raw_data: dict) -> dict:
     """
@@ -34,30 +45,42 @@ def parse_payload(raw_data: dict) -> dict:
         raw_data: Dictionary containing raw payload data
         
     Returns:
-        Dictionary with structured data matching your schema
+        Dictionary with structured data matching SCHEMA
+        
+    Example input:
+        {"temp_raw": 2350, "hum_raw": 6500, "ts": "2025-01-01T12:00:00Z"}
+    
+    Example output:
+        {"temperature": 23.5, "humidity": 65.0, "timestamp": "2025-01-01T12:00:00Z"}
     """
-    # Example: Extract and transform data
+    # Extract and transform data with defaults
     return {
         "temperature": raw_data.get("temp_raw", 0) / 100.0,
         "humidity": raw_data.get("hum_raw", 0) / 100.0,
         "timestamp": raw_data.get("ts", "")
     }
 
-# Define your data schema
+# Define output schema - REQUIRED for UI Builder
+# This tells the UI what fields are available and how to display them
 SCHEMA = {
     "temperature": {
         "type": "number",
         "unit": "°C",
-        "description": "Temperature in Celsius"
+        "description": "Temperature in Celsius",
+        "min": -50,
+        "max": 60
     },
     "humidity": {
         "type": "number", 
         "unit": "%",
-        "description": "Relative humidity"
+        "description": "Relative humidity",
+        "min": 0,
+        "max": 100
     },
     "timestamp": {
         "type": "string",
-        "description": "ISO 8601 timestamp"
+        "description": "ISO 8601 timestamp",
+        "format": "iso8601"
     }
 }
 `
@@ -68,8 +91,46 @@ SCHEMA = {
   const [testResult, setTestResult] = useState<string>("");
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showUIBuilder, setShowUIBuilder] = useState(false);
+  const [parsedSchema, setParsedSchema] = useState<Record<string, any> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const testParserMutation = trpc.appBuilder.testParser.useMutation();
+  const extractSchemaMutation = trpc.appBuilder.extractSchema.useMutation();
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file extension
+    if (!file.name.endsWith('.py')) {
+      toast.error('Please upload a .py file');
+      return;
+    }
+
+    // Check file size (max 1MB)
+    if (file.size > 1024 * 1024) {
+      toast.error('File size must be less than 1MB');
+      return;
+    }
+
+    // Read file content
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setParserCode(content);
+      toast.success(`Loaded ${file.name}`);
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
+    };
+    reader.readAsText(file);
+
+    // Reset input so same file can be uploaded again
+    if (event.target) {
+      event.target.value = '';
+    }
+  };
 
   const handleTest = async () => {
     setIsTesting(true);
@@ -101,7 +162,7 @@ SCHEMA = {
     }
   };
 
-  const handleSave = async () => {
+  const handleContinueToUI = async () => {
     if (!appName.trim()) {
       toast.error("Please enter an app name");
       return;
@@ -112,10 +173,31 @@ SCHEMA = {
       return;
     }
 
+    try {
+      // Extract SCHEMA from parser code using backend
+      const schemaResult = await extractSchemaMutation.mutateAsync({
+        parserCode
+      });
+      
+      if (!schemaResult.success || !schemaResult.schema) {
+        toast.error(schemaResult.error || "Failed to extract SCHEMA from parser code");
+        return;
+      }
+
+      setParsedSchema(schemaResult.schema);
+      setShowUIBuilder(true);
+      toast.success("Parser validated! Now design your UI");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to extract schema: ${message}`);
+    }
+  };
+
+  const handleSaveUI = async (uiSchema: any) => {
     setIsSaving(true);
     
     try {
-      // TODO: Save to backend
+      // TODO: Save to backend with both parser and UI schema
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       toast.success("App saved successfully!");
@@ -127,6 +209,17 @@ SCHEMA = {
       setIsSaving(false);
     }
   };
+
+  // Show UI Builder if schema is parsed
+  if (showUIBuilder && parsedSchema) {
+    return (
+      <UIBuilder
+        dataSchema={parsedSchema}
+        onSave={handleSaveUI}
+        onCancel={() => setShowUIBuilder(false)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -180,8 +273,27 @@ SCHEMA = {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-2">
               <Label htmlFor="parserCode">Parser Code (Python)</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".py"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="ml-auto"
+              >
+                <FileUp className="h-4 w-4 mr-2" />
+                Upload .py File
+              </Button>
+            </div>
+            <div className="space-y-2">
               <Textarea
                 id="parserCode"
                 value={parserCode}
@@ -241,15 +353,8 @@ SCHEMA = {
           <Button variant="outline" onClick={onBack}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <>Saving...</>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Save App
-              </>
-            )}
+          <Button onClick={handleContinueToUI}>
+            Continue to UI Builder
           </Button>
         </div>
       </div>
