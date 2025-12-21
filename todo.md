@@ -182,6 +182,47 @@
 - [x] Implement data binding system (connect widgets to parser output fields)
 - [x] Add preview mode for testing custom app UI
 - [x] Backend schema extraction API (extractSchema endpoint)
-- [ ] Debug schema extraction workflow
+- [x] Debug schema extraction workflow
 - [ ] Create dynamic component renderer
 - [ ] Test complete app creation workflow (parser + UI)
+
+## Complete App Lifecycle Implementation
+
+### App Persistence & Deployment
+- [ ] Fix schema extraction workflow (Continue to UI Builder button)
+- [x] Implement saveApp backend API (save parser + UI schema to database)
+- [x] Add app status field (draft, published)
+- [ ] Create app publishing workflow
+
+### App Store Integration
+- [x] Display saved custom apps in App Store
+- [x] Show app cards with name, description, icon
+- [x] Add "Install" button for published apps
+- [ ] Track installed apps per user
+- [ ] Implement app installation logic
+
+### Sidebar Integration
+- [ ] Add installed apps to sidebar navigation
+- [ ] Generate dynamic routes for custom apps
+- [ ] Create app icons/badges for sidebar
+
+### Dynamic App Renderer
+- [ ] Create CustomAppRenderer component
+- [ ] Implement widget rendering (Text, Gauge, Chart, LED, Map, Video, Canvas)
+- [ ] Connect widgets to live data via WebSocket
+- [ ] Handle data binding and updates
+- [ ] Implement responsive grid layout
+
+### REST Endpoint Generation
+- [ ] Generate `/api/rest/payload/{app_id}/ingest` endpoints
+- [ ] Execute parser on incoming payload
+- [ ] Validate payload against parser
+- [ ] Broadcast parsed data via WebSocket to app viewers
+- [ ] Add authentication/API key validation
+
+### Parser Enhancement for Quiver
+- [ ] Update parser template with REST endpoint creation code
+- [ ] Add Flask/FastAPI server setup in parser template
+- [ ] Include WebSocket broadcasting in parser
+- [ ] Add deployment instructions for Quiver devices
+- [ ] Create example parser for rplidar_forwarder.py pattern

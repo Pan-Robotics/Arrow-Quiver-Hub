@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Package, Download, Star, TrendingUp, Plus } from "lucide-react";
+import { Package, Download, Star, TrendingUp, Plus, Sparkles } from "lucide-react";
 import AppBuilder from "./AppBuilder";
+import { trpc } from "@/lib/trpc";
 
 interface StoreApp {
   id: string;
@@ -21,6 +22,7 @@ interface AppStoreProps {
 
 export default function AppStore({ onInstallApp }: AppStoreProps) {
   const [showBuilder, setShowBuilder] = useState(false);
+  const { data: customApps, isLoading } = trpc.appBuilder.listApps.useQuery({ publishedOnly: true });
 
   if (showBuilder) {
     return <AppBuilder onBack={() => setShowBuilder(false)} />;
@@ -75,7 +77,53 @@ export default function AppStore({ onInstallApp }: AppStoreProps) {
 
       {/* Store Content */}
       <div className="flex-1 p-6 overflow-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Custom Apps Section */}
+        {customApps && customApps.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="text-primary" size={20} />
+              <h3 className="text-lg font-semibold">Custom Apps</h3>
+              <Badge variant="secondary" className="ml-2">{customApps.length}</Badge>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {customApps.map((app) => (
+                <Card key={app.id} className="p-6 hover:shadow-lg transition-shadow border-primary/30">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-primary/10 rounded-lg">
+                      <Sparkles className="text-primary" size={24} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold truncate">{app.name}</h3>
+                        <Badge variant="outline" className="text-xs">
+                          v{app.version}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">Custom App</p>
+                      <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+                        {app.description || "Custom data pipeline app"}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="w-full"
+                        onClick={() => onInstallApp?.(app.appId)}
+                      >
+                        <Download size={14} className="mr-2" />
+                        Install
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Built-in Apps Section */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4">Built-in Apps</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {storeApps.map((app) => {
             const Icon = app.icon;
             
@@ -118,7 +166,8 @@ export default function AppStore({ onInstallApp }: AppStoreProps) {
                 </div>
               </Card>
             );
-          })}
+           })}
+        </div>
         </div>
 
         {/* Create Your Own App */}

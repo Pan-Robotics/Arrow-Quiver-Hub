@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import {
   upsertDrone,
   getDroneByDroneId,
@@ -18,6 +18,7 @@ import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
+import { createCustomApp, getAllCustomApps, getCustomAppByAppId } from "./customAppDb";
 
 export const appRouter = router({
   system: systemRouter,
@@ -259,6 +260,68 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const result = await extractSchema(input.parserCode);
         return result;
+      }),
+
+    // Save a complete custom app (parser + UI schema)
+    saveApp: protectedProcedure
+      .input(
+        z.object({
+          name: z.string(),
+          description: z.string().optional(),
+          parserCode: z.string(),
+          dataSchema: z.any(), // JSON schema
+          uiSchema: z.any(), // UI layout configuration
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        // Generate unique appId from name
+        const appId = input.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+
+        // Check if appId already exists
+        const existing = await getCustomAppByAppId(appId);
+        if (existing) {
+          throw new Error(`An app with ID "${appId}" already exists`);
+        }
+
+        // Create the app
+        const app = await createCustomApp({
+          appId,
+          name: input.name,
+          description: input.description || null,
+          icon: null,
+          parserCode: input.parserCode,
+          dataSchema: JSON.stringify(input.dataSchema),
+          uiSchema: JSON.stringify(input.uiSchema),
+          version: "1.0.0",
+          published: "draft",
+          creatorId: ctx.user.id,
+        });
+
+        return {
+          success: true,
+          appId: app.appId,
+          id: app.id,
+        };
+      }),
+
+    // Get all custom apps
+    listApps: publicProcedure
+      .input(z.object({ publishedOnly: z.boolean().optional() }).optional())
+      .query(async ({ input }) => {
+        const apps = await getAllCustomApps(input?.publishedOnly || false);
+        return apps.map((app) => ({
+          id: app.id,
+          appId: app.appId,
+          name: app.name,
+          description: app.description,
+          icon: app.icon,
+          version: app.version,
+          published: app.published,
+          createdAt: app.createdAt,
+        }));
       }),
   }),
 });

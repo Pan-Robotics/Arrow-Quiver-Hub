@@ -1,4 +1,3 @@
-import { useState } from "react";
 import UIBuilder from "./UIBuilder";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ArrowLeft, Upload, Play, Save, FileUp } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 interface DataField {
   name: string;
@@ -163,44 +162,72 @@ SCHEMA = {
   };
 
   const handleContinueToUI = async () => {
+    console.log('handleContinueToUI called');
+    console.log('appName:', appName);
+    console.log('parserCode length:', parserCode.length);
+    
     if (!appName.trim()) {
+      console.log('Validation failed: appName is empty');
       toast.error("Please enter an app name");
       return;
     }
     
+    console.log('appName validation passed');
+    
     if (!parserCode.trim()) {
+      console.log('Validation failed: parserCode is empty');
       toast.error("Please enter parser code");
       return;
     }
+    
+    console.log('parserCode validation passed');
 
     try {
+      console.log('Extracting schema from parser code...');
+      toast.info("Extracting schema from parser...");
+      
       // Extract SCHEMA from parser code using backend
       const schemaResult = await extractSchemaMutation.mutateAsync({
         parserCode
       });
       
+      console.log('Schema extraction result:', schemaResult);
+      
       if (!schemaResult.success || !schemaResult.schema) {
+        console.error('Schema extraction failed:', schemaResult.error);
         toast.error(schemaResult.error || "Failed to extract SCHEMA from parser code");
         return;
       }
 
+      console.log('Setting parsed schema:', schemaResult.schema);
       setParsedSchema(schemaResult.schema);
       setShowUIBuilder(true);
+      console.log('UI Builder should now be visible');
       toast.success("Parser validated! Now design your UI");
     } catch (error) {
+      console.error('Error in handleContinueToUI:', error);
       const message = error instanceof Error ? error.message : "Unknown error";
       toast.error(`Failed to extract schema: ${message}`);
     }
   };
 
+  const saveAppMutation = trpc.appBuilder.saveApp.useMutation();
+
   const handleSaveUI = async (uiSchema: any) => {
     setIsSaving(true);
     
     try {
-      // TODO: Save to backend with both parser and UI schema
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Save to backend with parser, data schema, and UI schema
+      const result = await saveAppMutation.mutateAsync({
+        name: appName,
+        description: appDescription || undefined,
+        parserCode,
+        dataSchema: parsedSchema,
+        uiSchema,
+      });
       
-      toast.success("App saved successfully!");
+      toast.success(`App "${appName}" saved successfully!`);
+      console.log('Saved app:', result);
       onBack();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
