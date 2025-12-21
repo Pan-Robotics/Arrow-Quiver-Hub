@@ -376,3 +376,22 @@
 - [ ] Create comprehensive test app with all 8 widget types via UI
 - [ ] Verify all widgets (Text, Gauge, LED, Map, Video, Line Chart, Bar Chart, Canvas) render correctly
 - [ ] Test with live data for each widget type
+
+## AppBuilder State Management Fix (Current Priority)
+
+- [x] Analyze AppBuilder component structure and state flow
+- [x] Identify all state variables and their dependencies
+- [x] Check for unnecessary re-renders causing state reset
+- [x] Refactor useState initialization to prevent default template resets
+- [x] Add useEffect to sync state with localStorage
+- [x] Implement form data persistence (save on every change)
+- [x] Add form data restoration on component mount
+- [ ] Fix "Continue to UI Builder" validation logic
+- [ ] Add debug logging for state changes
+- [ ] Test manual form filling workflow
+- [ ] Test file upload workflow
+- [ ] Test schema extraction and UI Builder transition
+- [ ] Create comprehensive test app via UI (all 8 widgets)
+- [ ] Verify app saves correctly to database
+- [ ] Verify app appears in App Store
+- [ ] Verify app can be installed and viewed

@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ArrowLeft, Upload, Play, Save, FileUp } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 
 interface DataField {
   name: string;
@@ -20,11 +20,9 @@ interface AppBuilderProps {
   onBack: () => void;
 }
 
-export default function AppBuilder({ onBack }: AppBuilderProps) {
-  const [appName, setAppName] = useState("");
-  const [appDescription, setAppDescription] = useState("");
-  const [parserCode, setParserCode] = useState(
-    `# Payload Parser Template
+const STORAGE_KEY = "appBuilder_formData";
+
+const DEFAULT_PARSER_TEMPLATE = `# Payload Parser Template
 # Transform raw payload data into structured format for UI visualization
 #
 # FOR QUIVER EDGE DEPLOYMENT:
@@ -86,17 +84,62 @@ SCHEMA = {
         "format": "iso8601"
     }
 }
-`
-  );
-  const [testData, setTestData] = useState(
-    JSON.stringify({ temp_raw: 2350, hum_raw: 6500, ts: "2025-01-01T12:00:00Z" }, null, 2)
-  );
+`;
+
+const DEFAULT_TEST_DATA = JSON.stringify({ temp_raw: 2350, hum_raw: 6500, ts: "2025-01-01T12:00:00Z" }, null, 2);
+
+export default function AppBuilder({ onBack }: AppBuilderProps) {
+  // Load saved form data from localStorage
+  const loadSavedData = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.error('Failed to load saved form data:', error);
+    }
+    return null;
+  };
+
+  const savedData = loadSavedData();
+
+  const [appName, setAppName] = useState(savedData?.appName || "");
+  const [appDescription, setAppDescription] = useState(savedData?.appDescription || "");
+  const [parserCode, setParserCode] = useState(savedData?.parserCode || DEFAULT_PARSER_TEMPLATE);
+  const [testData, setTestData] = useState(savedData?.testData || DEFAULT_TEST_DATA);
   const [testResult, setTestResult] = useState<string>("");
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showUIBuilder, setShowUIBuilder] = useState(false);
   const [parsedSchema, setParsedSchema] = useState<Record<string, any> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    const formData = {
+      appName,
+      appDescription,
+      parserCode,
+      testData,
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      console.log('[AppBuilder] Form data saved to localStorage');
+    } catch (error) {
+      console.error('[AppBuilder] Failed to save form data:', error);
+    }
+  }, [appName, appDescription, parserCode, testData]);
+
+  // Clear saved data when component unmounts after successful save
+  const clearSavedData = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      console.log('[AppBuilder] Cleared saved form data');
+    } catch (error) {
+      console.error('[AppBuilder] Failed to clear saved data:', error);
+    }
+  };
 
   const testParserMutation = trpc.appBuilder.testParser.useMutation();
   const extractSchemaMutation = trpc.appBuilder.extractSchema.useMutation();
@@ -232,6 +275,7 @@ SCHEMA = {
       
       toast.success(`App "${appName}" saved successfully!`);
       console.log('Saved app:', result);
+      clearSavedData(); // Clear form data after successful save
       onBack();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
