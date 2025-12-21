@@ -12,7 +12,7 @@ interface StoreApp {
   name: string;
   description: string;
   category: string;
-  icon: React.ElementType;
+  icon: React.ElementType<{ size?: number; className?: string }>;
   installed: boolean;
   popular?: boolean;
 }

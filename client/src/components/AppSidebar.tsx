@@ -12,7 +12,7 @@ import {
 export interface App {
   id: string;
   name: string;
-  icon: React.ElementType;
+  icon: React.ElementType<{ size?: number }>;
   enabled: boolean;
 }
 

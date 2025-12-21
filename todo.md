@@ -453,3 +453,17 @@
 - [x] Fix page blocking built-in apps (RPLidar, Flight Telemetry) when no custom apps installed
 - [x] Ensure built-in apps remain accessible regardless of custom app installation status
 - [x] Test navigation between built-in apps and custom apps
+
+
+## TypeScript Compilation Errors
+
+- [x] Fix AppSidebar.tsx type error (line 53: Type 'number' is not assignable to type 'never')
+- [x] Fix AppStore.tsx type errors (line 166: Type 'string' and 'number' not assignable to type 'never')
+- [x] Verify clean TypeScript compilation
+
+## App Installation Bug
+
+- [x] Investigate getUserApps query returning empty list (was empty because no apps installed)
+- [x] Fix app installation not persisting to user_apps table (working correctly)
+- [x] Test app installation workflow (install → verify in management → uninstall)
+- [x] Verify installed apps appear in sidebar

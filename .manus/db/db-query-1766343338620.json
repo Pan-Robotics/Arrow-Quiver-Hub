@@ -1,0 +1,42 @@
+{
+  "query": "SELECT id, appId, name, version, published, creatorId FROM customApps ORDER BY createdAt DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT id, appId, name, version, published, creatorId FROM customApps ORDER BY createdAt DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "90001",
+      "appId": "all-widgets-test-app",
+      "name": "All Widgets Test App",
+      "version": "1.0.0",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "id": "60001",
+      "appId": "test1",
+      "name": "Test1",
+      "version": "1.0.0",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "id": "30001",
+      "appId": "test-sensor-app",
+      "name": "Test Sensor App",
+      "version": "1.0.0",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "id": "1",
+      "appId": "test",
+      "name": "test",
+      "version": "1.0.0",
+      "published": "draft",
+      "creatorId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tappId\tname\tversion\tpublished\tcreatorId\n90001\tall-widgets-test-app\tAll Widgets Test App\t1.0.0\tpublished\t1\n60001\ttest1\tTest1\t1.0.0\tpublished\t1\n30001\ttest-sensor-app\tTest Sensor App\t1.0.0\tpublished\t1\n1\ttest\ttest\t1.0.0\tdraft\t1\n",
+  "stderr": "",
+  "execution_time_ms": 178
+}
