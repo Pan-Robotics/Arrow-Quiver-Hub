@@ -84,6 +84,17 @@ export function initializeWebSocket(httpServer: HTTPServer) {
       socket.leave(`drone:${droneId}`);
     });
 
+    // Subscribe to custom app data
+    socket.on('subscribe_app', (appId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to app: ${appId}`);
+      socket.join(`app:${appId}`);
+    });
+
+    socket.on('unsubscribe_app', (appId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from app: ${appId}`);
+      socket.leave(`app:${appId}`);
+    });
+
     socket.on('disconnect', () => {
       console.log(`[WebSocket] Client disconnected: ${socket.id}`);
     });
@@ -124,6 +135,25 @@ export function broadcastTelemetry(message: TelemetryMessage) {
     drone_id: message.drone_id,
     timestamp: message.timestamp,
   });
+}
+
+/**
+ * Broadcast custom app data to subscribed clients
+ */
+export function broadcastAppData(appId: string, data: any) {
+  if (!io) {
+    console.warn('[WebSocket] Cannot broadcast app data: server not initialized');
+    return;
+  }
+
+  // Broadcast to all clients subscribed to this app
+  io.to(`app:${appId}`).emit('app_data', {
+    appId,
+    data,
+    timestamp: new Date().toISOString(),
+  });
+  
+  console.log(`[WebSocket] Broadcasted data to app:${appId}`);
 }
 
 export function getWebSocketServer() {

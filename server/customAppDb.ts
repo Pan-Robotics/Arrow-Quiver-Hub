@@ -1,6 +1,6 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { getDb } from "./db";
-import { customApps, InsertCustomApp, CustomApp } from "../drizzle/schema";
+import { customApps, userApps, appData, type InsertCustomApp, type CustomApp, type InsertUserApp, type InsertAppData } from "../drizzle/schema";
 
 /**
  * Create a new custom app
@@ -137,4 +137,106 @@ export async function getCustomAppsByCreator(creatorId: number): Promise<CustomA
     .select()
     .from(customApps)
     .where(eq(customApps.creatorId, creatorId));
+}
+
+/**
+ * Install an app for a user
+ */
+export async function installAppForUser(userId: number, appId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if already installed
+  const existing = await db
+    .select()
+    .from(userApps)
+    .where(and(eq(userApps.userId, userId), eq(userApps.appId, appId)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0];
+  }
+
+  // Install the app
+  await db.insert(userApps).values({
+    userId,
+    appId,
+  });
+
+  const result = await db
+    .select()
+    .from(userApps)
+    .where(and(eq(userApps.userId, userId), eq(userApps.appId, appId)))
+    .limit(1);
+
+  return result[0];
+}
+
+/**
+ * Uninstall an app for a user
+ */
+export async function uninstallAppForUser(userId: number, appId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .delete(userApps)
+    .where(and(eq(userApps.userId, userId), eq(userApps.appId, appId)));
+
+  return { success: true };
+}
+
+/**
+ * Get all apps installed by a user
+ */
+export async function getUserInstalledApps(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await db
+    .select({
+      app: customApps,
+      installedAt: userApps.installedAt,
+    })
+    .from(userApps)
+    .innerJoin(customApps, eq(userApps.appId, customApps.appId))
+    .where(eq(userApps.userId, userId));
+
+  return result;
+}
+
+/**
+ * Store parsed app data
+ */
+export async function storeAppData(data: InsertAppData) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(appData).values(data);
+
+  const result = await db
+    .select()
+    .from(appData)
+    .where(eq(appData.appId, data.appId))
+    .orderBy(desc(appData.timestamp))
+    .limit(1);
+
+  return result[0];
+}
+
+/**
+ * Get latest app data
+ */
+export async function getLatestAppData(appId: string, limit: number = 1) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await db
+    .select()
+    .from(appData)
+    .where(eq(appData.appId, appId))
+    .orderBy(desc(appData.timestamp))
+    .limit(limit);
+
+  return result;
 }

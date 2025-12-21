@@ -18,7 +18,7 @@ import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
-import { createCustomApp, getAllCustomApps, getCustomAppByAppId } from "./customAppDb";
+import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps } from "./customAppDb";
 
 export const appRouter = router({
   system: systemRouter,
@@ -321,8 +321,47 @@ export const appRouter = router({
           version: app.version,
           published: app.published,
           createdAt: app.createdAt,
+          uiSchema: app.uiSchema,
+          dataSchema: app.dataSchema,
         }));
       }),
+
+    // Install an app for the current user
+    installApp: protectedProcedure
+      .input(z.object({ appId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        if (app.published !== "published") {
+          throw new Error("Cannot install unpublished app");
+        }
+
+        const result = await installAppForUser(ctx.user.id, input.appId);
+        return {
+          success: true,
+          installedAt: result.installedAt,
+        };
+      }),
+
+    // Uninstall an app for the current user
+    uninstallApp: protectedProcedure
+      .input(z.object({ appId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await uninstallAppForUser(ctx.user.id, input.appId);
+        return { success: true };
+      }),
+
+    // Get all apps installed by the current user
+    getUserApps: protectedProcedure.query(async ({ ctx }) => {
+      const installedApps = await getUserInstalledApps(ctx.user.id);
+      return installedApps.map((item) => ({
+        ...item.app,
+        installedAt: item.installedAt,
+      }));
+    }),
   }),
 });
 

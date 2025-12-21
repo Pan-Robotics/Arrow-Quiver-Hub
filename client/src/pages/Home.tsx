@@ -2,15 +2,23 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
-import { Radio, Gauge, Package } from "lucide-react";
+import { Radio, Gauge, Package, Sparkles } from "lucide-react";
 import AppSidebar, { App } from "@/components/AppSidebar";
 import LidarApp from "@/components/apps/LidarApp";
 import TelemetryApp from "@/components/apps/TelemetryApp";
 import AppStore from "@/components/apps/AppStore";
+import AppRenderer from "@/components/apps/AppRenderer";
+import { trpc } from "@/lib/trpc";
 
 export default function Home() {
-  // Available apps
-  const apps: App[] = [
+  const [activeAppId, setActiveAppId] = useState<string>("lidar");
+  const [showAppStore, setShowAppStore] = useState(false);
+  
+  // Load installed custom apps
+  const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
+
+  // Built-in apps
+  const builtInApps: App[] = [
     {
       id: "lidar",
       name: "RPLidar Terrain Mapping",
@@ -25,8 +33,16 @@ export default function Home() {
     },
   ];
 
-  const [activeAppId, setActiveAppId] = useState<string>("lidar");
-  const [showAppStore, setShowAppStore] = useState(false);
+  // Convert installed custom apps to App format
+  const customAppsList: App[] = (installedApps || []).map(app => ({
+    id: `custom-${app.appId}`,
+    name: app.name,
+    icon: Sparkles, // Use sparkles icon for custom apps
+    enabled: true,
+  }));
+
+  // Combine built-in and custom apps
+  const apps: App[] = [...builtInApps, ...customAppsList];
 
   const handleAddApp = () => {
     setShowAppStore(true);
@@ -34,7 +50,13 @@ export default function Home() {
 
   const renderApp = () => {
     if (showAppStore) {
-      return <AppStore />;
+      return <AppStore onInstallApp={() => setShowAppStore(false)} />;
+    }
+
+    // Check if it's a custom app
+    if (activeAppId.startsWith('custom-')) {
+      const appId = activeAppId.replace('custom-', '');
+      return <AppRenderer appId={appId} />;
     }
 
     switch (activeAppId) {

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Package, Download, Star, TrendingUp, Plus, Sparkles } from "lucide-react";
 import AppBuilder from "./AppBuilder";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 interface StoreApp {
   id: string;
@@ -23,6 +24,27 @@ interface AppStoreProps {
 export default function AppStore({ onInstallApp }: AppStoreProps) {
   const [showBuilder, setShowBuilder] = useState(false);
   const { data: customApps, isLoading } = trpc.appBuilder.listApps.useQuery({ publishedOnly: true });
+  const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
+  const installAppMutation = trpc.appBuilder.installApp.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleInstallApp = async (appId: string, appName: string) => {
+    try {
+      await installAppMutation.mutateAsync({ appId });
+      toast.success(`"${appName}" installed successfully!`);
+      // Invalidate queries to refresh installed apps list
+      utils.appBuilder.getUserApps.invalidate();
+      // Call parent callback if provided
+      onInstallApp?.(appId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to install: ${message}`);
+    }
+  };
+
+  const isAppInstalled = (appId: string) => {
+    return installedApps?.some(app => app.appId === appId) || false;
+  };
 
   if (showBuilder) {
     return <AppBuilder onBack={() => setShowBuilder(false)} />;
@@ -105,12 +127,13 @@ export default function AppStore({ onInstallApp }: AppStoreProps) {
                       </p>
                       <Button
                         size="sm"
-                        variant="default"
+                        variant={isAppInstalled(app.appId) ? "outline" : "default"}
                         className="w-full"
-                        onClick={() => onInstallApp?.(app.appId)}
+                        onClick={() => handleInstallApp(app.appId, app.name)}
+                        disabled={isAppInstalled(app.appId) || installAppMutation.isPending}
                       >
                         <Download size={14} className="mr-2" />
-                        Install
+                        {isAppInstalled(app.appId) ? "Installed" : "Install"}
                       </Button>
                     </div>
                   </div>

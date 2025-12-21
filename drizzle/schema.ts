@@ -52,6 +52,40 @@ export type CustomApp = typeof customApps.$inferSelect;
 export type InsertCustomApp = typeof customApps.$inferInsert;
 
 /**
+ * User-installed apps - tracks which apps each user has installed
+ */
+export const userApps = mysqlTable("userApps", {
+  id: int("id").autoincrement().primaryKey(),
+  /** User ID who installed the app */
+  userId: int("userId").notNull(),
+  /** App ID that was installed */
+  appId: varchar("appId", { length: 64 }).notNull(),
+  /** Installation timestamp */
+  installedAt: timestamp("installedAt").defaultNow().notNull(),
+});
+
+export type UserApp = typeof userApps.$inferSelect;
+export type InsertUserApp = typeof userApps.$inferInsert;
+
+/**
+ * App data storage - stores parsed payload data for custom apps
+ */
+export const appData = mysqlTable("appData", {
+  id: int("id").autoincrement().primaryKey(),
+  /** App ID that received the data */
+  appId: varchar("appId", { length: 64 }).notNull(),
+  /** Parsed data (JSON) */
+  data: json("data").notNull(),
+  /** Original raw payload (JSON) */
+  rawPayload: json("rawPayload"),
+  /** Timestamp when data was received */
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export type AppData = typeof appData.$inferSelect;
+export type InsertAppData = typeof appData.$inferInsert;
+
+/**
  * Drones table - stores information about connected drones
  */
 export const drones = mysqlTable("drones", {

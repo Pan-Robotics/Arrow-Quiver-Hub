@@ -1,0 +1,16 @@
+{
+  "query": "SELECT appId, name, uiSchema, dataSchema FROM customApps WHERE appId = 'test-sensor-app';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT appId, name, uiSchema, dataSchema FROM customApps WHERE appId = 'test-sensor-app';",
+  "rows": [
+    {
+      "appId": "test-sensor-app",
+      "name": "Test Sensor App",
+      "uiSchema": "{\"version\":\"1.0\",\"layout\":{\"type\":\"grid\",\"columns\":3,\"gap\":16,\"padding\":24},\"widgets\":[{\"id\":\"widget-1766320591296\",\"type\":\"text\",\"position\":{\"row\":1,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Value\",\"fontSize\":24,\"showUnit\":true,\"decimalPlaces\":1},\"dataBinding\":{\"field\":\"temperature\"}},{\"id\":\"widget-1766320614109\",\"type\":\"gauge\",\"position\":{\"row\":2,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Gauge\",\"min\":0,\"max\":100,\"showValue\":true},\"dataBinding\":{\"field\":\"temperature\"}}]}",
+      "dataSchema": "{\"temperature\":{\"type\":\"number\",\"unit\":\"°C\",\"description\":\"Temperature in Celsius\",\"min\":-50,\"max\":60},\"humidity\":{\"type\":\"number\",\"unit\":\"%\",\"description\":\"Relative humidity\",\"min\":0,\"max\":100},\"timestamp\":{\"type\":\"string\",\"description\":\"ISO 8601 timestamp\",\"format\":\"iso8601\"}}"
+    }
+  ],
+  "messages": [],
+  "stdout": "appId\tname\tuiSchema\tdataSchema\ntest-sensor-app\tTest Sensor App\t{\"version\":\"1.0\",\"layout\":{\"type\":\"grid\",\"columns\":3,\"gap\":16,\"padding\":24},\"widgets\":[{\"id\":\"widget-1766320591296\",\"type\":\"text\",\"position\":{\"row\":1,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Value\",\"fontSize\":24,\"showUnit\":true,\"decimalPlaces\":1},\"dataBinding\":{\"field\":\"temperature\"}},{\"id\":\"widget-1766320614109\",\"type\":\"gauge\",\"position\":{\"row\":2,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Gauge\",\"min\":0,\"max\":100,\"showValue\":true},\"dataBinding\":{\"field\":\"temperature\"}}]}\t{\"temperature\":{\"type\":\"number\",\"unit\":\"°C\",\"description\":\"Temperature in Celsius\",\"min\":-50,\"max\":60},\"humidity\":{\"type\":\"number\",\"unit\":\"%\",\"description\":\"Relative humidity\",\"min\":0,\"max\":100},\"timestamp\":{\"type\":\"string\",\"description\":\"ISO 8601 timestamp\",\"format\":\"iso8601\"}}\n",
+  "stderr": "",
+  "execution_time_ms": 52
+}

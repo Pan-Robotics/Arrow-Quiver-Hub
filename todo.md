@@ -234,3 +234,55 @@
 - [x] Test complete workflow: create app → design UI → save → verify in App Store
 - [x] Ensure saved UI schema properly stores widget configurations
 - [x] Verify app publishing workflow (draft → published status)
+
+## App Installation & Dynamic Rendering
+
+### User-App Installation System
+- [x] Create userApps table to track installed apps per user
+- [x] Add installApp backend API (database function)
+- [x] Add uninstallApp backend API (database function)
+- [x] Implement Install button functionality in AppStore
+- [x] Update sidebar to show installed custom apps
+- [x] Add app icons to sidebar navigation (using Sparkles icon)
+
+### REST API Endpoints
+- [x] Create dynamic REST endpoint `/api/rest/payload/{app_id}/ingest`
+- [x] Implement parser execution on payload ingestion
+- [x] Store parsed data in database (appData table)
+- [ ] Add API key validation for REST endpoints (optional - currently public)
+- [x] Return parsed data in response
+
+### WebSocket Broadcasting
+- [x] Create WebSocket room for each custom app (app:${appId})
+- [x] Broadcast parsed data to connected clients
+- [x] Implement client-side WebSocket subscription (in AppRenderer)
+- [x] Handle real-time data updates in UI (in AppRenderer)
+
+### Dynamic App Renderer
+- [x] Create AppRenderer component
+- [x] Implement widget rendering from UI schema
+- [x] Connect widgets to live data from WebSocket
+- [x] Handle Text widget rendering
+- [x] Handle Gauge widget rendering
+- [x] Handle Line Chart widget rendering (basic)
+- [x] Handle Bar Chart widget rendering (basic)
+- [x] Handle LED Indicator widget rendering
+- [ ] Handle Map widget rendering
+- [ ] Handle Video widget rendering
+- [ ] Handle Canvas widget rendering
+
+### Dynamic Routing
+- [x] Create dynamic route for custom apps (handled by Home.tsx)
+- [x] Load app configuration from database
+- [x] Render AppRenderer with UI schema
+- [x] Add navigation from sidebar to app view
+- [x] Handle app not found errors
+
+### Testing & Integration
+- [x] Test complete workflow: create → install → view → send data → see live updates
+- [ ] Test multiple users installing same app
+- [ ] Test uninstalling apps
+- [x] Test REST endpoint with real payloads
+- [x] Verify WebSocket broadcasting works correctly
+- [x] Fix AppRenderer to read dataBinding.field correctly
+- [x] Verify real-time widget updates (25 → 85 confirmed working)

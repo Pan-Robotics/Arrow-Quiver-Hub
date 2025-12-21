@@ -11,6 +11,7 @@ import {
 } from "./db";
 import { broadcastPointCloud } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
+import { handlePayloadIngest } from "./restApi";
 
 const router = Router();
 
@@ -198,5 +199,14 @@ router.get("/pointcloud/latest/:droneId", (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * POST /api/rest/payload/:appId/ingest
+ * Receive payload data for a custom app
+ * 
+ * Request body: any JSON payload
+ * Response: parsed data
+ */
+router.post("/payload/:appId/ingest", handlePayloadIngest);
 
 export default router;
