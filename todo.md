@@ -395,3 +395,35 @@
 - [ ] Verify app saves correctly to database
 - [ ] Verify app appears in App Store
 - [ ] Verify app can be installed and viewed
+
+## Comprehensive App Creation Workflow Test
+
+- [ ] Clear localStorage to start fresh
+- [ ] Open App Store through UI
+- [ ] Click "Start Building" to open AppBuilder
+- [ ] Fill in app name: "Complete Widget Test"
+- [ ] Fill in description
+- [ ] Verify localStorage saves app name
+- [ ] Upload comprehensive parser file (.py)
+- [ ] Verify localStorage saves parser code
+- [ ] Update test data with comprehensive inputs
+- [ ] Test parser execution
+- [ ] Click "Continue to UI Builder"
+- [ ] Verify schema extraction succeeds
+- [ ] Add Text Display widget
+- [ ] Add Gauge widget
+- [ ] Add LED Indicator widget
+- [ ] Add Line Chart widget
+- [ ] Add Bar Chart widget
+- [ ] Add Map widget
+- [ ] Add Video widget
+- [ ] Add Canvas widget (placeholder)
+- [ ] Configure widget properties and data bindings
+- [ ] Click "Save UI"
+- [ ] Verify app saves to database
+- [ ] Verify localStorage is cleared after save
+- [ ] Check App Store for new app
+- [ ] Install the app
+- [ ] Send test payload via REST API
+- [ ] Verify all widgets render with live data
+- [ ] Document test results
