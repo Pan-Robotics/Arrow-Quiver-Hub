@@ -334,3 +334,31 @@
 - [x] Document edge deployment workflow
 - [x] Create complete deployment template (QUIVER_DEPLOYMENT_TEMPLATE.md)
 - [x] Add reference to deployment docs in AppBuilder parser template
+
+## Widget Testing & Point Cloud Visualization
+
+- [ ] Create comprehensive test app with all 8 widget types
+- [ ] Add test data for GPS coordinates (Map widget)
+- [ ] Add test data for video URL (Video widget)
+- [ ] Add test data for array data (Line Chart, Bar Chart)
+- [ ] Add test data for boolean (LED widget)
+- [ ] Test Map widget with live GPS data
+- [ ] Test Video widget with live stream URL
+- [ ] Test Line Chart with time-series data
+- [ ] Test Bar Chart with categorical data
+- [ ] Install Three.js for point cloud visualization
+- [ ] Implement Canvas widget with Three.js renderer
+- [ ] Add point cloud data format support (x, y, z coordinates)
+- [ ] Implement camera controls (pan, zoom, rotate)
+- [ ] Add color mapping for point cloud (by distance/intensity)
+- [ ] Test Canvas widget with RPLidar point cloud data
+
+## App Editing Functionality
+
+- [ ] Add Edit button to App Management Dashboard
+- [ ] Create AppEditor component (reuse AppBuilder logic)
+- [ ] Load existing parser code and UI schema for editing
+- [ ] Implement updateApp backend API
+- [ ] Add version history tracking
+- [ ] Test app editing workflow (edit → save → verify changes)
+- [ ] Add rollback functionality (revert to previous version)

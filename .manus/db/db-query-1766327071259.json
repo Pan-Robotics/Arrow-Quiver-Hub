@@ -1,0 +1,9 @@
+{
+  "query": "SELECT appId, name, version, published FROM customApps WHERE appId = 'comprehensive-widget-test'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT appId, name, version, published FROM customApps WHERE appId = 'comprehensive-widget-test'",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 51
+}
