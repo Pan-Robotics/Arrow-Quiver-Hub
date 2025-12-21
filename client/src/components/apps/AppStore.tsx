@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Package, Download, Star, TrendingUp } from "lucide-react";
+import { Package, Download, Star, TrendingUp, Plus } from "lucide-react";
+import AppBuilder from "./AppBuilder";
 
 interface StoreApp {
   id: string;
@@ -13,7 +15,16 @@ interface StoreApp {
   popular?: boolean;
 }
 
-export default function AppStore() {
+interface AppStoreProps {
+  onInstallApp?: (appId: string) => void;
+}
+
+export default function AppStore({ onInstallApp }: AppStoreProps) {
+  const [showBuilder, setShowBuilder] = useState(false);
+
+  if (showBuilder) {
+    return <AppBuilder onBack={() => setShowBuilder(false)} />;
+  }
   // Placeholder apps for the store
   const storeApps: StoreApp[] = [
     {
@@ -110,14 +121,17 @@ export default function AppStore() {
           })}
         </div>
 
-        {/* Empty State for More Apps */}
-        <Card className="mt-6 p-12 text-center bg-muted/30">
-          <Package className="mx-auto mb-4 text-muted-foreground" size={48} />
-          <h3 className="text-lg font-semibold mb-2">More Apps Coming Soon</h3>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            We're working on bringing you more UAV data pipeline applications. 
-            Check back soon for updates!
+        {/* Create Your Own App */}
+        <Card className="mt-6 p-12 text-center bg-primary/5 border-primary/20">
+          <Plus className="mx-auto mb-4 text-primary" size={48} />
+          <h3 className="text-lg font-semibold mb-2">Create Your Own App</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+            Build custom data pipeline apps for your UAV. Upload payload parsers and design your UI.
           </p>
+          <Button onClick={() => setShowBuilder(true)}>
+            <Plus size={16} className="mr-2" />
+            Start Building
+          </Button>
         </Card>
       </div>
     </div>

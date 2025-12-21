@@ -103,3 +103,63 @@
 - [x] Add battery status widgets (FC + UAVCAN)
 - [x] Integrate telemetry app into sidebar
 - [ ] Test concurrent operation with RPLidar pipeline
+
+## App Builder Platform
+
+### Phase 1: Payload Parser Upload (Current)
+- [x] Create database table for custom apps
+- [x] Design payload parser interface specification
+- [x] Build parser upload UI in app store
+- [x] Implement Python script validation
+- [x] Create parser testing interface with sample data
+- [x] Backend API for parser execution (sandboxed Python 3.11)
+- [ ] Generate dynamic REST endpoints for custom apps
+- [ ] Test end-to-end parser workflow
+
+### Phase 2: UI Builder (Next)
+- [ ] Design app definition schema (JSON format for app config)
+- [ ] Design UI component schema (layout, widgets, data bindings)
+- [ ] Create database table for UI schemas
+- [ ] Design app versioning and update system
+
+### App Builder UI
+- [ ] Create app builder page (accessible from app store)
+- [ ] Implement drag-and-drop canvas for UI layout
+- [ ] Create widget palette (text, charts, gauges, canvas, video, buttons)
+- [ ] Add property editor for widget configuration
+- [ ] Implement data binding UI (connect widgets to payload fields)
+- [ ] Add preview mode for testing app layout
+
+### Payload Parser System
+- [x] Create payload parser upload interface
+- [x] Implement Python script validation and sandboxing
+- [x] Create parser execution environment (isolated Python 3.11)
+- [x] Add parser testing interface with sample data
+- [x] Write comprehensive tests for parser execution
+- [ ] Generate REST API endpoint for each custom app
+- [ ] Implement WebSocket broadcasting for custom apps
+
+### UI Component Library
+- [ ] Create dynamic component renderer (renders from JSON schema)
+- [ ] Implement text display widget
+- [ ] Implement chart widget (line, bar, gauge)
+- [ ] Implement canvas widget (for custom visualizations)
+- [ ] Implement video/image widget
+- [ ] Implement button/control widget
+- [ ] Add responsive layout system
+
+### App Store Integration
+- [ ] Create app publishing workflow
+- [ ] Add app metadata editor (name, description, icon, screenshots)
+- [ ] Implement app store listing page
+- [ ] Add app installation system
+- [ ] Create app marketplace with search and categories
+- [ ] Implement app ratings and reviews
+
+### Developer Tools
+- [ ] Create developer documentation
+- [ ] Add example apps and templates
+- [ ] Create payload parser API reference
+- [ ] Add debugging tools for custom apps
+- [ ] Implement app analytics dashboard
+

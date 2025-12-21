@@ -16,6 +16,7 @@ import {
 } from "./db";
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
+import { executeParser, validateParserCode } from "./parserExecutor";
 
 export const appRouter = router({
   system: systemRouter,
@@ -216,6 +217,39 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return await getRecentTelemetry(input.droneId, input.limit);
+      }),
+  }),
+
+  // App builder endpoints
+  appBuilder: router({
+    // Test a payload parser
+    testParser: publicProcedure
+      .input(
+        z.object({
+          parserCode: z.string(),
+          testData: z.any(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Validate parser code
+        const validation = validateParserCode(input.parserCode);
+        if (!validation.valid) {
+          return {
+            success: false,
+            error: validation.errors.join('; '),
+          };
+        }
+
+        // Execute parser
+        const result = await executeParser(input.parserCode, input.testData);
+        return result;
+      }),
+
+    // Validate parser code without executing
+    validateParser: publicProcedure
+      .input(z.object({ parserCode: z.string() }))
+      .query(({ input }) => {
+        return validateParserCode(input.parserCode);
       }),
   }),
 });

@@ -19,6 +19,39 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * Custom apps created by developers via the app builder.
+ * Stores payload parser code and app metadata.
+ */
+export const customApps = mysqlTable("customApps", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Unique app identifier (slug) */
+  appId: varchar("appId", { length: 64 }).notNull().unique(),
+  /** Display name */
+  name: varchar("name", { length: 255 }).notNull(),
+  /** App description */
+  description: text("description"),
+  /** App icon URL */
+  icon: varchar("icon", { length: 512 }),
+  /** Python payload parser code */
+  parserCode: text("parserCode").notNull(),
+  /** JSON schema defining data structure */
+  dataSchema: text("dataSchema").notNull(),
+  /** UI layout configuration (JSON) */
+  uiSchema: text("uiSchema"),
+  /** App version */
+  version: varchar("version", { length: 32 }).default("1.0.0").notNull(),
+  /** Published to app store */
+  published: mysqlEnum("published", ["draft", "published"]).default("draft").notNull(),
+  /** Creator user ID */
+  creatorId: int("creatorId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CustomApp = typeof customApps.$inferSelect;
+export type InsertCustomApp = typeof customApps.$inferInsert;
+
+/**
  * Drones table - stores information about connected drones
  */
 export const drones = mysqlTable("drones", {
