@@ -467,3 +467,11 @@
 - [x] Fix app installation not persisting to user_apps table (working correctly)
 - [x] Test app installation workflow (install → verify in management → uninstall)
 - [x] Verify installed apps appear in sidebar
+
+
+## UI Builder Preview Button Bug
+
+- [ ] Investigate why Preview button doesn't work in UIBuilder
+- [ ] Fix Preview button click handler
+- [ ] Test Preview functionality with sample app
+- [ ] Verify preview shows correct widget layout

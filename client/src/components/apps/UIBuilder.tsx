@@ -124,9 +124,39 @@ export default function UIBuilder({ dataSchema, onSave, onCancel }: UIBuilderPro
           </div>
         </div>
 
-        <div className="grid grid-cols-[250px_1fr_300px] gap-6">
-          {/* Widget Palette */}
-          <Card className="h-fit">
+        {previewMode ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Preview Mode</CardTitle>
+              <p className="text-sm text-muted-foreground">This is how your app will look with live data</p>
+            </CardHeader>
+            <CardContent>
+              <div
+                className="grid gap-4"
+                style={{
+                  gridTemplateColumns: `repeat(${layoutColumns}, 1fr)`,
+                }}
+              >
+                {widgets.map((widget) => (
+                  <div
+                    key={widget.id}
+                    className="p-4 border rounded-lg bg-card"
+                    style={{
+                      gridColumn: `${widget.position.col} / span ${widget.position.colSpan || 1}`,
+                      gridRow: `${widget.position.row} / span ${widget.position.rowSpan || 1}`,
+                    }}
+                  >
+                    <div className="text-sm font-medium mb-2">{widget.config.label || widget.type}</div>
+                    <div className="text-muted-foreground">{getWidgetPreview(widget)}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-[250px_1fr_300px] gap-6">
+            {/* Widget Palette */}
+            <Card className="h-fit">
             <CardHeader>
               <CardTitle className="text-lg">Widget Palette</CardTitle>
               <CardDescription>Drag or click to add</CardDescription>
@@ -336,7 +366,8 @@ export default function UIBuilder({ dataSchema, onSave, onCancel }: UIBuilderPro
               )}
             </CardContent>
           </Card>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
