@@ -363,6 +363,23 @@ export const appRouter = router({
       }));
     }),
 
+    // Get a specific app by ID (for editing)
+    getAppById: protectedProcedure
+      .input(z.object({ appId: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        // Check if user has permission to edit (must be creator or owner)
+        if (app.creatorId !== ctx.user.id && ctx.user.role !== 'admin') {
+          throw new Error('You do not have permission to edit this app');
+        }
+
+        return app;
+      }),
+
     // Update an existing app
     updateApp: protectedProcedure
       .input(

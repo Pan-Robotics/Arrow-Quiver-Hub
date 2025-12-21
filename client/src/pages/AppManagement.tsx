@@ -17,9 +17,10 @@ import { toast } from "sonner";
 
 interface AppManagementProps {
   onGoToStore?: () => void;
+  onEditApp?: (appId: string) => void;
 }
 
-export default function AppManagement({ onGoToStore }: AppManagementProps = {}) {
+export default function AppManagement({ onGoToStore, onEditApp }: AppManagementProps = {}) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   
   // Load user's installed apps
@@ -148,6 +149,14 @@ export default function AppManagement({ onGoToStore }: AppManagementProps = {}) 
                 >
                   <Eye size={14} className="mr-1" />
                   View
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onEditApp?.(app.appId)}
+                >
+                  <Edit size={14} className="mr-1" />
+                  Edit
                 </Button>
                 <Button
                   size="sm"

@@ -15,6 +15,7 @@ export default function Home() {
   const [activeAppId, setActiveAppId] = useState<string>("lidar");
   const [showAppStore, setShowAppStore] = useState(false);
   const [showAppManagement, setShowAppManagement] = useState(false);
+  const [editingAppId, setEditingAppId] = useState<string | null>(null);
   
   // Load installed custom apps
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
@@ -58,14 +59,23 @@ export default function Home() {
           setShowAppStore(false);
           setShowAppManagement(true);
         }}
+        editingAppId={editingAppId}
+        onCloseEdit={() => setEditingAppId(null)}
       />;
     }
 
     if (showAppManagement) {
-      return <AppManagement onGoToStore={() => {
-        setShowAppManagement(false);
-        setShowAppStore(true);
-      }} />;
+      return <AppManagement 
+        onGoToStore={() => {
+          setShowAppManagement(false);
+          setShowAppStore(true);
+        }}
+        onEditApp={(appId) => {
+          setEditingAppId(appId);
+          setShowAppManagement(false);
+          setShowAppStore(true);
+        }}
+      />;
     }
 
     // Check if it's a custom app

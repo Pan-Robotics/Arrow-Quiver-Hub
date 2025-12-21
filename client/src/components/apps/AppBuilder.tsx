@@ -18,6 +18,8 @@ interface DataField {
 
 interface AppBuilderProps {
   onBack: () => void;
+  editMode?: boolean;
+  editingAppId?: string;
 }
 
 const STORAGE_KEY = "appBuilder_formData";
@@ -88,7 +90,11 @@ SCHEMA = {
 
 const DEFAULT_TEST_DATA = JSON.stringify({ temp_raw: 2350, hum_raw: 6500, ts: "2025-01-01T12:00:00Z" }, null, 2);
 
-export default function AppBuilder({ onBack }: AppBuilderProps) {
+export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilderProps) {
+  const { data: existingApp, isLoading: loadingApp } = trpc.appBuilder.getAppById.useQuery(
+    { appId: editingAppId! },
+    { enabled: !!editingAppId && editMode }
+  );
   // Load saved form data from localStorage
   const loadSavedData = () => {
     try {
@@ -108,6 +114,26 @@ export default function AppBuilder({ onBack }: AppBuilderProps) {
   const [appDescription, setAppDescription] = useState(savedData?.appDescription || "");
   const [parserCode, setParserCode] = useState(savedData?.parserCode || DEFAULT_PARSER_TEMPLATE);
   const [testData, setTestData] = useState(savedData?.testData || DEFAULT_TEST_DATA);
+  
+  // Load existing app data when in edit mode
+  useEffect(() => {
+    if (editMode && existingApp) {
+      setAppName(existingApp.name);
+      setAppDescription(existingApp.description || "");
+      setParserCode(existingApp.parserCode);
+      // Parse data schema to populate test data if available
+      if (existingApp.dataSchema) {
+        try {
+          const schemaObj = typeof existingApp.dataSchema === 'string' 
+            ? JSON.parse(existingApp.dataSchema) 
+            : existingApp.dataSchema;
+          setParsedSchema(schemaObj);
+        } catch (e) {
+          console.error('Failed to parse existing schema:', e);
+        }
+      }
+    }
+  }, [editMode, existingApp]);
   const [testResult, setTestResult] = useState<string>("");
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -259,22 +285,40 @@ export default function AppBuilder({ onBack }: AppBuilderProps) {
   };
 
   const saveAppMutation = trpc.appBuilder.saveApp.useMutation();
+  const updateAppMutation = trpc.appBuilder.updateApp.useMutation();
 
   const handleSaveUI = async (uiSchema: any) => {
     setIsSaving(true);
     
     try {
-      // Save to backend with parser, data schema, and UI schema
-      const result = await saveAppMutation.mutateAsync({
-        name: appName,
-        description: appDescription || undefined,
-        parserCode,
-        dataSchema: parsedSchema,
-        uiSchema,
-      });
+      if (editMode && editingAppId) {
+        // Update existing app with version snapshot
+        const result = await updateAppMutation.mutateAsync({
+          appId: editingAppId,
+          name: appName,
+          description: appDescription || undefined,
+          parserCode,
+          dataSchema: parsedSchema,
+          uiSchema,
+          createVersion: true, // Create version snapshot before updating
+        });
+        
+        toast.success(`App "${appName}" updated successfully! Version snapshot created.`);
+        console.log('Updated app:', result);
+      } else {
+        // Save new app
+        const result = await saveAppMutation.mutateAsync({
+          name: appName,
+          description: appDescription || undefined,
+          parserCode,
+          dataSchema: parsedSchema,
+          uiSchema,
+        });
+        
+        toast.success(`App "${appName}" saved successfully!`);
+        console.log('Saved app:', result);
+      }
       
-      toast.success(`App "${appName}" saved successfully!`);
-      console.log('Saved app:', result);
       clearSavedData(); // Clear form data after successful save
       onBack();
     } catch (error) {

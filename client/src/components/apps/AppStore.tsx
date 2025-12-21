@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,10 +20,19 @@ interface StoreApp {
 interface AppStoreProps {
   onInstallApp?: (appId: string) => void;
   onManageApps?: () => void;
+  editingAppId?: string | null;
+  onCloseEdit?: () => void;
 }
 
-export default function AppStore({ onInstallApp, onManageApps }: AppStoreProps) {
+export default function AppStore({ onInstallApp, onManageApps, editingAppId, onCloseEdit }: AppStoreProps) {
   const [showBuilder, setShowBuilder] = useState(false);
+  
+  // If editingAppId is provided, show builder in edit mode
+  useEffect(() => {
+    if (editingAppId) {
+      setShowBuilder(true);
+    }
+  }, [editingAppId]);
   const { data: customApps, isLoading } = trpc.appBuilder.listApps.useQuery({ publishedOnly: true });
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
   const installAppMutation = trpc.appBuilder.installApp.useMutation();
@@ -48,7 +57,14 @@ export default function AppStore({ onInstallApp, onManageApps }: AppStoreProps) 
   };
 
   if (showBuilder) {
-    return <AppBuilder onBack={() => setShowBuilder(false)} />;
+    return <AppBuilder 
+      onBack={() => {
+        setShowBuilder(false);
+        onCloseEdit?.();
+      }} 
+      editMode={!!editingAppId}
+      editingAppId={editingAppId || undefined}
+    />;
   }
   // Placeholder apps for the store
   const storeApps: StoreApp[] = [

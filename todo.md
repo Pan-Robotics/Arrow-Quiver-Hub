@@ -475,3 +475,16 @@
 - [ ] Fix Preview button click handler
 - [ ] Test Preview functionality with sample app
 - [ ] Verify preview shows correct widget layout
+
+
+## App Edit Functionality Implementation
+
+- [ ] Add Edit button to App Management dashboard
+- [ ] Create getAppById tRPC endpoint to fetch app details
+- [ ] Update AppBuilder to accept editMode and appId props
+- [ ] Load existing app data into AppBuilder form (name, description, parser code)
+- [ ] Load existing UI schema into UIBuilder
+- [ ] Modify saveApp to create version snapshot before update
+- [ ] Update AppStore to support edit mode navigation
+- [ ] Test complete edit workflow (load → modify → save → verify version)
+- [ ] Add version history display in App Management
