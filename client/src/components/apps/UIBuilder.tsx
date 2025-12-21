@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ interface Widget {
 
 interface UIBuilderProps {
   dataSchema: Record<string, any>;
+  initialUiSchema?: any; // Optional: existing UI schema for edit mode
   onSave: (uiSchema: any) => void;
   onCancel: () => void;
 }
@@ -47,11 +48,35 @@ const WIDGET_TYPES = [
   { value: "canvas", label: "Canvas", icon: Square, description: "Custom canvas" },
 ];
 
-export default function UIBuilder({ dataSchema, onSave, onCancel }: UIBuilderProps) {
+export default function UIBuilder({ dataSchema, initialUiSchema, onSave, onCancel }: UIBuilderProps) {
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [selectedWidget, setSelectedWidget] = useState<string | null>(null);
   const [layoutColumns, setLayoutColumns] = useState(3);
   const [previewMode, setPreviewMode] = useState(false);
+
+  // Load existing UI schema when editing
+  useEffect(() => {
+    if (initialUiSchema) {
+      console.log('[UIBuilder] Loading existing UI schema:', initialUiSchema);
+      try {
+        const parsed = typeof initialUiSchema === 'string' 
+          ? JSON.parse(initialUiSchema) 
+          : initialUiSchema;
+        
+        if (parsed.widgets && Array.isArray(parsed.widgets)) {
+          setWidgets(parsed.widgets);
+          console.log(`[UIBuilder] Loaded ${parsed.widgets.length} existing widgets`);
+        }
+        
+        if (parsed.layoutColumns) {
+          setLayoutColumns(parsed.layoutColumns);
+        }
+      } catch (error) {
+        console.error('[UIBuilder] Failed to parse initialUiSchema:', error);
+        toast.error('Failed to load existing UI layout');
+      }
+    }
+  }, [initialUiSchema]);
 
   // Get available fields from data schema
   const availableFields = Object.keys(dataSchema);

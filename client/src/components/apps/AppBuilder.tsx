@@ -334,6 +334,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
     return (
       <UIBuilder
         dataSchema={parsedSchema}
+        initialUiSchema={editMode && existingApp ? existingApp.uiSchema : undefined}
         onSave={handleSaveUI}
         onCancel={() => setShowUIBuilder(false)}
       />

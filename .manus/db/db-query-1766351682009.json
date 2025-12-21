@@ -1,0 +1,45 @@
+{
+  "query": "SELECT appId, name, description, published, creatorId FROM customApps LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT appId, name, description, published, creatorId FROM customApps LIMIT 10;",
+  "rows": [
+    {
+      "appId": "test",
+      "name": "test",
+      "description": "test",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test-sensor-app",
+      "name": "Test Sensor App",
+      "description": "Displays temperature and humidity sensor data",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test1",
+      "name": "Test1",
+      "description": "Test",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "appId": "all-widgets-test-app",
+      "name": "All Widgets Test App",
+      "description": "Comprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer",
+      "published": "published",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test3",
+      "name": "test3",
+      "description": "test",
+      "published": "published",
+      "creatorId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "appId\tname\tdescription\tpublished\tcreatorId\ntest\ttest\ttest\tpublished\t1\ntest-sensor-app\tTest Sensor App\tDisplays temperature and humidity sensor data\tpublished\t1\ntest1\tTest1\tTest\tpublished\t1\nall-widgets-test-app\tAll Widgets Test App\tComprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer\tpublished\t1\ntest3\ttest3\ttest\tpublished\t1\n",
+  "stderr": "",
+  "execution_time_ms": 52
+}

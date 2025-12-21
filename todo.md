@@ -315,8 +315,8 @@
 
 - [x] Create App Management page (AppManagement.tsx)
 - [x] List all installed apps with status
-- [ ] Add edit functionality (update parser and UI)
-- [ ] Implement app versioning system
+- [x] Add edit functionality (update parser and UI)
+- [x] Implement app versioning system
 - [x] Add app export functionality (download as JSON package)
 - [x] Add app uninstall functionality
 - [ ] Show app usage statistics (API calls, data volume)
@@ -379,7 +379,7 @@
 - [x] Implement getVersionHistory and rollbackToVersion endpoints
 - [ ] Implement version history display in AppEditor
 - [ ] Add rollback functionality UI
-- [ ] Test app editing workflow (edit → save → verify changes)
+- [x] Test app editing workflow (edit → save → verify changes)
 
 ## AppBuilder State Management Fix
 
