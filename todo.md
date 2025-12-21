@@ -347,22 +347,28 @@
 - [ ] Test Video widget with live stream URL
 - [ ] Test Line Chart with time-series data
 - [ ] Test Bar Chart with categorical data
-- [ ] Install Three.js for point cloud visualization
-- [ ] Implement Canvas widget with Three.js renderer
-- [ ] Add point cloud data format support (x, y, z coordinates)
-- [ ] Implement camera controls (pan, zoom, rotate)
-- [ ] Add color mapping for point cloud (by distance/intensity)
-- [ ] Test Canvas widget with RPLidar point cloud data
+- [x] Install Three.js for point cloud visualization
+- [x] Implement Canvas widget with Three.js renderer
+- [x] Add point cloud data format support (x, y, z coordinates)
+- [x] Implement camera controls (pan, zoom, rotate)
+- [x] Add color mapping for point cloud (by distance/intensity)
+- [x] Create PointCloudCanvas component for AppRenderer
+- [x] Test Canvas widget rendering (waiting for live data)
+- [ ] Test Canvas widget with live RPLidar point cloud data
 
 ## App Editing Functionality
 
 - [ ] Add Edit button to App Management Dashboard
 - [ ] Create AppEditor component (reuse AppBuilder logic)
 - [ ] Load existing parser code and UI schema for editing
-- [ ] Implement updateApp backend API
-- [ ] Add version history tracking
+- [x] Implement updateApp backend API
+- [x] Add app version history schema to database
+- [x] Create appVersions table for version tracking
+- [x] Add version management database functions
+- [x] Implement getVersionHistory and rollbackToVersion endpoints
+- [ ] Implement version history display in AppEditor
+- [ ] Add rollback functionality UI
 - [ ] Test app editing workflow (edit → save → verify changes)
-- [ ] Add rollback functionality (revert to previous version)
 
 ## AppBuilder State Management Fix
 

@@ -18,7 +18,7 @@ import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
-import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps } from "./customAppDb";
+import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion } from "./customAppDb";
 
 export const appRouter = router({
   system: systemRouter,
@@ -362,6 +362,84 @@ export const appRouter = router({
         installedAt: item.installedAt,
       }));
     }),
+
+    // Update an existing app
+    updateApp: protectedProcedure
+      .input(
+        z.object({
+          appId: z.string(),
+          name: z.string().optional(),
+          description: z.string().optional(),
+          parserCode: z.string().optional(),
+          dataSchema: z.any().optional(),
+          uiSchema: z.any().optional(),
+          createVersion: z.boolean().optional(), // Whether to create a version snapshot before updating
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        // Check if user is the creator
+        if (app.creatorId !== ctx.user.id) {
+          throw new Error("Only the app creator can update this app");
+        }
+
+        // Create version snapshot if requested
+        if (input.createVersion) {
+          await createAppVersion(input.appId, ctx.user.id);
+        }
+
+        // Update the app
+        const updates: any = {};
+        if (input.name) updates.name = input.name;
+        if (input.description !== undefined) updates.description = input.description;
+        if (input.parserCode) updates.parserCode = input.parserCode;
+        if (input.dataSchema) updates.dataSchema = JSON.stringify(input.dataSchema);
+        if (input.uiSchema) updates.uiSchema = JSON.stringify(input.uiSchema);
+
+        await updateCustomApp(app.id, updates);
+
+        return { success: true };
+      }),
+
+    // Get version history for an app
+    getVersionHistory: protectedProcedure
+      .input(z.object({ appId: z.string() }))
+      .query(async ({ input }) => {
+        const versions = await getAppVersions(input.appId);
+        return versions;
+      }),
+
+    // Rollback app to a specific version
+    rollbackToVersion: protectedProcedure
+      .input(
+        z.object({
+          appId: z.string(),
+          versionId: z.number(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        // Check if user is the creator
+        if (app.creatorId !== ctx.user.id) {
+          throw new Error("Only the app creator can rollback this app");
+        }
+
+        // Create a snapshot of current state before rollback
+        await createAppVersion(input.appId, ctx.user.id);
+
+        // Rollback to the specified version
+        await rollbackAppToVersion(input.appId, input.versionId);
+
+        return { success: true };
+      }),
   }),
 });
 

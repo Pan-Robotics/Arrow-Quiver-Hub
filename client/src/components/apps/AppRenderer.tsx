@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Loader2, AlertCircle } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
 
 interface Widget {
   id: string;
@@ -260,18 +261,20 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         const canvasData = value;
         
         return (
-          <Card key={widget.id} className="p-6">
-            <div className="text-center">
+          <Card key={widget.id} className="p-4">
+            <div>
               <p className="text-sm text-muted-foreground mb-2">{config.label || "Canvas"}</p>
-              <div className="w-full h-64 bg-muted rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-2">Custom Canvas Visualization</p>
-                  <p className="text-2xl font-bold">{typeof canvasData === 'object' ? JSON.stringify(canvasData).substring(0, 50) + '...' : String(canvasData)}</p>
-                </div>
+              <div className="w-full" style={{ height: config.height || 400 }}>
+                <PointCloudCanvas
+                  points={canvasData}
+                  colorMode={config.colorMode || 'distance'}
+                  minDistance={config.minDistance || 0}
+                  maxDistance={config.maxDistance || 5000}
+                  pointSize={config.pointSize || 2}
+                  showGrid={config.showGrid !== false}
+                  showAxes={config.showAxes !== false}
+                />
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                {config.width || 'auto'} × {config.height || 'auto'}
-              </p>
             </div>
           </Card>
         );

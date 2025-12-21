@@ -1,6 +1,6 @@
 import { eq, and, desc } from "drizzle-orm";
 import { getDb } from "./db";
-import { customApps, userApps, appData, type InsertCustomApp, type CustomApp, type InsertUserApp, type InsertAppData } from "../drizzle/schema";
+import { customApps, userApps, appData, appVersions, type InsertCustomApp, type CustomApp, type InsertUserApp, type InsertAppData, type InsertAppVersion } from "../drizzle/schema";
 
 /**
  * Create a new custom app
@@ -239,4 +239,107 @@ export async function getLatestAppData(appId: string, limit: number = 1) {
     .limit(limit);
 
   return result;
+}
+
+/**
+ * Create a new version snapshot of an app
+ */
+export async function createAppVersion(appId: string, creatorId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Get current app state
+  const app = await getCustomAppByAppId(appId);
+  if (!app) throw new Error("App not found");
+
+
+
+  // Create version snapshot
+  const versionData: InsertAppVersion = {
+    appId: app.appId,
+    version: app.version,
+    parserCode: app.parserCode,
+    dataSchema: app.dataSchema,
+    uiSchema: app.uiSchema || null,
+    name: app.name,
+    description: app.description || null,
+    creatorId,
+  };
+
+  await db.insert(appVersions).values(versionData);
+
+  const result = await db
+    .select()
+    .from(appVersions)
+    .where(eq(appVersions.appId, appId))
+    .orderBy(desc(appVersions.createdAt))
+    .limit(1);
+
+  return result[0];
+}
+
+/**
+ * Get all versions of an app
+ */
+export async function getAppVersions(appId: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+
+
+  const result = await db
+    .select()
+    .from(appVersions)
+    .where(eq(appVersions.appId, appId))
+    .orderBy(desc(appVersions.createdAt));
+
+  return result;
+}
+
+/**
+ * Get a specific version of an app
+ */
+export async function getAppVersion(versionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+
+
+  const result = await db
+    .select()
+    .from(appVersions)
+    .where(eq(appVersions.id, versionId))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Rollback app to a specific version
+ */
+export async function rollbackAppToVersion(appId: string, versionId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Get the version to rollback to
+  const version = await getAppVersion(versionId);
+  if (!version || version.appId !== appId) {
+    throw new Error("Version not found or does not belong to this app");
+  }
+
+  // Get current app
+  const app = await getCustomAppByAppId(appId);
+  if (!app) throw new Error("App not found");
+
+  // Update app with version data
+  await db.update(customApps).set({
+    parserCode: version.parserCode,
+    dataSchema: version.dataSchema,
+    uiSchema: version.uiSchema,
+    name: version.name,
+    description: version.description,
+    version: version.version,
+  }).where(eq(customApps.appId, appId));
+
+  return { success: true };
 }

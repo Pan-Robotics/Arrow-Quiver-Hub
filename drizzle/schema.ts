@@ -68,6 +68,34 @@ export type UserApp = typeof userApps.$inferSelect;
 export type InsertUserApp = typeof userApps.$inferInsert;
 
 /**
+ * App version history - tracks all versions of custom apps for rollback capability
+ */
+export const appVersions = mysqlTable("appVersions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** App ID this version belongs to */
+  appId: varchar("appId", { length: 64 }).notNull(),
+  /** Version number (e.g., 1.0.0, 1.0.1, 2.0.0) */
+  version: varchar("version", { length: 32 }).notNull(),
+  /** Python payload parser code for this version */
+  parserCode: text("parserCode").notNull(),
+  /** JSON schema defining data structure for this version */
+  dataSchema: text("dataSchema").notNull(),
+  /** UI layout configuration (JSON) for this version */
+  uiSchema: text("uiSchema"),
+  /** App name at this version */
+  name: varchar("name", { length: 255 }).notNull(),
+  /** App description at this version */
+  description: text("description"),
+  /** User ID who created this version */
+  creatorId: int("creatorId").notNull(),
+  /** When this version was created */
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AppVersion = typeof appVersions.$inferSelect;
+export type InsertAppVersion = typeof appVersions.$inferInsert;
+
+/**
  * App data storage - stores parsed payload data for custom apps
  */
 export const appData = mysqlTable("appData", {
