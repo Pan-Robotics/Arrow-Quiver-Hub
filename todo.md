@@ -351,8 +351,13 @@
 - [x] Integrate chart widgets into AppRenderer
 - [x] Test Line Chart widget rendering (placeholder working)
 - [x] Test Bar Chart widget rendering (placeholder working)
-- [ ] Test Line Chart with live time-series data
-- [ ] Test Bar Chart with live categorical data
+- [x] Update comprehensive_widget_test_parser.py to bind temp_history to Line Chart
+- [x] Update comprehensive_widget_test_parser.py to bind sensor_readings to Bar Chart
+- [x] Update widget data bindings in database
+- [x] Create sendTestPayload endpoint for testing apps
+- [x] Fix PointCloudCanvas undefined error
+- [ ] Test Line Chart with live time-series data (ready for testing)
+- [ ] Test Bar Chart with live categorical data (ready for testing)
 - [x] Install Three.js for point cloud visualization
 - [x] Implement Canvas widget with Three.js renderer
 - [x] Add point cloud data format support (x, y, z coordinates)

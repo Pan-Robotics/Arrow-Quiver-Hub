@@ -413,6 +413,40 @@ export const appRouter = router({
         return versions;
       }),
 
+    // Send test payload to an app (for testing purposes)
+    sendTestPayload: publicProcedure
+      .input(
+        z.object({
+          appId: z.string(),
+          payload: z.any(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { broadcastAppData } = await import('./websocket');
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        // Execute parser if available
+        let parsedData = input.payload;
+        if (app.parserCode) {
+          const result = await executeParser(app.parserCode, input.payload);
+          if (result.success && result.output) {
+            parsedData = result.output;
+          }
+        }
+
+        console.log('[sendTestPayload] Parsed data:', JSON.stringify(parsedData));
+
+        // Broadcast the data to all connected clients
+        broadcastAppData(input.appId, parsedData);
+
+        console.log('[sendTestPayload] Broadcast complete');
+
+        return { success: true, parsedData };
+      }),
+
     // Rollback app to a specific version
     rollbackToVersion: protectedProcedure
       .input(

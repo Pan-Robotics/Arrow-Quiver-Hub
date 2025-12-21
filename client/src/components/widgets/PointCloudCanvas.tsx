@@ -175,7 +175,7 @@ export default function PointCloudCanvas({
       {/* Info overlay */}
       <div className="absolute bottom-2 left-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 text-xs">
         <div className="text-muted-foreground">
-          Points: {parsedPoints.length.toLocaleString()}
+          Points: {(parsedPoints?.length || 0).toLocaleString()}
         </div>
         <div className="text-muted-foreground">
           Color: {colorMode}
