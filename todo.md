@@ -345,8 +345,14 @@
 - [ ] Add test data for boolean (LED widget)
 - [ ] Test Map widget with live GPS data
 - [ ] Test Video widget with live stream URL
-- [ ] Test Line Chart with time-series data
-- [ ] Test Bar Chart with categorical data
+- [x] Install Recharts library for chart rendering
+- [x] Create LineChartWidget component
+- [x] Create BarChartWidget component
+- [x] Integrate chart widgets into AppRenderer
+- [x] Test Line Chart widget rendering (placeholder working)
+- [x] Test Bar Chart widget rendering (placeholder working)
+- [ ] Test Line Chart with live time-series data
+- [ ] Test Bar Chart with live categorical data
 - [x] Install Three.js for point cloud visualization
 - [x] Implement Canvas widget with Three.js renderer
 - [x] Add point cloud data format support (x, y, z coordinates)

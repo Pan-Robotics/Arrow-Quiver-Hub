@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Loader2, AlertCircle } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
+import LineChartWidget from "@/components/widgets/LineChartWidget";
+import BarChartWidget from "@/components/widgets/BarChartWidget";
 
 interface Widget {
   id: string;
@@ -178,14 +180,38 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
       case "line_chart":
       case "line-chart":
+        // Line chart for time-series data
+        return (
+          <Card key={widget.id} className="p-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">{config.label || "Line Chart"}</p>
+              <LineChartWidget
+                data={value}
+                label={config.label || "Value"}
+                color={config.color || "#8884d8"}
+                showGrid={config.showGrid !== false}
+                showLegend={config.showLegend !== false}
+                height={config.height || 300}
+              />
+            </div>
+          </Card>
+        );
+
       case "bar_chart":
       case "bar-chart":
+        // Bar chart for categorical data
         return (
-          <Card key={widget.id} className="p-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">{config.label || dataField || "Value"}</p>
-              <p className="text-muted-foreground text-xs">Chart rendering coming soon...</p>
-              <p className="text-2xl font-bold mt-4">{typeof value === 'number' ? value.toFixed(2) : String(value)}</p>
+          <Card key={widget.id} className="p-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">{config.label || "Bar Chart"}</p>
+              <BarChartWidget
+                data={value}
+                label={config.label || "Value"}
+                color={config.color || "#82ca9d"}
+                showGrid={config.showGrid !== false}
+                showLegend={config.showLegend !== false}
+                height={config.height || 300}
+              />
             </div>
           </Card>
         );
