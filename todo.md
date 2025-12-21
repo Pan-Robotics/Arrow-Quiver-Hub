@@ -488,3 +488,11 @@
 - [ ] Update AppStore to support edit mode navigation
 - [ ] Test complete edit workflow (load → modify → save → verify version)
 - [ ] Add version history display in App Management
+
+## App Deletion Feature
+
+- [x] Add deleteApp backend function with cascade deletion
+- [x] Add deleteApp tRPC procedure
+- [x] Add Delete button to App Management page
+- [x] Add confirmation dialog for app deletion
+- [x] Test complete deletion workflow (delete app → verify all related data removed)

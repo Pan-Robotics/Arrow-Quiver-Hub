@@ -18,7 +18,7 @@ import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
-import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion } from "./customAppDb";
+import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion, deleteCustomApp } from "./customAppDb";
 
 export const appRouter = router({
   system: systemRouter,
@@ -488,6 +488,26 @@ export const appRouter = router({
 
         // Rollback to the specified version
         await rollbackAppToVersion(input.appId, input.versionId);
+
+        return { success: true };
+      }),
+
+    // Delete an app completely (cascade delete all related data)
+    deleteApp: protectedProcedure
+      .input(z.object({ appId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const app = await getCustomAppByAppId(input.appId);
+        if (!app) {
+          throw new Error(`App "${input.appId}" not found`);
+        }
+
+        // Check if user is the creator or admin
+        if (app.creatorId !== ctx.user.id && ctx.user.role !== 'admin') {
+          throw new Error("Only the app creator or admin can delete this app");
+        }
+
+        // Delete the app and all related data
+        await deleteCustomApp(input.appId);
 
         return { success: true };
       }),

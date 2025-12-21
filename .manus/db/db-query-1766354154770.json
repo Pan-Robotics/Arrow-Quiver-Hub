@@ -1,0 +1,16 @@
+{
+  "query": "SELECT \n  (SELECT COUNT(*) FROM customApps WHERE appId = 'all-widgets-test-app') as apps_count,\n  (SELECT COUNT(*) FROM userApps WHERE appId = 'all-widgets-test-app') as user_apps_count,\n  (SELECT COUNT(*) FROM appVersions WHERE appId = 'all-widgets-test-app') as versions_count,\n  (SELECT COUNT(*) FROM appData WHERE appId = 'all-widgets-test-app') as data_count;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT \n  (SELECT COUNT(*) FROM customApps WHERE appId = 'all-widgets-test-app') as apps_count,\n  (SELECT COUNT(*) FROM userApps WHERE appId = 'all-widgets-test-app') as user_apps_count,\n  (SELECT COUNT(*) FROM appVersions WHERE appId = 'all-widgets-test-app') as versions_count,\n  (SELECT COUNT(*) FROM appData WHERE appId = 'all-widgets-test-app') as data_count;",
+  "rows": [
+    {
+      "apps_count": "0",
+      "user_apps_count": "0",
+      "versions_count": "0",
+      "data_count": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "apps_count\tuser_apps_count\tversions_count\tdata_count\n0\t0\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 70
+}

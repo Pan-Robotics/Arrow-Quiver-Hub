@@ -99,15 +99,31 @@ export async function updateCustomApp(
 }
 
 /**
- * Delete a custom app
+ * Delete a custom app and all related data (cascade delete)
+ * Deletes:
+ * - App versions
+ * - User installations
+ * - App data
+ * - The app itself
  */
-export async function deleteCustomApp(id: number): Promise<void> {
+export async function deleteCustomApp(appId: string): Promise<void> {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
   }
 
-  await db.delete(customApps).where(eq(customApps.id, id));
+  // Delete in order to respect foreign key constraints
+  // 1. Delete all app data
+  await db.delete(appData).where(eq(appData.appId, appId));
+
+  // 2. Delete all user installations
+  await db.delete(userApps).where(eq(userApps.appId, appId));
+
+  // 3. Delete all version snapshots
+  await db.delete(appVersions).where(eq(appVersions.appId, appId));
+
+  // 4. Delete the app itself
+  await db.delete(customApps).where(eq(customApps.appId, appId));
 }
 
 /**

@@ -37,9 +37,36 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
     },
   });
 
+  // Delete app mutation (completely removes app from store)
+  const deleteMutation = trpc.appBuilder.deleteApp.useMutation({
+    onSuccess: () => {
+      toast.success("App deleted successfully");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete app: ${error.message}`);
+    },
+  });
+
   const handleUninstall = (appId: string) => {
     if (confirm("Are you sure you want to uninstall this app?")) {
       uninstallMutation.mutate({ appId });
+    }
+  };
+
+  const handleDelete = (appId: string, appName: string) => {
+    const confirmed = confirm(
+      `Are you sure you want to PERMANENTLY DELETE "${appName}"?\n\n` +
+      "This will:\n" +
+      "• Remove the app from the store\n" +
+      "• Delete all version history\n" +
+      "• Remove all user installations\n" +
+      "• Delete all app data\n\n" +
+      "This action CANNOT be undone!"
+    );
+    
+    if (confirmed) {
+      deleteMutation.mutate({ appId });
     }
   };
 
@@ -174,6 +201,20 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
                 >
                   <Trash2 size={14} className="mr-1" />
                   Uninstall
+                </Button>
+              </div>
+              
+              {/* Delete button (dangerous action - separate from other actions) */}
+              <div className="mt-3 pt-3 border-t">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => handleDelete(app.appId, app.name)}
+                  disabled={deleteMutation.isPending}
+                  className="w-full"
+                >
+                  <Trash2 size={14} className="mr-1" />
+                  {deleteMutation.isPending ? "Deleting..." : "Delete App Permanently"}
                 </Button>
               </div>
 
