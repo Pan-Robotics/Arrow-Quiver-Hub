@@ -445,3 +445,11 @@
 - [ ] Send test payload via REST API
 - [ ] Verify all widgets render with live data
 - [ ] Document test results
+
+
+## "No Apps Installed" Page Bug Fixes
+
+- [x] Fix non-working "Go to App Store" button
+- [x] Fix page blocking built-in apps (RPLidar, Flight Telemetry) when no custom apps installed
+- [x] Ensure built-in apps remain accessible regardless of custom app installation status
+- [x] Test navigation between built-in apps and custom apps

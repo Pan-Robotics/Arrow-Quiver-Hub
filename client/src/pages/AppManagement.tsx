@@ -15,7 +15,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-export default function AppManagement() {
+interface AppManagementProps {
+  onGoToStore?: () => void;
+}
+
+export default function AppManagement({ onGoToStore }: AppManagementProps = {}) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   
   // Load user's installed apps
@@ -84,7 +88,7 @@ export default function AppManagement() {
           <p className="text-muted-foreground mb-6">
             You haven't installed any custom apps yet. Visit the App Store to browse and install apps.
           </p>
-          <Button onClick={() => window.history.back()}>
+          <Button onClick={() => onGoToStore?.()}>
             <Sparkles className="mr-2" size={16} />
             Go to App Store
           </Button>

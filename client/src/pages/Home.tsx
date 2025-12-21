@@ -62,7 +62,10 @@ export default function Home() {
     }
 
     if (showAppManagement) {
-      return <AppManagement />;
+      return <AppManagement onGoToStore={() => {
+        setShowAppManagement(false);
+        setShowAppStore(true);
+      }} />;
     }
 
     // Check if it's a custom app
@@ -97,6 +100,7 @@ export default function Home() {
         activeAppId={showAppStore ? "store" : activeAppId}
         onAppChange={(appId) => {
           setShowAppStore(false);
+          setShowAppManagement(false);
           setActiveAppId(appId);
         }}
         onAddApp={handleAddApp}
