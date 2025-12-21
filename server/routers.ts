@@ -296,7 +296,7 @@ export const appRouter = router({
           dataSchema: JSON.stringify(input.dataSchema),
           uiSchema: JSON.stringify(input.uiSchema),
           version: "1.0.0",
-          published: "draft",
+          published: "published",
           creatorId: ctx.user.id,
         });
 

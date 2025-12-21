@@ -226,3 +226,11 @@
 - [ ] Include WebSocket broadcasting in parser
 - [ ] Add deployment instructions for Quiver devices
 - [ ] Create example parser for rplidar_forwarder.py pattern
+
+## Bug Fixes Needed
+
+### UI Builder Issues
+- [x] Fix widget rendering in UI Builder canvas (widgets not appearing after drag-and-drop)
+- [x] Test complete workflow: create app → design UI → save → verify in App Store
+- [x] Ensure saved UI schema properly stores widget configurations
+- [x] Verify app publishing workflow (draft → published status)
