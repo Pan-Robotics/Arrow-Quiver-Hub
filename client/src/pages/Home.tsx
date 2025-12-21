@@ -8,11 +8,13 @@ import LidarApp from "@/components/apps/LidarApp";
 import TelemetryApp from "@/components/apps/TelemetryApp";
 import AppStore from "@/components/apps/AppStore";
 import AppRenderer from "@/components/apps/AppRenderer";
+import AppManagement from "@/pages/AppManagement";
 import { trpc } from "@/lib/trpc";
 
 export default function Home() {
   const [activeAppId, setActiveAppId] = useState<string>("lidar");
   const [showAppStore, setShowAppStore] = useState(false);
+  const [showAppManagement, setShowAppManagement] = useState(false);
   
   // Load installed custom apps
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
@@ -50,7 +52,17 @@ export default function Home() {
 
   const renderApp = () => {
     if (showAppStore) {
-      return <AppStore onInstallApp={() => setShowAppStore(false)} />;
+      return <AppStore 
+        onInstallApp={() => setShowAppStore(false)} 
+        onManageApps={() => {
+          setShowAppStore(false);
+          setShowAppManagement(true);
+        }}
+      />;
+    }
+
+    if (showAppManagement) {
+      return <AppManagement />;
     }
 
     // Check if it's a custom app

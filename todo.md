@@ -286,3 +286,51 @@
 - [x] Verify WebSocket broadcasting works correctly
 - [x] Fix AppRenderer to read dataBinding.field correctly
 - [x] Verify real-time widget updates (25 → 85 confirmed working)
+
+## Widget Testing & Enhancement
+
+### Test All Widget Types
+- [ ] Create comprehensive test app with all 8 widget types
+- [ ] Test Text Display widget
+- [ ] Test Gauge widget
+- [ ] Test Line Chart widget
+- [ ] Test Bar Chart widget
+- [ ] Test LED Indicator widget
+- [ ] Test Map widget (placeholder)
+- [ ] Test Video widget (placeholder)
+- [ ] Test Canvas widget (placeholder)
+- [ ] Fix any rendering or data binding issues
+
+### Enhanced Widget Implementations
+- [x] Implement Map widget with GPS coordinates (lat/lon display)
+- [ ] Add marker support to Map widget (basic lat/lon display implemented)
+- [x] Implement Video widget with live stream URL support
+- [x] Add video controls (play/pause/fullscreen)
+- [x] Implement Canvas widget for custom visualizations (basic placeholder)
+- [ ] Add point cloud rendering support to Canvas widget (future enhancement)
+- [ ] Test all enhanced widgets with real data
+
+## App Management Dashboard
+
+- [x] Create App Management page (AppManagement.tsx)
+- [x] List all installed apps with status
+- [ ] Add edit functionality (update parser and UI)
+- [ ] Implement app versioning system
+- [x] Add app export functionality (download as JSON package)
+- [x] Add app uninstall functionality
+- [ ] Show app usage statistics (API calls, data volume)
+- [x] Add app details view (parser code, schemas)
+- [x] Add Manage Apps button to App Store header
+- [x] Integrate AppManagement into Home.tsx routing
+
+## Quiver Deployment Template
+
+- [x] Update parser template with Flask server setup
+- [x] Add REST API endpoint creation code
+- [x] Include WebSocket broadcasting setup (optional)
+- [x] Add deployment instructions for Quiver devices
+- [x] Create requirements.txt (flask, requests)
+- [x] Add systemd service file template
+- [x] Document edge deployment workflow
+- [x] Create complete deployment template (QUIVER_DEPLOYMENT_TEMPLATE.md)
+- [x] Add reference to deployment docs in AppBuilder parser template

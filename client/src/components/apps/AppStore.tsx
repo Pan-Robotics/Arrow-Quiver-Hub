@@ -19,9 +19,10 @@ interface StoreApp {
 
 interface AppStoreProps {
   onInstallApp?: (appId: string) => void;
+  onManageApps?: () => void;
 }
 
-export default function AppStore({ onInstallApp }: AppStoreProps) {
+export default function AppStore({ onInstallApp, onManageApps }: AppStoreProps) {
   const [showBuilder, setShowBuilder] = useState(false);
   const { data: customApps, isLoading } = trpc.appBuilder.listApps.useQuery({ publishedOnly: true });
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
@@ -91,9 +92,17 @@ export default function AppStore({ onInstallApp }: AppStoreProps) {
     <div className="h-full flex flex-col">
       {/* Store Header */}
       <div className="border-b border-border bg-card px-6 py-4">
-        <div>
-          <h2 className="text-xl font-semibold">App Store</h2>
-          <p className="text-sm text-muted-foreground">Discover and install UAV data pipeline apps</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">App Store</h2>
+            <p className="text-sm text-muted-foreground">Discover and install UAV data pipeline apps</p>
+          </div>
+          {onManageApps && (
+            <Button variant="outline" onClick={onManageApps}>
+              <Package className="mr-2" size={16} />
+              Manage Apps
+            </Button>
+          )}
         </div>
       </div>
 

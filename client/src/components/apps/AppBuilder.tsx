@@ -27,6 +27,10 @@ export default function AppBuilder({ onBack }: AppBuilderProps) {
     `# Payload Parser Template
 # Transform raw payload data into structured format for UI visualization
 #
+# FOR QUIVER EDGE DEPLOYMENT:
+# See docs/QUIVER_DEPLOYMENT_TEMPLATE.md for complete Flask/FastAPI server setup
+# to run this parser autonomously on Quiver devices with automatic data forwarding
+#
 # OUTPUT FORMAT REQUIREMENTS:
 # 1. parse_payload() must return a dictionary
 # 2. All output fields must be defined in SCHEMA

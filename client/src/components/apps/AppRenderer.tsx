@@ -188,13 +188,88 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         );
 
       case "map":
-      case "video":
-      case "canvas":
+        // Map widget expects latitude and longitude fields
+        const latField = config.latitudeField || 'latitude';
+        const lonField = config.longitudeField || 'longitude';
+        const latitude = liveData[latField] || 0;
+        const longitude = liveData[lonField] || 0;
+        const zoom = config.zoom || 13;
+        
         return (
           <Card key={widget.id} className="p-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">{config.label || widget.type.toUpperCase()}</p>
-              <p className="text-muted-foreground text-xs">{widget.type} widget coming soon...</p>
+              <p className="text-sm text-muted-foreground mb-2">{config.label || "GPS Location"}</p>
+              <div className="bg-muted rounded-lg p-4 mb-2">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs text-muted-foreground">Latitude:</span>
+                  <span className="text-sm font-mono font-semibold">{latitude.toFixed(6)}°</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground">Longitude:</span>
+                  <span className="text-sm font-mono font-semibold">{longitude.toFixed(6)}°</span>
+                </div>
+              </div>
+              <div className="w-full h-48 bg-muted rounded-lg flex items-center justify-center">
+                <p className="text-xs text-muted-foreground">Map visualization: {latitude.toFixed(4)}, {longitude.toFixed(4)}</p>
+              </div>
+              {config.showCoordinates !== false && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Zoom: {zoom}x
+                </p>
+              )}
+            </div>
+          </Card>
+        );
+
+      case "video":
+        const videoUrl = typeof value === 'string' ? value : (config.videoUrl || '');
+        
+        return (
+          <Card key={widget.id} className="p-6">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground mb-2">{config.label || "Video Stream"}</p>
+              {videoUrl ? (
+                <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+                  <video 
+                    src={videoUrl} 
+                    controls={config.controls !== false}
+                    autoPlay={config.autoplay === true}
+                    muted={config.muted === true}
+                    loop={config.loop === true}
+                    className="w-full h-full object-contain"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+              ) : (
+                <div className="w-full aspect-video bg-muted rounded-lg flex items-center justify-center">
+                  <p className="text-xs text-muted-foreground">No video URL provided</p>
+                </div>
+              )}
+              {config.showUrl && videoUrl && (
+                <p className="text-xs text-muted-foreground mt-2 truncate">{videoUrl}</p>
+              )}
+            </div>
+          </Card>
+        );
+
+      case "canvas":
+        // Canvas widget for custom visualizations (e.g., point clouds)
+        const canvasData = value;
+        
+        return (
+          <Card key={widget.id} className="p-6">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground mb-2">{config.label || "Canvas"}</p>
+              <div className="w-full h-64 bg-muted rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground mb-2">Custom Canvas Visualization</p>
+                  <p className="text-2xl font-bold">{typeof canvasData === 'object' ? JSON.stringify(canvasData).substring(0, 50) + '...' : String(canvasData)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {config.width || 'auto'} × {config.height || 'auto'}
+              </p>
             </div>
           </Card>
         );

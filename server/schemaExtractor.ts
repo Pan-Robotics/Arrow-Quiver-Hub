@@ -4,7 +4,7 @@ import * as path from "path";
 import * as os from "os";
 
 export interface SchemaField {
-  type: "number" | "string" | "boolean";
+  type: "number" | "string" | "boolean" | "array";
   unit?: string;
   description?: string;
   min?: number;
@@ -89,7 +89,7 @@ else:
           
           // Validate schema structure
           for (const [field, config] of Object.entries(schema)) {
-            if (!config.type || !["number", "string", "boolean"].includes(config.type)) {
+            if (!config.type || !["number", "string", "boolean", "array"].includes(config.type)) {
               resolve({
                 success: false,
                 error: `Invalid type for field "${field}": ${config.type}`,
