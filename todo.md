@@ -362,3 +362,17 @@
 - [ ] Add version history tracking
 - [ ] Test app editing workflow (edit → save → verify changes)
 - [ ] Add rollback functionality (revert to previous version)
+
+## AppBuilder State Management Fix
+
+- [ ] Diagnose React state synchronization issue in AppBuilder
+- [ ] Identify why form inputs don't update state properly
+- [ ] Fix appName state management
+- [ ] Fix description state management
+- [ ] Fix parserCode state management
+- [ ] Ensure "Continue to UI Builder" button works correctly
+- [ ] Test schema extraction with fixed state
+- [ ] Test complete app creation workflow through UI
+- [ ] Create comprehensive test app with all 8 widget types via UI
+- [ ] Verify all widgets (Text, Gauge, LED, Map, Video, Line Chart, Bar Chart, Canvas) render correctly
+- [ ] Test with live data for each widget type
