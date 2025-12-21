@@ -290,16 +290,17 @@
 ## Widget Testing & Enhancement
 
 ### Test All Widget Types
-- [ ] Create comprehensive test app with all 8 widget types
-- [ ] Test Text Display widget
-- [ ] Test Gauge widget
-- [ ] Test Line Chart widget
-- [ ] Test Bar Chart widget
-- [ ] Test LED Indicator widget
-- [ ] Test Map widget (placeholder)
-- [ ] Test Video widget (placeholder)
-- [ ] Test Canvas widget (placeholder)
-- [ ] Fix any rendering or data binding issues
+- [x] Create comprehensive test app with all 8 widget types
+- [x] Test Text Display widget
+- [x] Test Gauge widget
+- [x] Test Line Chart widget (Fixed - now renders correctly)
+- [x] Test Bar Chart widget (Fixed - now renders correctly)
+- [x] Test LED Indicator widget
+- [x] Test Map widget
+- [x] Test Video widget
+- [x] Test Canvas widget
+- [x] Fix chart widget type naming inconsistency (line-chart, bar-chart)
+- [x] Update AppRenderer to recognize line-chart and bar-chart types
 
 ### Enhanced Widget Implementations
 - [x] Implement Map widget with GPS coordinates (lat/lon display)

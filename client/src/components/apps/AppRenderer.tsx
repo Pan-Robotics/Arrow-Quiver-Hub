@@ -176,7 +176,9 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         );
 
       case "line_chart":
+      case "line-chart":
       case "bar_chart":
+      case "bar-chart":
         return (
           <Card key={widget.id} className="p-6">
             <div className="text-center">
