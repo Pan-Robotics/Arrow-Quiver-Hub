@@ -496,3 +496,9 @@
 - [x] Add Delete button to App Management page
 - [x] Add confirmation dialog for app deletion
 - [x] Test complete deletion workflow (delete app → verify all related data removed)
+
+## Production Deployment Issues
+
+- [x] Fix Python parser execution error on production server (spawn /usr/bin/python3.11 ENOENT)
+- [x] Implement flexible Python version detection (try python3.11, python3, python)
+- [x] Test parser execution on production environment

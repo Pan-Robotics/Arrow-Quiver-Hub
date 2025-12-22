@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
@@ -119,6 +119,45 @@ except Exception as e:
 }
 
 /**
+ * Cached Python executable path
+ */
+let cachedPythonPath: string | null = null;
+
+/**
+ * Detect available Python executable
+ * Tries python3.11, python3, python in order
+ */
+function detectPythonPath(): string {
+  if (cachedPythonPath) {
+    return cachedPythonPath;
+  }
+
+  const candidates = [
+    'python3.11',
+    'python3',
+    'python'
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      // Try to execute python --version to check if it exists
+      execSync(`${candidate} --version`, { stdio: 'pipe' });
+      cachedPythonPath = candidate;
+      console.log(`[ParserExecutor] Using Python: ${candidate}`);
+      return candidate;
+    } catch (e) {
+      // This candidate doesn't exist, try next
+      continue;
+    }
+  }
+
+  throw new Error(
+    'No Python executable found. Tried: ' + candidates.join(', ') + '. ' +
+    'Please ensure Python 3 is installed on the server.'
+  );
+}
+
+/**
  * Execute Python script with timeout
  */
 function executePython(scriptPath: string, timeout: number): Promise<{
@@ -128,7 +167,20 @@ function executePython(scriptPath: string, timeout: number): Promise<{
   error?: string;
 }> {
   return new Promise((resolve) => {
-    const python = spawn('/usr/bin/python3.11', [scriptPath], {
+    let pythonPath: string;
+    try {
+      pythonPath = detectPythonPath();
+    } catch (error) {
+      resolve({
+        success: false,
+        stdout: '',
+        stderr: '',
+        error: error instanceof Error ? error.message : 'Failed to detect Python'
+      });
+      return;
+    }
+
+    const python = spawn(pythonPath, [scriptPath], {
       timeout,
       env: {
         PATH: process.env.PATH,
