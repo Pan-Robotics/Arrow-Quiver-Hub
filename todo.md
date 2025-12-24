@@ -517,3 +517,9 @@
 - [x] Implement uninstall mutation and confirmation dialog
 - [x] Test uninstalling Flight Telemetry app
 - [x] Verify app disappears from sidebar after uninstall
+
+## Protect Built-in Apps from Deletion
+
+- [x] Hide "Delete App Permanently" button for built-in apps in App Management
+- [x] Keep Delete button only for custom apps
+- [x] Test with Flight Telemetry to verify Delete button is hidden

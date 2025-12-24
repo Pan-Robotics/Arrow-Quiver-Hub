@@ -205,18 +205,21 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
               </div>
               
               {/* Delete button (dangerous action - separate from other actions) */}
-              <div className="mt-3 pt-3 border-t">
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleDelete(app.appId, app.name)}
-                  disabled={deleteMutation.isPending}
-                  className="w-full"
-                >
-                  <Trash2 size={14} className="mr-1" />
-                  {deleteMutation.isPending ? "Deleting..." : "Delete App Permanently"}
-                </Button>
-              </div>
+              {/* Only show Delete button for custom apps (built-in apps can only be uninstalled) */}
+              {(app as any).id && (
+                <div className="mt-3 pt-3 border-t">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleDelete(app.appId, app.name)}
+                    disabled={deleteMutation.isPending}
+                    className="w-full"
+                  >
+                    <Trash2 size={14} className="mr-1" />
+                    {deleteMutation.isPending ? "Deleting..." : "Delete App Permanently"}
+                  </Button>
+                </div>
+              )}
 
               <div className="mt-4 pt-4 border-t">
                 <p className="text-xs text-muted-foreground mb-2">REST Endpoint:</p>
