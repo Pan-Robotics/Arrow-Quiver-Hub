@@ -510,3 +510,10 @@
 - [x] Make Flight Telemetry installable from App Store
 - [x] Test installation and functionality
 - [x] Verify sidebar icon appears after installation
+
+## App Uninstall UI
+
+- [x] Add Uninstall button to App Management page
+- [x] Implement uninstall mutation and confirmation dialog
+- [x] Test uninstalling Flight Telemetry app
+- [x] Verify app disappears from sidebar after uninstall
