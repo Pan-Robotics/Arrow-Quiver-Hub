@@ -212,10 +212,11 @@ export async function getUserInstalledApps(userId: number) {
   const result = await db
     .select({
       app: customApps,
+      appId: userApps.appId,
       installedAt: userApps.installedAt,
     })
     .from(userApps)
-    .innerJoin(customApps, eq(userApps.appId, customApps.appId))
+    .leftJoin(customApps, eq(userApps.appId, customApps.appId))
     .where(eq(userApps.userId, userId));
 
   return result;

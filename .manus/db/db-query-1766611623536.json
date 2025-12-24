@@ -1,0 +1,16 @@
+{
+  "query": "SELECT * FROM userApps WHERE appId = 'telemetry';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT * FROM userApps WHERE appId = 'telemetry';",
+  "rows": [
+    {
+      "id": "270001",
+      "userId": "1",
+      "appId": "telemetry",
+      "installedAt": "2025-12-24 21:26:29"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tuserId\tappId\tinstalledAt\n270001\t1\ttelemetry\t2025-12-24 21:26:29\n",
+  "stderr": "",
+  "execution_time_ms": 796
+}

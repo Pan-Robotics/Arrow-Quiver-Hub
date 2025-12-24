@@ -174,6 +174,8 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {storeApps.map((app) => {
             const Icon = app.icon;
+            const isInstalled = isAppInstalled(app.id);
+            const isInstallable = app.id === "telemetry"; // Only telemetry is installable for now
             
             return (
               <Card key={app.id} className="p-6 hover:shadow-lg transition-shadow">
@@ -197,12 +199,18 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
                     </p>
                     <Button
                       size="sm"
-                      variant={app.installed ? "outline" : "default"}
+                      variant={isInstalled ? "outline" : "default"}
                       className="w-full"
-                      disabled={!app.installed}
+                      disabled={isInstalled || !isInstallable || installAppMutation.isPending}
+                      onClick={() => isInstallable && !isInstalled && handleInstallApp(app.id, app.name)}
                     >
-                      {app.installed ? (
+                      {isInstalled ? (
                         "Installed"
+                      ) : isInstallable ? (
+                        <>
+                          <Download size={14} className="mr-2" />
+                          Install
+                        </>
                       ) : (
                         <>
                           <Download size={14} className="mr-2" />

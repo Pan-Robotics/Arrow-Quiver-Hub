@@ -330,13 +330,19 @@ export const appRouter = router({
     installApp: protectedProcedure
       .input(z.object({ appId: z.string() }))
       .mutation(async ({ input, ctx }) => {
-        const app = await getCustomAppByAppId(input.appId);
-        if (!app) {
-          throw new Error(`App "${input.appId}" not found`);
-        }
+        // List of built-in apps that don't exist in customApps table
+        const builtInApps = ["telemetry"];
+        
+        // For custom apps, verify they exist and are published
+        if (!builtInApps.includes(input.appId)) {
+          const app = await getCustomAppByAppId(input.appId);
+          if (!app) {
+            throw new Error(`App "${input.appId}" not found`);
+          }
 
-        if (app.published !== "published") {
-          throw new Error("Cannot install unpublished app");
+          if (app.published !== "published") {
+            throw new Error("Cannot install unpublished app");
+          }
         }
 
         const result = await installAppForUser(ctx.user.id, input.appId);
@@ -357,10 +363,21 @@ export const appRouter = router({
     // Get all apps installed by the current user
     getUserApps: protectedProcedure.query(async ({ ctx }) => {
       const installedApps = await getUserInstalledApps(ctx.user.id);
-      return installedApps.map((item) => ({
-        ...item.app,
-        installedAt: item.installedAt,
-      }));
+      return installedApps.map((item) => {
+        // For built-in apps (no entry in customApps), return minimal metadata
+        if (!item.app) {
+          return {
+            appId: item.appId,
+            name: item.appId, // Will be overridden in frontend with proper name
+            installedAt: item.installedAt,
+          };
+        }
+        // For custom apps, return full app data
+        return {
+          ...item.app,
+          installedAt: item.installedAt,
+        };
+      });
     }),
 
     // Get a specific app by ID (for editing)

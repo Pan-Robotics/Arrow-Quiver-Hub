@@ -503,7 +503,10 @@
 - [x] Implement flexible Python version detection (try python3.11, python3, python)
 - [x] Test parser execution on production environment
 
-## UI Cleanup
+## Convert Flight Telemetry to Installable App
 
-- [x] Remove duplicate Flight Telemetry tab from App Store
-- [x] Keep only the Flight Telemetry in Built-in Apps section
+- [x] Restore TelemetryApp component functionality
+- [x] Create built-in app installation system
+- [x] Make Flight Telemetry installable from App Store
+- [x] Test installation and functionality
+- [x] Verify sidebar icon appears after installation

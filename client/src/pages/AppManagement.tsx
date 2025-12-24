@@ -140,11 +140,11 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
             <CardHeader>
               <div className="flex items-start justify-between">
                 <Sparkles className="text-primary" size={24} />
-                <Badge variant="secondary">v{app.version}</Badge>
+                <Badge variant="secondary">v{(app as any).version || '1.0.0'}</Badge>
               </div>
               <CardTitle className="mt-4">{app.name}</CardTitle>
               <CardDescription className="line-clamp-2">
-                {app.description || "No description provided"}
+                {(app as any).description || "No description provided"}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -161,8 +161,8 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Status:</span>
-                  <Badge variant={app.published === 'published' ? 'default' : 'secondary'}>
-                    {app.published}
+                  <Badge variant={(app as any).published === 'published' ? 'default' : 'secondary'}>
+                    {(app as any).published || 'built-in'}
                   </Badge>
                 </div>
               </div>
@@ -246,14 +246,14 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
                   <div>
                     <h3 className="font-semibold mb-2">Parser Code</h3>
                     <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">
-                      {userApps.find(a => a.appId === selectedApp)?.parserCode}
+                      {(userApps.find(a => a.appId === selectedApp) as any)?.parserCode || 'N/A (built-in app)'}
                     </pre>
                   </div>
                   <div>
                     <h3 className="font-semibold mb-2">Data Schema</h3>
                     <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
                       {JSON.stringify(
-                        JSON.parse(userApps.find(a => a.appId === selectedApp)?.dataSchema || "{}"),
+                        JSON.parse((userApps.find(a => a.appId === selectedApp) as any)?.dataSchema || "{}"),
                         null,
                         2
                       )}
@@ -263,7 +263,7 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
                     <h3 className="font-semibold mb-2">UI Schema</h3>
                     <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
                       {JSON.stringify(
-                        JSON.parse(userApps.find(a => a.appId === selectedApp)?.uiSchema || "{}"),
+                        JSON.parse((userApps.find(a => a.appId === selectedApp) as any)?.uiSchema || "{}"),
                         null,
                         2
                       )}
