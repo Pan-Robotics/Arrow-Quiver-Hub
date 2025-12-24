@@ -502,3 +502,8 @@
 - [x] Fix Python parser execution error on production server (spawn /usr/bin/python3.11 ENOENT)
 - [x] Implement flexible Python version detection (try python3.11, python3, python)
 - [x] Test parser execution on production environment
+
+## UI Cleanup
+
+- [x] Remove duplicate Flight Telemetry tab from App Store
+- [x] Keep only the Flight Telemetry in Built-in Apps section
