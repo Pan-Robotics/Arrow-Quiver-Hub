@@ -2,10 +2,11 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
-import { Radio, Gauge, Package, Sparkles } from "lucide-react";
+import { Radio, Gauge, Package, Sparkles, Settings } from "lucide-react";
 import AppSidebar, { App } from "@/components/AppSidebar";
 import LidarApp from "@/components/apps/LidarApp";
 import TelemetryApp from "@/components/apps/TelemetryApp";
+import DroneConfig from "@/pages/DroneConfig";
 import AppStore from "@/components/apps/AppStore";
 import AppRenderer from "@/components/apps/AppRenderer";
 import AppManagement from "@/pages/AppManagement";
@@ -25,12 +26,18 @@ export default function Home() {
     telemetry: { name: "Flight Telemetry", icon: Gauge },
   };
 
-  // Always show RPLidar app
+  // Always show RPLidar app and Drone Config
   const builtInApps: App[] = [
     {
       id: "lidar",
       name: "RPLidar Terrain Mapping",
       icon: Radio,
+      enabled: true,
+    },
+    {
+      id: "drone-config",
+      name: "Drone Configuration",
+      icon: Settings,
       enabled: true,
     },
   ];
@@ -102,6 +109,8 @@ export default function Home() {
         return <LidarApp />;
       case "telemetry":
         return <TelemetryApp droneId="quiver_001" />;
+      case "drone-config":
+        return <DroneConfig />;
       default:
         return (
           <div className="h-full flex items-center justify-center">

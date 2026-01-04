@@ -19,6 +19,9 @@ import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
 import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion, deleteCustomApp } from "./customAppDb";
+import { createDroneJob, getPendingJobsForDrone, acknowledgeJob, completeJob, getAllJobsForDrone, createDroneFile, getDroneFile, getDroneFiles, deleteDroneFile } from "./droneJobsDb";
+import { storagePut } from "./storage";
+import { nanoid } from "nanoid";
 
 export const appRouter = router({
   system: systemRouter,
@@ -526,6 +529,191 @@ export const appRouter = router({
         // Delete the app and all related data
         await deleteCustomApp(input.appId);
 
+        return { success: true };
+      }),
+  }),
+
+  // Drone management
+  drones: router({
+    // List all drones
+    list: publicProcedure.query(async () => {
+      const drones = await getAllDrones();
+      return { drones };
+    }),
+  }),
+
+  // Drone job management for two-way communication
+  droneJobs: router({
+    // Get pending jobs for a drone (called by Pi)
+    getPendingJobs: publicProcedure
+      .input(z.object({ droneId: z.string(), apiKey: z.string() }))
+      .query(async ({ input }) => {
+        // Validate API key
+        const apiKeyRecord = await validateApiKey(input.apiKey);
+        if (!apiKeyRecord || apiKeyRecord.droneId !== input.droneId) {
+          throw new Error("Invalid API key");
+        }
+
+        const jobs = await getPendingJobsForDrone(input.droneId);
+        return { jobs };
+      }),
+
+    // Acknowledge a job (mark as in progress)
+    acknowledgeJob: publicProcedure
+      .input(z.object({ jobId: z.number(), apiKey: z.string(), droneId: z.string() }))
+      .mutation(async ({ input }) => {
+        // Validate API key
+        const apiKeyRecord = await validateApiKey(input.apiKey);
+        if (!apiKeyRecord || apiKeyRecord.droneId !== input.droneId) {
+          throw new Error("Invalid API key");
+        }
+
+        await acknowledgeJob(input.jobId);
+        return { success: true };
+      }),
+
+    // Complete a job (mark as completed or failed)
+    completeJob: publicProcedure
+      .input(
+        z.object({
+          jobId: z.number(),
+          apiKey: z.string(),
+          droneId: z.string(),
+          success: z.boolean(),
+          errorMessage: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Validate API key
+        const apiKeyRecord = await validateApiKey(input.apiKey);
+        if (!apiKeyRecord || apiKeyRecord.droneId !== input.droneId) {
+          throw new Error("Invalid API key");
+        }
+
+        await completeJob(input.jobId, input.success, input.errorMessage);
+        return { success: true };
+      }),
+
+    // Get all jobs for a drone (for monitoring/history)
+    getAllJobs: protectedProcedure
+      .input(z.object({ droneId: z.string(), limit: z.number().optional() }))
+      .query(async ({ input }) => {
+        const jobs = await getAllJobsForDrone(input.droneId, input.limit);
+        return { jobs };
+      }),
+
+    // Create a new job (called by web UI)
+    createJob: protectedProcedure
+      .input(
+        z.object({
+          droneId: z.string(),
+          type: z.string(),
+          payload: z.any(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await createDroneJob({
+          droneId: input.droneId,
+          type: input.type,
+          payload: input.payload,
+          createdBy: ctx.user.id,
+        });
+        return { success: true };
+      }),
+
+    // Upload a file for a drone
+    uploadFile: protectedProcedure
+      .input(
+        z.object({
+          droneId: z.string(),
+          filename: z.string(),
+          content: z.string(), // base64 encoded
+          mimeType: z.string().optional(),
+          description: z.string().optional(),
+          targetPath: z.string(), // where to save on Pi
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        // Decode base64 content
+        const buffer = Buffer.from(input.content, "base64");
+        const fileSize = buffer.length;
+
+        // Generate unique file ID
+        const fileId = nanoid();
+        const storageKey = `drone-files/${input.droneId}/${fileId}-${input.filename}`;
+
+        // Upload to S3
+        const { url } = await storagePut(
+          storageKey,
+          buffer,
+          input.mimeType || "application/octet-stream"
+        );
+
+        // Store file metadata
+        await createDroneFile({
+          fileId,
+          filename: input.filename,
+          mimeType: input.mimeType || "application/octet-stream",
+          fileSize,
+          storageKey,
+          url,
+          droneId: input.droneId,
+          description: input.description,
+          uploadedBy: ctx.user.id,
+        });
+
+        // Create a job for the drone to download this file
+        await createDroneJob({
+          droneId: input.droneId,
+          type: "upload_file",
+          payload: {
+            fileId,
+            fileUrl: url,
+            targetPath: input.targetPath,
+            filename: input.filename,
+          },
+          createdBy: ctx.user.id,
+        });
+
+        return { success: true, fileId, url };
+      }),
+
+    // Get file download URL (called by Pi)
+    getFile: publicProcedure
+      .input(z.object({ fileId: z.string(), apiKey: z.string(), droneId: z.string() }))
+      .query(async ({ input }) => {
+        // Validate API key
+        const apiKeyRecord = await validateApiKey(input.apiKey);
+        if (!apiKeyRecord || apiKeyRecord.droneId !== input.droneId) {
+          throw new Error("Invalid API key");
+        }
+
+        const file = await getDroneFile(input.fileId);
+        if (!file) {
+          throw new Error("File not found");
+        }
+
+        // Check if file is for this drone or available to all
+        if (file.droneId && file.droneId !== input.droneId) {
+          throw new Error("File not available for this drone");
+        }
+
+        return { file };
+      }),
+
+    // Get all files for a drone (for monitoring)
+    getFiles: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .query(async ({ input }) => {
+        const files = await getDroneFiles(input.droneId);
+        return { files };
+      }),
+
+    // Delete a file
+    deleteFile: protectedProcedure
+      .input(z.object({ fileId: z.string() }))
+      .mutation(async ({ input }) => {
+        await deleteDroneFile(input.fileId);
         return { success: true };
       }),
   }),

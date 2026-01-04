@@ -173,3 +173,62 @@ export const telemetry = mysqlTable("telemetry", {
 
 export type Telemetry = typeof telemetry.$inferSelect;
 export type InsertTelemetry = typeof telemetry.$inferInsert;
+
+/**
+ * Drone jobs table - stores pending tasks for drones to execute
+ * Used for two-way communication: Hub → Pi
+ */
+export const droneJobs = mysqlTable("droneJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Drone ID this job is for */
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  /** Job type: upload_file, update_config, restart_service, etc. */
+  type: varchar("type", { length: 64 }).notNull(),
+  /** Job payload (JSON) - contains type-specific data */
+  payload: json("payload").notNull(),
+  /** Job status: pending, in_progress, completed, failed */
+  status: mysqlEnum("status", ["pending", "in_progress", "completed", "failed"]).default("pending").notNull(),
+  /** Error message if job failed */
+  errorMessage: text("errorMessage"),
+  /** When job was created */
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  /** When job was acknowledged by drone */
+  acknowledgedAt: timestamp("acknowledgedAt"),
+  /** When job was completed */
+  completedAt: timestamp("completedAt"),
+  /** User ID who created this job */
+  createdBy: int("createdBy").notNull(),
+});
+
+export type DroneJob = typeof droneJobs.$inferSelect;
+export type InsertDroneJob = typeof droneJobs.$inferInsert;
+
+/**
+ * Drone files table - stores uploaded files for drones to download
+ */
+export const droneFiles = mysqlTable("droneFiles", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Unique file identifier */
+  fileId: varchar("fileId", { length: 64 }).notNull().unique(),
+  /** Original filename */
+  filename: varchar("filename", { length: 255 }).notNull(),
+  /** File MIME type */
+  mimeType: varchar("mimeType", { length: 128 }),
+  /** File size in bytes */
+  fileSize: int("fileSize").notNull(),
+  /** S3 storage key */
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  /** Public URL for download */
+  url: varchar("url", { length: 1024 }).notNull(),
+  /** Drone ID this file is for (null = available to all) */
+  droneId: varchar("droneId", { length: 64 }),
+  /** File description */
+  description: text("description"),
+  /** User ID who uploaded this file */
+  uploadedBy: int("uploadedBy").notNull(),
+  /** When file was uploaded */
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DroneFile = typeof droneFiles.$inferSelect;
+export type InsertDroneFile = typeof droneFiles.$inferInsert;

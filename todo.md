@@ -523,3 +523,39 @@
 - [x] Hide "Delete App Permanently" button for built-in apps in App Management
 - [x] Keep Delete button only for custom apps
 - [x] Test with Flight Telemetry to verify Delete button is hidden
+
+## Two-Way Communication System (Pi ↔ Hub)
+
+### Database Schema
+- [x] Create `droneJobs` table for job queue
+- [x] Create `droneFiles` table for file storage metadata
+- [x] Add indexes for efficient job polling
+
+### Backend API
+- [x] Add tRPC endpoints for job management (getPendingJobs, acknowledgeJob, completeJob)
+- [x] Add tRPC endpoints for file operations (uploadFile, getFile, getFiles, deleteFile)
+- [x] Add tRPC endpoints for job creation (createJob, getAllJobs)
+- [x] Add database functions for job CRUD operations
+
+### Web UI
+- [x] Create Drone Configuration page
+- [x] Add file upload interface (parser files, config files)
+- [x] Add job status monitoring dashboard
+- [x] Add job history view with success/failure status
+- [x] Add manual job creation form
+
+### Python Client (Raspberry Pi)
+- [x] Create reference implementation script (raspberry_pi_client.py)
+- [x] Add job polling logic
+- [x] Add file download handler
+- [x] Add config update handler
+- [x] Add job acknowledgment logic
+- [x] Add error handling and retry logic
+- [x] Create installation documentation (RASPBERRY_PI_CLIENT_README.md)
+
+### Testing
+- [ ] Test file upload from web UI
+- [ ] Test job creation and polling
+- [ ] Test file download on Pi client
+- [ ] Test job acknowledgment flow
+- [ ] Test error scenarios (network failure, invalid files)

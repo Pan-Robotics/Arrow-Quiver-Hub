@@ -43,6 +43,13 @@
       "when": 1766334880964,
       "tag": "0005_spicy_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1767534070398,
+      "tag": "0006_lyrical_captain_midlands",
+      "breakpoints": true
     }
   ]
 }
