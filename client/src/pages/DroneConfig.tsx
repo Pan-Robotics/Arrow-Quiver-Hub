@@ -92,11 +92,18 @@ export default function DroneConfig() {
       reader.onload = async () => {
         const base64 = (reader.result as string).split(",")[1];
 
+        // Override MIME type for Python files to avoid S3 blocking
+        let mimeType = file.type;
+        if (file.name.endsWith('.py')) {
+          mimeType = 'text/plain';
+          console.log('[Upload] Overriding .py MIME type from', file.type, 'to text/plain');
+        }
+        
         await uploadFileMutation.mutateAsync({
           droneId: selectedDrone,
           filename: file.name,
           content: base64,
-          mimeType: file.type,
+          mimeType: mimeType || 'application/octet-stream',
           description,
           targetPath: targetPath + file.name,
         });

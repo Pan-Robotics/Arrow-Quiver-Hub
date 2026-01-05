@@ -155,13 +155,14 @@ class QuiverHubClient:
             logger.error(f"Failed to complete job {job_id}: {e}")
             return False
     
-    def download_file(self, file_id: str, target_path: str) -> bool:
+    def download_file(self, file_id: str, target_path: str, is_compressed: bool = False) -> bool:
         """
         Download a file from the server
         
         Args:
             file_id: ID of the file to download
             target_path: Where to save the file on the Pi
+            is_compressed: Whether the file is gzip-compressed
             
         Returns:
             True if successful, False otherwise
@@ -199,9 +200,16 @@ class QuiverHubClient:
             if target_dir:
                 os.makedirs(target_dir, exist_ok=True)
             
+            # Decompress if needed
+            file_content = file_response.content
+            if is_compressed:
+                import gzip
+                file_content = gzip.decompress(file_content)
+                logger.info(f"Decompressed file: {len(file_response.content)} → {len(file_content)} bytes")
+            
             # Save the file
             with open(target_path, 'wb') as f:
-                f.write(file_response.content)
+                f.write(file_content)
             
             logger.info(f"Saved file to: {target_path}")
             return True
@@ -225,13 +233,14 @@ class QuiverHubClient:
             file_id = payload.get('fileId')
             target_path = payload.get('targetPath')
             filename = payload.get('filename')
+            is_compressed = payload.get('isCompressed', False)
             
             if not file_id or not target_path:
                 return False, "Missing fileId or targetPath in job payload"
             
-            logger.info(f"Downloading file '{filename}' to {target_path}")
+            logger.info(f"Downloading file '{filename}' to {target_path} (compressed: {is_compressed})")
             
-            success = self.download_file(file_id, target_path)
+            success = self.download_file(file_id, target_path, is_compressed)
             
             if success:
                 return True, None
