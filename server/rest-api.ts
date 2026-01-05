@@ -8,8 +8,9 @@ import {
   validateApiKey,
   upsertDrone,
   insertScan,
+  insertTelemetry,
 } from "./db";
-import { broadcastPointCloud } from "./websocket";
+import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./restApi";
 
@@ -192,6 +193,103 @@ router.get("/pointcloud/latest/:droneId", (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error in /api/rest/pointcloud/latest:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+/**
+ * POST /api/rest/telemetry/ingest
+ * Receive telemetry data from companion computer
+ * 
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   timestamp: string (ISO format),
+ *   telemetry: {
+ *     attitude: {roll_deg, pitch_deg, yaw_deg, timestamp},
+ *     position: {latitude_deg, longitude_deg, absolute_altitude_m, relative_altitude_m, timestamp},
+ *     gps: {num_satellites, fix_type, timestamp},
+ *     battery_fc: {voltage_v, remaining_percent, timestamp},
+ *     battery_uavcan: {voltage_v, current_a, temperature_k, state_of_charge_pct, state_of_health_pct, timestamp},
+ *     in_air: boolean
+ *   }
+ * }
+ */
+router.post("/telemetry/ingest", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, timestamp, telemetry } = req.body;
+
+    // Validate required fields
+    if (!api_key || !drone_id || !timestamp || !telemetry) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, timestamp, telemetry",
+      });
+    }
+
+    // Validate API key
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid API key",
+      });
+    }
+
+    // Verify drone ID matches API key
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Drone ID mismatch",
+      });
+    }
+
+    // Validate telemetry is an object
+    if (typeof telemetry !== "object" || telemetry === null) {
+      return res.status(400).json({
+        success: false,
+        error: "telemetry must be an object",
+      });
+    }
+
+    // Update drone last seen
+    await upsertDrone({
+      droneId: drone_id,
+      lastSeen: new Date(timestamp),
+      isActive: true,
+    });
+
+    // Store telemetry in database
+    await insertTelemetry({
+      droneId: drone_id,
+      timestamp: new Date(timestamp),
+      telemetryData: telemetry,
+    });
+
+    // Broadcast to WebSocket clients
+    const message = {
+      drone_id,
+      timestamp,
+      telemetry,
+    };
+    broadcastTelemetry(message);
+
+    // Return success
+    return res.status(200).json({
+      success: true,
+      message: "Telemetry data received",
+      stats: {
+        drone_id,
+        timestamp,
+      },
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/telemetry/ingest:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",

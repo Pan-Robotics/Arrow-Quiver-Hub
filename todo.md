@@ -618,3 +618,21 @@
 - [x] Update Python client to decompress files after download
 - [x] Fix 'require is not defined' error (replaced with ES module import)
 - [x] Verify Python files upload successfully (cc.py successfully uploaded and downloaded to Pi)
+
+## Update Telemetry Forwarder
+
+- [x] Review current telemetry API endpoints in server/routers.ts (telemetry.ingest tRPC procedure)
+- [x] Compare with telemetry_forwarder.py API calls (was using wrong /api/rest/pointcloud/ingest)
+- [x] Update forwarder to use correct endpoint paths (/api/trpc/telemetry.ingest)
+- [x] Verify authentication/API key handling (API key in payload)
+- [x] Update tRPC payload format (wrap in {"0": {"json": payload}})
+- [ ] Test updated forwarder with live data on Raspberry Pi
+
+## Fix Telemetry Forwarder tRPC Payload Format
+
+- [x] Investigate correct tRPC HTTP POST payload format (tRPC from Python is complex)
+- [x] Create dedicated REST endpoint /api/rest/telemetry/ingest (following pointcloud pattern)
+- [x] Add broadcastTelemetry import to rest-api.ts
+- [x] Update telemetry_forwarder.py to use REST endpoint instead of tRPC
+- [ ] Test with Julius's live telemetry system (waiting for deployment)
+- [ ] Verify telemetry data appears in Flight Telemetry app
