@@ -53,7 +53,7 @@ export async function acknowledgeJob(jobId: number) {
 /**
  * Mark a job as completed
  */
-export async function completeJob(jobId: number, success: boolean, errorMessage?: string) {
+export async function completeJob(jobId: number, success: boolean, errorMessage?: string | null) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 

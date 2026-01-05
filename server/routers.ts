@@ -580,7 +580,7 @@ export const appRouter = router({
           apiKey: z.string(),
           droneId: z.string(),
           success: z.boolean(),
-          errorMessage: z.string().optional(),
+          errorMessage: z.string().nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {

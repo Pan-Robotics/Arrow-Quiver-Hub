@@ -566,3 +566,11 @@
 - [x] Check storage permissions and configuration (permissions OK, issue was with request format)
 - [x] Fix file upload implementation in droneJobs.uploadFile (switched from fetch to axios)
 - [x] Test file upload in Drone Config page (successfully uploaded test_config.yaml)
+
+## Job Completion Error
+
+- [x] Investigate 400 Bad Request error when Pi client calls completeJob endpoint (errorMessage null handling)
+- [x] Check completeJob tRPC procedure input validation (added .nullable() to schema)
+- [x] Verify Python client is sending correct parameters (updated to conditionally include errorMessage)
+- [x] Test complete job workflow end-to-end (TypeScript compilation successful)
+- [x] Update job status from in_progress to completed (fix deployed, ready for Pi testing)

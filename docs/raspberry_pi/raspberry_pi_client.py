@@ -132,15 +132,17 @@ class QuiverHubClient:
         """
         try:
             url = urljoin(self.server_url, '/api/trpc/droneJobs.completeJob')
-            payload = {
-                'json': {
-                    'jobId': job_id,
-                    'apiKey': self.api_key,
-                    'droneId': self.drone_id,
-                    'success': success,
-                    'errorMessage': error_message
-                }
+            json_data = {
+                'jobId': job_id,
+                'apiKey': self.api_key,
+                'droneId': self.drone_id,
+                'success': success
             }
+            # Only include errorMessage if it's not None
+            if error_message is not None:
+                json_data['errorMessage'] = error_message
+            
+            payload = {'json': json_data}
             
             response = self.session.post(url, json=payload, timeout=10)
             response.raise_for_status()
