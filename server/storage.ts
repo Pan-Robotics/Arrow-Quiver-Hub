@@ -72,43 +72,79 @@ function buildAuthHeaders(apiKey: string): HeadersInit {
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
-  contentType = "application/octet-stream"
+  contentType = "application/octet-stream",
+  maxRetries = 3
 ): Promise<{ key: string; url: string }> {
   const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
   const uploadUrl = buildUploadUrl(baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
 
-  try {
-    const response = await axios.post(uploadUrl.toString(), formData, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        ...formData.getHeaders(),
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-    });
+  console.log('[Storage] Upload attempt:', {
+    url: uploadUrl.toString(),
+    key,
+    contentType,
+    dataSize: Buffer.byteLength(typeof data === 'string' ? data : Buffer.from(data)),
+    hasApiKey: !!apiKey,
+    apiKeyPrefix: apiKey.substring(0, 10) + '...',
+  });
 
-    const url = response.data.url;
-    return { key, url };
-  } catch (error: any) {
-    const status = error.response?.status || 500;
-    const statusText = error.response?.statusText || 'Unknown Error';
-    const message = error.response?.data ? 
-      (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data)) :
-      error.message;
-    
-    console.error('[Storage] Upload failed:', {
-      status,
-      statusText,
-      url: uploadUrl.toString(),
-      message: message.substring(0, 500),
-    });
-    
-    throw new Error(
-      `Storage upload failed (${status} ${statusText}): ${message}`
-    );
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await axios.post(uploadUrl.toString(), formData, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          ...formData.getHeaders(),
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 30000, // 30 second timeout
+      });
+
+      const url = response.data.url;
+      console.log('[Storage] Upload successful:', { key, url, attempt });
+      return { key, url };
+    } catch (error: any) {
+      lastError = error;
+      const status = error.response?.status || 500;
+      const statusText = error.response?.statusText || 'Unknown Error';
+      const message = error.response?.data ? 
+        (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data)) :
+        error.message;
+      
+      console.error(`[Storage] Upload failed (attempt ${attempt}/${maxRetries}):`, {
+        status,
+        statusText,
+        url: uploadUrl.toString(),
+        message: message.substring(0, 500),
+      });
+      
+      // Don't retry on client errors (4xx) except 408 (timeout) and 429 (rate limit)
+      if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        break;
+      }
+      
+      // Wait before retrying (exponential backoff)
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`[Storage] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
+  
+  // All retries failed
+  const status = lastError.response?.status || 500;
+  const statusText = lastError.response?.statusText || 'Unknown Error';
+  const message = lastError.response?.data ? 
+    (typeof lastError.response.data === 'string' ? lastError.response.data : JSON.stringify(lastError.response.data)) :
+    lastError.message;
+  
+  throw new Error(
+    `Storage upload failed after ${maxRetries} attempts (${status} ${statusText}): ${message}`
+  );
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {

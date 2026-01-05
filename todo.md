@@ -574,3 +574,13 @@
 - [x] Verify Python client is sending correct parameters (updated to conditionally include errorMessage)
 - [x] Test complete job workflow end-to-end (TypeScript compilation successful)
 - [x] Update job status from in_progress to completed (fix deployed, ready for Pi testing)
+
+## Storage Upload 403 Error (Recurring)
+
+- [x] Investigate why 403 Forbidden error is occurring again (intermittent, possibly timing-related)
+- [x] Check if axios implementation is correct (working correctly with form-data)
+- [x] Verify form-data headers are being sent properly (headers correct, upload successful)
+- [x] Add detailed logging to storage.ts (added file size, attempt number, detailed errors)
+- [x] Test with different file types and sizes (test_upload.yaml uploaded successfully)
+- [x] Add retry logic with exponential backoff (3 attempts, smart retry on 5xx/408/429)
+- [ ] Investigate file download failures on Raspberry Pi (S3 URLs might have access restrictions)
