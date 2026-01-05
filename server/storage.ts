@@ -5,6 +5,51 @@ import { ENV } from './_core/env';
 import FormData from 'form-data';
 import axios from 'axios';
 
+// Add request interceptor for debugging
+axios.interceptors.request.use(
+  (config) => {
+    if (config.url?.includes('/storage/')) {
+      console.log('[Storage Request]', {
+        method: config.method,
+        url: config.url,
+        hasAuth: !!config.headers?.Authorization,
+        authPrefix: config.headers?.Authorization?.toString().substring(0, 20) + '...',
+        contentType: config.headers?.['Content-Type'],
+      });
+    }
+    return config;
+  },
+  (error) => {
+    console.error('[Storage Request Error]', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for debugging
+axios.interceptors.response.use(
+  (response) => {
+    if (response.config.url?.includes('/storage/')) {
+      console.log('[Storage Response]', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.config.url,
+      });
+    }
+    return response;
+  },
+  (error) => {
+    if (error.config?.url?.includes('/storage/')) {
+      console.error('[Storage Response Error]', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        url: error.config?.url,
+        data: error.response?.data,
+      });
+    }
+    return Promise.reject(error);
+  }
+);
+
 type StorageConfig = { baseUrl: string; apiKey: string };
 
 function getStorageConfig(): StorageConfig {

@@ -584,3 +584,15 @@
 - [x] Test with different file types and sizes (test_upload.yaml uploaded successfully)
 - [x] Add retry logic with exponential backoff (3 attempts, smart retry on 5xx/408/429)
 - [ ] Investigate file download failures on Raspberry Pi (S3 URLs might have access restrictions)
+
+## Frontend Upload 403 Error
+
+- [x] Investigate why user gets 403 error when uploading from UI but automated tests work (authentication issue)
+- [x] Check DroneConfig component file upload implementation (code is correct)
+- [x] Verify file data conversion (Buffer/base64) is correct (conversion works properly)
+- [x] Check if there's a difference between automated browser upload and manual user upload (user not logged in)
+- [x] Root cause identified: uploadFile uses protectedProcedure which requires authentication
+- [x] Add Sign In banner to DroneConfig page for unauthenticated users
+- [ ] User needs to click "Sign In" button and complete OAuth flow
+- [ ] After signing in, file uploads should work without 403 errors
+- [ ] Consider alternative: make uploadFile use publicProcedure for easier access
