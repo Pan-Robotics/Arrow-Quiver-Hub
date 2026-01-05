@@ -2,6 +2,8 @@
 // Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
 
 import { ENV } from './_core/env';
+import FormData from 'form-data';
+import axios from 'axios';
 
 type StorageConfig = { baseUrl: string; apiKey: string };
 
@@ -54,12 +56,12 @@ function toFormData(
   contentType: string,
   fileName: string
 ): FormData {
-  const blob =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : new Blob([data as any], { type: contentType });
   const form = new FormData();
-  form.append("file", blob, fileName || "file");
+  const buffer = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
+  form.append("file", buffer, {
+    filename: fileName || "file",
+    contentType: contentType,
+  });
   return form;
 }
 
@@ -76,20 +78,37 @@ export async function storagePut(
   const key = normalizeKey(relKey);
   const uploadUrl = buildUploadUrl(baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
-  const response = await fetch(uploadUrl, {
-    method: "POST",
-    headers: buildAuthHeaders(apiKey),
-    body: formData,
-  });
 
-  if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
+  try {
+    const response = await axios.post(uploadUrl.toString(), formData, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...formData.getHeaders(),
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+
+    const url = response.data.url;
+    return { key, url };
+  } catch (error: any) {
+    const status = error.response?.status || 500;
+    const statusText = error.response?.statusText || 'Unknown Error';
+    const message = error.response?.data ? 
+      (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data)) :
+      error.message;
+    
+    console.error('[Storage] Upload failed:', {
+      status,
+      statusText,
+      url: uploadUrl.toString(),
+      message: message.substring(0, 500),
+    });
+    
     throw new Error(
-      `Storage upload failed (${response.status} ${response.statusText}): ${message}`
+      `Storage upload failed (${status} ${statusText}): ${message}`
     );
   }
-  const url = (await response.json()).url;
-  return { key, url };
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {

@@ -554,8 +554,15 @@
 - [x] Create installation documentation (RASPBERRY_PI_CLIENT_README.md)
 
 ### Testing
-- [ ] Test file upload from web UI
-- [ ] Test job creation and polling
+- [x] Test file upload from web UI (successfully uploaded test_config.yaml to S3)
+- [x] Test job creation and polling (upload_file job created with pending status)
 - [ ] Test file download on Pi client
 - [ ] Test job acknowledgment flow
 - [ ] Test error scenarios (network failure, invalid files)
+
+## Storage Upload Error Fix
+
+- [x] Investigate 403 Forbidden error when uploading files to S3 (form-data stream incompatibility with Node.js fetch)
+- [x] Check storage permissions and configuration (permissions OK, issue was with request format)
+- [x] Fix file upload implementation in droneJobs.uploadFile (switched from fetch to axios)
+- [x] Test file upload in Drone Config page (successfully uploaded test_config.yaml)

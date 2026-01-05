@@ -1,0 +1,44 @@
+[Unit]
+Description=Quiver Hub Client - Two-way communication with Quiver Hub server
+Documentation=https://github.com/quiver/quiver-hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alexd
+Group=alexd
+WorkingDirectory=/home/alexd/quiver
+
+# Load environment variables from forwarder.env
+EnvironmentFile=/home/alexd/quiver/forwarder.env
+
+# Execute the Python client
+# The script will use WEB_SERVER_URL and API_KEY from forwarder.env
+ExecStart=/usr/bin/python3 /home/alexd/quiver/raspberry_pi_client.py \
+    --server ${WEB_SERVER_URL} \
+    --drone-id quiver_001 \
+    --api-key ${API_KEY} \
+    --poll-interval 5
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quiver-hub-client
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alexd/quiver /home/alexd/parsers /home/alexd/config
+
+[Install]
+WantedBy=multi-user.target
