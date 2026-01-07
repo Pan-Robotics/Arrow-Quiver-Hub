@@ -636,3 +636,16 @@
 - [x] Update telemetry_forwarder.py to use REST endpoint instead of tRPC
 - [ ] Test with Julius's live telemetry system (waiting for deployment)
 - [ ] Verify telemetry data appears in Flight Telemetry app
+
+## Telemetry Display Issue
+
+- [ ] Check if telemetry data is being stored in database (insertTelemetry function)
+- [ ] Verify WebSocket broadcast is working (broadcastTelemetry)
+- [ ] Check Flight Telemetry UI component for WebSocket connection
+- [ ] Verify telemetry data format matches UI expectations
+- [ ] Fix any display issues in the frontend
+- [ ] Test end-to-end with Julius's live data
+
+## Critical Bug Fixes
+
+- [x] Fix PointCloudViewer polling fallback race condition causing "Failed to fetch" errors even when WebSocket is connected

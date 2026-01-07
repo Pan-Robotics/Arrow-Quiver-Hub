@@ -32,6 +32,7 @@ interface PointCloudViewerProps {
 
 export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [latestData, setLatestData] = useState<PointCloudData | null>(null);
@@ -41,7 +42,6 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
   // Initialize WebSocket connection with polling fallback
   useEffect(() => {
     let socketInstance: Socket | null = null;
-    let pollingInterval: NodeJS.Timeout | null = null;
 
     // Try WebSocket first
     try {
@@ -55,9 +55,10 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
         setConnected(true);
         socketInstance!.emit("subscribe", droneId);
         // Clear polling if WebSocket connects
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          pollingInterval = null;
+        if (pollingIntervalRef.current) {
+          console.log("Stopping polling fallback (WebSocket connected)");
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
         }
       });
 
@@ -88,12 +89,12 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
 
     // Polling fallback function
     function startPolling() {
-      if (pollingInterval) return; // Already polling
+      if (pollingIntervalRef.current) return; // Already polling
       
       console.log("Starting polling fallback for drone:", droneId);
       
       // Poll every 100ms (10 Hz)
-      pollingInterval = setInterval(async () => {
+      pollingIntervalRef.current = setInterval(async () => {
         try {
           const response = await fetch(`/api/rest/pointcloud/latest/${droneId}`);
           if (response.ok) {
@@ -118,8 +119,9 @@ export default function PointCloudViewer({ droneId }: PointCloudViewerProps) {
         socketInstance.emit("unsubscribe", droneId);
         socketInstance.disconnect();
       }
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
       }
     };
   }, [droneId]);

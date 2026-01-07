@@ -38,7 +38,7 @@ import dronecan
 from dronecan.driver.socketcan import SocketCAN
 
 # Configuration from environment
-WEB_SERVER_URL = os.getenv('WEB_SERVER_URL', 'https://3000-iba222u2jpd2ykg2e4k61-4b5573f1.manusvm.computer')
+WEB_SERVER_URL = os.getenv('WEB_SERVER_URL', 'https://3000-iuxvn90xvvplcrvwo43dd-7e0e2d7b.manusvm.computer')
 API_KEY = os.getenv('API_KEY', '')
 DRONE_ID = os.getenv('DRONE_ID', 'quiver_001')
 MAVLINK_URL = os.getenv('MAVLINK_URL', 'udpin://0.0.0.0:14540')
@@ -185,7 +185,7 @@ class TelemetryForwarder:
                 with self.telemetry_lock:
                     self.telemetry_data['gps'] = {
                         'num_satellites': gps_info.num_satellites,
-                        'fix_type': gps_info.fix_type,
+                        'fix_type': str(gps_info.fix_type),
                         'timestamp': datetime.now().isoformat()
                     }
                 

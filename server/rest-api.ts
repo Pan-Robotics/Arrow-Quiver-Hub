@@ -222,7 +222,9 @@ router.get("/pointcloud/latest/:droneId", (req: Request, res: Response) => {
  */
 router.post("/telemetry/ingest", async (req: Request, res: Response) => {
   try {
+    console.log("[Telemetry REST] Received request", { hasBody: !!req.body });
     const { api_key, drone_id, timestamp, telemetry } = req.body;
+    console.log("[Telemetry REST] Parsed fields", { api_key: api_key ? "present" : "missing", drone_id, timestamp: timestamp ? "present" : "missing", telemetry: telemetry ? "present" : "missing" });
 
     // Validate required fields
     if (!api_key || !drone_id || !timestamp || !telemetry) {
