@@ -649,3 +649,10 @@
 ## Critical Bug Fixes
 
 - [x] Fix PointCloudViewer polling fallback race condition causing "Failed to fetch" errors even when WebSocket is connected
+
+## RPLidar Visualization Unification
+
+- [x] Compare PointCloudViewer component with UI Builder's PointCloud Canvas widget
+- [x] Convert RPLidar app to use UI Builder widget architecture
+- [x] Test converted app with WebSocket data stream
+- [ ] Remove redundant PointCloudViewer component after migration
