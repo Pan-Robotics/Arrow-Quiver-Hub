@@ -75,7 +75,6 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
       category: "Monitoring",
       icon: TrendingUp,
       installed: false,
-      popular: true,
     },
     {
       id: "camera",
@@ -84,7 +83,6 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
       category: "Media",
       icon: Camera,
       installed: false,
-      popular: true,
     },
     {
       id: "mission",
