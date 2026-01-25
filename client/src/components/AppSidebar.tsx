@@ -26,7 +26,7 @@ interface AppSidebarProps {
 export default function AppSidebar({ apps, activeAppId, onAppChange, onAddApp }: AppSidebarProps) {
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50">
+      <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50 overflow-hidden">
         {/* Logo/Home */}
         <div className="mb-4">
           <Radio className="text-primary" size={28} />
@@ -65,21 +65,23 @@ export default function AppSidebar({ apps, activeAppId, onAppChange, onAddApp }:
         </div>
 
         {/* Add App Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              className="w-12 h-12 border-dashed"
-              onClick={onAddApp}
-            >
-              <Plus size={20} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <p>Add App</p>
-          </TooltipContent>
-        </Tooltip>
+        <div className="mb-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="w-12 h-12 border-dashed"
+                onClick={onAddApp}
+              >
+                <Plus size={20} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Add App</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
     </TooltipProvider>
   );

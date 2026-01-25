@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Package, Download, Star, TrendingUp, Plus, Sparkles } from "lucide-react";
+import { Package, Download, Star, TrendingUp, Plus, Sparkles, Camera } from "lucide-react";
 import AppBuilder from "./AppBuilder";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -80,9 +80,9 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
     {
       id: "camera",
       name: "Camera Feed",
-      description: "Live video stream from drone cameras with recording capabilities",
+      description: "Live video stream from SIYI A8 mini gimbal camera with gimbal control and recording",
       category: "Media",
-      icon: Package,
+      icon: Camera,
       installed: false,
       popular: true,
     },
@@ -175,7 +175,7 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
           {storeApps.map((app) => {
             const Icon = app.icon;
             const isInstalled = isAppInstalled(app.id);
-            const isInstallable = app.id === "telemetry"; // Only telemetry is installable for now
+            const isInstallable = app.id === "telemetry" || app.id === "camera"; // Telemetry and Camera Feed are installable
             
             return (
               <Card key={app.id} className="p-6 hover:shadow-lg transition-shadow">

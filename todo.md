@@ -669,6 +669,7 @@
 - [x] Add action buttons (Photo, Record, Center, Nadir)
 - [x] Register Camera Feed in app catalog
 - [x] Add Camera Feed to sidebar navigation
+- [x] Add Camera Feed to built-in apps section in App Store
 
 ### WebSocket Integration
 - [ ] Create camera command WebSocket channel
