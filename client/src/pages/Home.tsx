@@ -2,10 +2,11 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
-import { Radio, Gauge, Package, Sparkles, Settings } from "lucide-react";
+import { Radio, Gauge, Package, Sparkles, Settings, Camera } from "lucide-react";
 import AppSidebar, { App } from "@/components/AppSidebar";
 import LidarApp from "@/components/apps/LidarApp";
 import TelemetryApp from "@/components/apps/TelemetryApp";
+import CameraFeedApp from "@/components/apps/CameraFeedApp";
 import DroneConfig from "@/pages/DroneConfig";
 import AppStore from "@/components/apps/AppStore";
 import AppRenderer from "@/components/apps/AppRenderer";
@@ -24,14 +25,21 @@ export default function Home() {
   // Define built-in app metadata
   const builtInAppMetadata: Record<string, { name: string; icon: React.ElementType<{ size?: number }> }> = {
     telemetry: { name: "Flight Telemetry", icon: Gauge },
+    camera: { name: "Camera Feed", icon: Camera },
   };
 
-  // Always show RPLidar app and Drone Config
+  // Always show RPLidar app, Camera Feed, and Drone Config
   const builtInApps: App[] = [
     {
       id: "lidar",
       name: "RPLidar Terrain Mapping",
       icon: Radio,
+      enabled: true,
+    },
+    {
+      id: "camera",
+      name: "Camera Feed",
+      icon: Camera,
       enabled: true,
     },
     {
@@ -107,6 +115,8 @@ export default function Home() {
     switch (activeAppId) {
       case "lidar":
         return <LidarApp />;
+      case "camera":
+        return <CameraFeedApp />;
       case "telemetry":
         return <TelemetryApp droneId="quiver_001" />;
       case "drone-config":

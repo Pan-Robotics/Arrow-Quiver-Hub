@@ -656,3 +656,28 @@
 - [x] Convert RPLidar app to use UI Builder widget architecture
 - [x] Test converted app with WebSocket data stream
 - [ ] Remove redundant PointCloudViewer component after migration
+
+
+## Camera Feed Application (Built-in SIYI A8 mini)
+
+### Frontend Implementation
+- [x] Create CameraFeedApp component with dark theme layout
+- [x] Implement video player placeholder (HLS.js ready)
+- [x] Build gimbal control pad (directional arrows + center button)
+- [x] Add zoom slider control (1x-6x)
+- [x] Create status panel (yaw, pitch, recording, connection)
+- [x] Add action buttons (Photo, Record, Center, Nadir)
+- [x] Register Camera Feed in app catalog
+- [x] Add Camera Feed to sidebar navigation
+
+### WebSocket Integration
+- [ ] Create camera command WebSocket channel
+- [ ] Implement gimbal control message format
+- [ ] Handle camera status updates from companion
+- [ ] Add connection state management
+
+### Backend (Future - Companion Computer)
+- [ ] Python SIYI SDK controller service
+- [ ] TCP connection to camera (192.168.144.25:37260)
+- [ ] RTSP to HLS transcoding pipeline
+- [ ] WebSocket bridge for camera commands
