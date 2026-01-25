@@ -50,29 +50,17 @@ export default function Home() {
     },
   ];
 
-  // Convert installed apps to App format
-  const installedAppsList: App[] = (installedApps || []).map(app => {
-    // Check if it's a built-in app
-    const builtInMeta = builtInAppMetadata[app.appId];
-    if (builtInMeta) {
-      return {
-        id: app.appId,
-        name: builtInMeta.name,
-        icon: builtInMeta.icon,
-        enabled: true,
-      };
-    }
-    
-    // It's a custom app
-    return {
+  // Convert installed apps to App format (filter out built-in apps since they're already in builtInApps)
+  const installedAppsList: App[] = (installedApps || [])
+    .filter(app => !builtInAppMetadata[app.appId]) // Skip built-in apps
+    .map(app => ({
       id: `custom-${app.appId}`,
       name: app.name,
       icon: Sparkles,
       enabled: true,
-    };
-  });
+    }));
 
-  // Combine built-in and installed apps
+  // Combine built-in and installed custom apps
   const apps: App[] = [...builtInApps, ...installedAppsList];
 
   const handleAddApp = () => {

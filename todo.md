@@ -686,3 +686,4 @@
 ## Bug Fixes
 
 - [x] Fix Camera Feed installation error - built-in apps should enable directly without database lookup
+- [x] Fix duplicate 'camera' key error in React component rendering
