@@ -23,14 +23,18 @@ interface AppManagementProps {
 export default function AppManagement({ onGoToStore, onEditApp }: AppManagementProps = {}) {
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   
+  // Get tRPC utils for cache invalidation
+  const utils = trpc.useUtils();
+  
   // Load user's installed apps
-  const { data: userApps, isLoading, refetch } = trpc.appBuilder.getUserApps.useQuery();
+  const { data: userApps, isLoading } = trpc.appBuilder.getUserApps.useQuery();
   
   // Uninstall app mutation
   const uninstallMutation = trpc.appBuilder.uninstallApp.useMutation({
     onSuccess: () => {
       toast.success("App uninstalled successfully");
-      refetch();
+      // Invalidate the query globally so all components (including sidebar) update
+      utils.appBuilder.getUserApps.invalidate();
     },
     onError: (error) => {
       toast.error(`Failed to uninstall app: ${error.message}`);
@@ -41,7 +45,8 @@ export default function AppManagement({ onGoToStore, onEditApp }: AppManagementP
   const deleteMutation = trpc.appBuilder.deleteApp.useMutation({
     onSuccess: () => {
       toast.success("App deleted successfully");
-      refetch();
+      // Invalidate the query globally so all components update
+      utils.appBuilder.getUserApps.invalidate();
     },
     onError: (error) => {
       toast.error(`Failed to delete app: ${error.message}`);

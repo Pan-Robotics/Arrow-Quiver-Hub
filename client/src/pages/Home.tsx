@@ -22,24 +22,21 @@ export default function Home() {
   // Load installed apps (both custom and built-in)
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
 
-  // Define built-in app metadata
+  // Define built-in app metadata (apps that can be installed/uninstalled)
   const builtInAppMetadata: Record<string, { name: string; icon: React.ElementType<{ size?: number }> }> = {
     telemetry: { name: "Flight Telemetry", icon: Gauge },
     camera: { name: "Camera Feed", icon: Camera },
   };
 
-  // Always show RPLidar app, Camera Feed, and Drone Config
-  const builtInApps: App[] = [
+  // Get list of installed app IDs
+  const installedAppIds = new Set((installedApps || []).map(app => app.appId));
+
+  // Core apps that are always visible (not uninstallable)
+  const coreApps: App[] = [
     {
       id: "lidar",
       name: "RPLidar Terrain Mapping",
       icon: Radio,
-      enabled: true,
-    },
-    {
-      id: "camera",
-      name: "Camera Feed",
-      icon: Camera,
       enabled: true,
     },
     {
@@ -50,9 +47,19 @@ export default function Home() {
     },
   ];
 
-  // Convert installed apps to App format (filter out built-in apps since they're already in builtInApps)
-  const installedAppsList: App[] = (installedApps || [])
-    .filter(app => !builtInAppMetadata[app.appId]) // Skip built-in apps
+  // Built-in apps that are installable/uninstallable (only show if installed)
+  const installedBuiltInApps: App[] = Object.entries(builtInAppMetadata)
+    .filter(([appId]) => installedAppIds.has(appId))
+    .map(([appId, meta]) => ({
+      id: appId,
+      name: meta.name,
+      icon: meta.icon,
+      enabled: true,
+    }));
+
+  // Custom apps (filter out built-in apps)
+  const installedCustomApps: App[] = (installedApps || [])
+    .filter(app => !builtInAppMetadata[app.appId])
     .map(app => ({
       id: `custom-${app.appId}`,
       name: app.name,
@@ -60,8 +67,8 @@ export default function Home() {
       enabled: true,
     }));
 
-  // Combine built-in and installed custom apps
-  const apps: App[] = [...builtInApps, ...installedAppsList];
+  // Combine all apps: core + installed built-in + installed custom
+  const apps: App[] = [...coreApps, ...installedBuiltInApps, ...installedCustomApps];
 
   const handleAddApp = () => {
     setShowAppStore(true);

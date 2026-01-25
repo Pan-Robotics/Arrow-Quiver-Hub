@@ -687,3 +687,4 @@
 
 - [x] Fix Camera Feed installation error - built-in apps should enable directly without database lookup
 - [x] Fix duplicate 'camera' key error in React component rendering
+- [x] Fix built-in app uninstallation - Camera Feed uninstall button doesn't work
