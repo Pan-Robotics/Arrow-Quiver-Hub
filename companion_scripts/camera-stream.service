@@ -1,0 +1,21 @@
+[Unit]
+Description=SIYI A8 Mini RTSP to HLS Streaming Service
+After=network-online.target siyi-camera.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/quiver
+ExecStart=/usr/bin/python3 /home/pi/quiver/camera_stream_service.py --stream sub --port 8080
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=camera-stream
+
+[Install]
+WantedBy=multi-user.target

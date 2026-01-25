@@ -1,0 +1,21 @@
+[Unit]
+Description=SIYI A8 Mini Camera Controller Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/quiver
+ExecStart=/usr/bin/python3 /home/pi/quiver/siyi_camera_controller.py --hub-url ${HUB_WS_URL} --drone-id ${DRONE_ID} --api-key ${API_KEY}
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siyi-camera
+
+[Install]
+WantedBy=multi-user.target

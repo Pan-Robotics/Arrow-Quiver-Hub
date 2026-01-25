@@ -10,7 +10,7 @@ import {
   insertScan,
   insertTelemetry,
 } from "./db";
-import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
+import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./restApi";
 
@@ -292,6 +292,78 @@ router.post("/telemetry/ingest", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error in /api/rest/telemetry/ingest:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+/**
+ * POST /api/rest/camera/status
+ * Receive camera status from companion computer
+ * 
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   timestamp: number (Unix timestamp),
+ *   connected: boolean,
+ *   attitude?: { yaw: number, pitch: number, roll: number },
+ *   recording?: boolean,
+ *   hdr_enabled?: boolean,
+ *   tf_card_present?: boolean,
+ *   zoom_level?: number
+ * }
+ */
+router.post("/camera/status", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, timestamp, connected, attitude, recording, hdr_enabled, tf_card_present, zoom_level } = req.body;
+
+    // Validate required fields
+    if (!api_key || !drone_id || timestamp === undefined || connected === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, timestamp, connected",
+      });
+    }
+
+    // Validate API key
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid API key",
+      });
+    }
+
+    // Verify drone ID matches API key
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Drone ID mismatch",
+      });
+    }
+
+    // Broadcast camera status to WebSocket clients
+    broadcastCameraStatus({
+      drone_id,
+      timestamp,
+      connected,
+      attitude,
+      recording,
+      hdr_enabled,
+      tf_card_present,
+      zoom_level,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Camera status received",
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/camera/status:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",

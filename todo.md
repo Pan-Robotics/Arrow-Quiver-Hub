@@ -689,3 +689,11 @@
 - [x] Fix duplicate 'camera' key error in React component rendering
 - [x] Fix built-in app uninstallation - Camera Feed uninstall button doesn't work
 - [x] Remove "Popular" badge from built-in apps in App Store
+
+## SIYI Camera Controller & Video Streaming
+
+- [x] Create siyi_camera_controller.py with TCP protocol implementation
+- [x] Implement RTSP-to-HLS video streaming service
+- [x] Add WebSocket bridge for camera commands from Quiver Hub
+- [x] Create systemd service files for deployment
+- [x] Write deployment documentation

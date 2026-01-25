@@ -40,6 +40,28 @@ export interface TelemetryMessage {
   };
 }
 
+export interface CameraStatusMessage {
+  drone_id: string;
+  timestamp: number;
+  connected: boolean;
+  attitude?: {
+    yaw: number;
+    pitch: number;
+    roll: number;
+  };
+  recording?: boolean;
+  hdr_enabled?: boolean;
+  tf_card_present?: boolean;
+  zoom_level?: number;
+}
+
+export interface CameraCommandMessage {
+  type: 'camera_command';
+  droneId: string;
+  action: string;
+  params?: Record<string, any>;
+}
+
 export interface PointCloudMessage {
   drone_id: string;
   timestamp: string;
@@ -93,6 +115,32 @@ export function initializeWebSocket(httpServer: HTTPServer) {
     socket.on('unsubscribe_app', (appId: string) => {
       console.log(`[WebSocket] Client ${socket.id} unsubscribed from app: ${appId}`);
       socket.leave(`app:${appId}`);
+    });
+
+    // Subscribe to camera feed
+    socket.on('subscribe_camera', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to camera: ${droneId}`);
+      socket.join(`camera:${droneId}`);
+    });
+
+    socket.on('unsubscribe_camera', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from camera: ${droneId}`);
+      socket.leave(`camera:${droneId}`);
+    });
+
+    // Handle camera commands from frontend
+    socket.on('camera_command', (message: CameraCommandMessage) => {
+      console.log(`[WebSocket] Camera command from ${socket.id}:`, message.action);
+      // Forward command to companion computer clients
+      io?.to(`companion:${message.droneId}`).emit('camera_command', message);
+    });
+
+    // Companion computer registration
+    socket.on('register_companion', (data: { droneId: string; type: string }) => {
+      console.log(`[WebSocket] Companion registered: ${data.droneId} (${data.type})`);
+      socket.join(`companion:${data.droneId}`);
+      socket.data.companionDroneId = data.droneId;
+      socket.data.companionType = data.type;
     });
 
     socket.on('disconnect', () => {
@@ -154,6 +202,31 @@ export function broadcastAppData(appId: string, data: any) {
   });
   
   console.log(`[WebSocket] Broadcasted data to app:${appId}`);
+}
+
+/**
+ * Broadcast camera status to subscribed clients
+ */
+export function broadcastCameraStatus(message: CameraStatusMessage) {
+  if (!io) {
+    console.warn('[WebSocket] Cannot broadcast camera status: server not initialized');
+    return;
+  }
+
+  // Broadcast to all clients subscribed to this drone's camera
+  io.to(`camera:${message.drone_id}`).emit('camera_status', message);
+}
+
+/**
+ * Broadcast camera command response to frontend
+ */
+export function broadcastCameraResponse(droneId: string, response: any) {
+  if (!io) {
+    console.warn('[WebSocket] Cannot broadcast camera response: server not initialized');
+    return;
+  }
+
+  io.to(`camera:${droneId}`).emit('camera_response', response);
 }
 
 export function getWebSocketServer() {
