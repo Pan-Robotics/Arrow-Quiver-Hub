@@ -682,3 +682,7 @@
 - [ ] TCP connection to camera (192.168.144.25:37260)
 - [ ] RTSP to HLS transcoding pipeline
 - [ ] WebSocket bridge for camera commands
+
+## Bug Fixes
+
+- [x] Fix Camera Feed installation error - built-in apps should enable directly without database lookup
