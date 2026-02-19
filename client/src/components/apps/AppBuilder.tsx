@@ -5,10 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Play, FileUp, Radio, Code, Zap, Check, ChevronRight, Info } from "lucide-react";
+import { ArrowLeft, Play, FileUp, Radio, Code, Zap, Check, ChevronRight, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 
 interface AppBuilderProps {
   onBack: () => void;
@@ -18,12 +19,29 @@ interface AppBuilderProps {
 
 type DataSourceType = "custom_endpoint" | "stream_subscription" | "passthrough";
 
-interface StreamConfig {
+/** Per-stream subscription config with selected fields */
+interface StreamSubscription {
   streamId: string;
   streamEvent: string;
   subscribeEvent: string;
   subscribeParam: string;
-  fieldMappings: Record<string, string>; // widgetField -> streamField
+  selectedFields: string[]; // field paths selected by the user
+  fieldAliases: Record<string, string>; // streamField -> alias (for conflict resolution)
+}
+
+/** Legacy single-stream config for backward compatibility */
+interface LegacyStreamConfig {
+  streamId: string;
+  streamEvent: string;
+  subscribeEvent: string;
+  subscribeParam: string;
+  fieldMappings: Record<string, string>;
+}
+
+/** New multi-stream config */
+interface MultiStreamConfig {
+  streams: StreamSubscription[];
+  fieldMappings: Record<string, string>; // combined: widgetField -> "streamId:fieldPath"
 }
 
 const STORAGE_KEY = "appBuilder_formData";
@@ -95,8 +113,8 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
   const [appName, setAppName] = useState(savedData?.appName || "");
   const [appDescription, setAppDescription] = useState(savedData?.appDescription || "");
   const [dataSource, setDataSource] = useState<DataSourceType>(savedData?.dataSource || "custom_endpoint");
-  const [selectedStreamId, setSelectedStreamId] = useState<string>(savedData?.selectedStreamId || "");
-  const [streamConfig, setStreamConfig] = useState<StreamConfig | null>(savedData?.streamConfig || null);
+  const [streamSubscriptions, setStreamSubscriptions] = useState<StreamSubscription[]>(savedData?.streamSubscriptions || []);
+  const [expandedStreams, setExpandedStreams] = useState<Set<string>>(new Set());
   const [parserCode, setParserCode] = useState(savedData?.parserCode || DEFAULT_PARSER_TEMPLATE);
   const [testData, setTestData] = useState(savedData?.testData || DEFAULT_TEST_DATA);
 
@@ -114,8 +132,23 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
           const config = typeof (existingApp as any).dataSourceConfig === 'string'
             ? JSON.parse((existingApp as any).dataSourceConfig)
             : (existingApp as any).dataSourceConfig;
-          setStreamConfig(config);
-          if (config?.streamId) setSelectedStreamId(config.streamId);
+          // Handle both legacy single-stream and new multi-stream configs
+          if (config?.streams && Array.isArray(config.streams)) {
+            setStreamSubscriptions(config.streams);
+          } else if (config?.streamId) {
+            // Legacy single-stream: convert to multi-stream format
+            const legacyFields = config.fieldMappings
+              ? Object.values(config.fieldMappings) as string[]
+              : [];
+            setStreamSubscriptions([{
+              streamId: config.streamId,
+              streamEvent: config.streamEvent,
+              subscribeEvent: config.subscribeEvent,
+              subscribeParam: config.subscribeParam,
+              selectedFields: legacyFields.length > 0 ? legacyFields : [],
+              fieldAliases: {},
+            }]);
+          }
         } catch (e) {
           console.error('Failed to parse dataSourceConfig:', e);
         }
@@ -146,8 +179,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
       appName,
       appDescription,
       dataSource,
-      selectedStreamId,
-      streamConfig,
+      streamSubscriptions,
       parserCode,
       testData,
     };
@@ -156,7 +188,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
     } catch (error) {
       console.error('[AppBuilder] Failed to save form data:', error);
     }
-  }, [appName, appDescription, dataSource, selectedStreamId, streamConfig, parserCode, testData]);
+  }, [appName, appDescription, dataSource, streamSubscriptions, parserCode, testData]);
 
   const clearSavedData = () => {
     try {
@@ -169,67 +201,148 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
   const testParserMutation = trpc.appBuilder.testParser.useMutation();
   const extractSchemaMutation = trpc.appBuilder.extractSchema.useMutation();
 
-  // Get the selected stream object
-  const selectedStream = useMemo(() => {
-    if (!availableStreams || !selectedStreamId) return null;
-    return availableStreams.find(s => s.id === selectedStreamId) || null;
-  }, [availableStreams, selectedStreamId]);
-
-  // Re-derive parsedSchema when streams load and a stream was previously selected (e.g., from localStorage)
+  // Re-derive streamSubscriptions from localStorage when streams load
   useEffect(() => {
-    if (dataSource === 'stream_subscription' && selectedStreamId && availableStreams && !parsedSchema) {
-      const stream = availableStreams.find(s => s.id === selectedStreamId);
-      if (stream) {
-        const schema: Record<string, any> = {};
-        const fieldMappings: Record<string, string> = {};
-        for (const [fieldPath, fieldInfo] of Object.entries(stream.fields)) {
-          const simpleName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
-          schema[simpleName] = { type: fieldInfo.type, description: fieldInfo.description };
-          fieldMappings[simpleName] = fieldPath;
-        }
-        setParsedSchema(schema);
-        if (!streamConfig) {
-          setStreamConfig({
-            streamId: stream.id,
-            streamEvent: stream.event,
-            subscribeEvent: stream.subscribeEvent,
-            subscribeParam: stream.subscribeParam,
-            fieldMappings,
-          });
-        }
+    if (dataSource === 'stream_subscription' && streamSubscriptions.length > 0 && availableStreams) {
+      // Validate that saved subscriptions still reference valid streams
+      const validSubs = streamSubscriptions.filter(sub =>
+        availableStreams.some(s => s.id === sub.streamId)
+      );
+      if (validSubs.length !== streamSubscriptions.length) {
+        setStreamSubscriptions(validSubs);
       }
     }
-  }, [dataSource, selectedStreamId, availableStreams, parsedSchema, streamConfig]);
+  }, [dataSource, availableStreams]);
 
-  // When a stream is selected, build the schema from its fields and create streamConfig
-  const handleStreamSelect = (streamId: string) => {
-    setSelectedStreamId(streamId);
+  // Build combined schema from all stream subscriptions
+  const buildCombinedSchema = useCallback((): { schema: Record<string, any>; fieldMappings: Record<string, string> } => {
+    if (!availableStreams) return { schema: {}, fieldMappings: {} };
+
+    const schema: Record<string, any> = {};
+    const fieldMappings: Record<string, string> = {};
+    const usedNames = new Set<string>();
+
+    for (const sub of streamSubscriptions) {
+      const stream = availableStreams.find(s => s.id === sub.streamId);
+      if (!stream) continue;
+
+      for (const fieldPath of sub.selectedFields) {
+        const fieldInfo = stream.fields[fieldPath];
+        if (!fieldInfo) continue;
+
+        // Determine the widget field name
+        const baseName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
+        const alias = sub.fieldAliases[fieldPath];
+        let widgetName = alias || baseName;
+
+        // Handle conflicts: prefix with stream name if duplicate
+        if (usedNames.has(widgetName) && !alias) {
+          const streamPrefix = stream.id.replace(/[^a-zA-Z0-9]/g, '_');
+          widgetName = `${streamPrefix}_${baseName}`;
+        }
+        usedNames.add(widgetName);
+
+        schema[widgetName] = {
+          type: fieldInfo.type,
+          description: `${fieldInfo.description} (from ${stream.name})`,
+        };
+        fieldMappings[widgetName] = `${sub.streamId}:${fieldPath}`;
+      }
+    }
+
+    return { schema, fieldMappings };
+  }, [streamSubscriptions, availableStreams]);
+
+  // Auto-update parsedSchema when stream subscriptions change
+  useEffect(() => {
+    if (dataSource === 'stream_subscription' && streamSubscriptions.length > 0) {
+      const { schema } = buildCombinedSchema();
+      if (Object.keys(schema).length > 0) {
+        setParsedSchema(schema);
+      }
+    }
+  }, [dataSource, streamSubscriptions, buildCombinedSchema]);
+
+  // Toggle a stream's expanded state
+  const toggleStreamExpanded = (streamId: string) => {
+    setExpandedStreams(prev => {
+      const next = new Set(prev);
+      if (next.has(streamId)) {
+        next.delete(streamId);
+      } else {
+        next.add(streamId);
+      }
+      return next;
+    });
+  };
+
+  // Toggle a stream subscription (add/remove entire stream)
+  const toggleStreamSubscription = (streamId: string) => {
     const stream = availableStreams?.find(s => s.id === streamId);
     if (!stream) return;
 
-    // Build schema from stream fields
-    const schema: Record<string, any> = {};
-    const fieldMappings: Record<string, string> = {};
-
-    for (const [fieldPath, fieldInfo] of Object.entries(stream.fields)) {
-      // Use the last part of the path as the field name for the widget
-      const simpleName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
-      schema[simpleName] = {
-        type: fieldInfo.type,
-        description: fieldInfo.description,
-      };
-      fieldMappings[simpleName] = fieldPath;
-    }
-
-    setParsedSchema(schema);
-    setStreamConfig({
-      streamId: stream.id,
-      streamEvent: stream.event,
-      subscribeEvent: stream.subscribeEvent,
-      subscribeParam: stream.subscribeParam,
-      fieldMappings,
+    setStreamSubscriptions(prev => {
+      const existing = prev.find(s => s.streamId === streamId);
+      if (existing) {
+        // Remove this stream
+        return prev.filter(s => s.streamId !== streamId);
+      } else {
+        // Add with all fields selected by default
+        const allFields = Object.keys(stream.fields);
+        return [...prev, {
+          streamId: stream.id,
+          streamEvent: stream.event,
+          subscribeEvent: stream.subscribeEvent,
+          subscribeParam: stream.subscribeParam,
+          selectedFields: allFields,
+          fieldAliases: {},
+        }];
+      }
+    });
+    // Auto-expand when adding
+    setExpandedStreams(prev => {
+      const next = new Set(prev);
+      next.add(streamId);
+      return next;
     });
   };
+
+  // Toggle a single field within a stream subscription
+  const toggleField = (streamId: string, fieldPath: string) => {
+    setStreamSubscriptions(prev => {
+      return prev.map(sub => {
+        if (sub.streamId !== streamId) return sub;
+        const hasField = sub.selectedFields.includes(fieldPath);
+        return {
+          ...sub,
+          selectedFields: hasField
+            ? sub.selectedFields.filter(f => f !== fieldPath)
+            : [...sub.selectedFields, fieldPath],
+        };
+      });
+    });
+  };
+
+  // Select all / deselect all fields for a stream
+  const toggleAllFields = (streamId: string, selectAll: boolean) => {
+    const stream = availableStreams?.find(s => s.id === streamId);
+    if (!stream) return;
+
+    setStreamSubscriptions(prev => {
+      return prev.map(sub => {
+        if (sub.streamId !== streamId) return sub;
+        return {
+          ...sub,
+          selectedFields: selectAll ? Object.keys(stream.fields) : [],
+        };
+      });
+    });
+  };
+
+  // Count total selected fields across all streams
+  const totalSelectedFields = useMemo(() => {
+    return streamSubscriptions.reduce((sum, sub) => sum + sub.selectedFields.length, 0);
+  }, [streamSubscriptions]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -284,18 +397,21 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
       return;
     }
 
-    // For stream_subscription, schema is already set from the stream
+    // For stream_subscription, schema is built from selected fields
     if (dataSource === 'stream_subscription') {
-      if (!selectedStreamId || !streamConfig) {
-        toast.error("Please select a data stream");
+      if (streamSubscriptions.length === 0) {
+        toast.error("Please select at least one data stream");
         return;
       }
-      if (!parsedSchema) {
-        toast.error("No schema available from selected stream");
+      if (totalSelectedFields === 0) {
+        toast.error("Please select at least one data field from your streams");
         return;
       }
+      const { schema } = buildCombinedSchema();
+      setParsedSchema(schema);
       setShowUIBuilder(true);
-      toast.success("Stream configured! Now design your UI");
+      const streamCount = streamSubscriptions.length;
+      toast.success(`${streamCount} stream${streamCount > 1 ? 's' : ''} configured with ${totalSelectedFields} fields! Now design your UI`);
       return;
     }
 
@@ -305,7 +421,6 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
         toast.error("Please define a SCHEMA in the code editor (no parse_payload function needed)");
         return;
       }
-      // Try to extract just the SCHEMA
       try {
         toast.info("Extracting schema...");
         const schemaResult = await extractSchemaMutation.mutateAsync({ parserCode });
@@ -350,9 +465,17 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
   const handleSaveUI = async (uiSchema: any) => {
     setIsSaving(true);
     try {
+      const { fieldMappings } = buildCombinedSchema();
+
+      // Build the multi-stream config
+      const multiStreamConfig: MultiStreamConfig = {
+        streams: streamSubscriptions,
+        fieldMappings,
+      };
+
       // For stream_subscription, use a minimal passthrough parser
       const effectiveParserCode = dataSource === 'stream_subscription'
-        ? `# Auto-generated: This app subscribes to a data stream\n# No parser needed - data flows directly from the stream\ndef parse_payload(raw_data: dict) -> dict:\n    return raw_data\n\nSCHEMA = ${JSON.stringify(parsedSchema, null, 4)}`
+        ? `# Auto-generated: This app subscribes to ${streamSubscriptions.length} data stream(s)\n# No parser needed - data flows directly from the streams\ndef parse_payload(raw_data: dict) -> dict:\n    return raw_data\n\nSCHEMA = ${JSON.stringify(parsedSchema, null, 4)}`
         : parserCode;
 
       if (editMode && editingAppId) {
@@ -361,7 +484,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
           name: appName,
           description: appDescription || undefined,
           dataSource,
-          dataSourceConfig: streamConfig || undefined,
+          dataSourceConfig: dataSource === 'stream_subscription' ? multiStreamConfig : undefined,
           parserCode: effectiveParserCode,
           dataSchema: parsedSchema,
           uiSchema,
@@ -373,7 +496,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
           name: appName,
           description: appDescription || undefined,
           dataSource,
-          dataSourceConfig: streamConfig || undefined,
+          dataSourceConfig: dataSource === 'stream_subscription' ? multiStreamConfig : undefined,
           parserCode: effectiveParserCode,
           dataSchema: parsedSchema,
           uiSchema,
@@ -490,11 +613,11 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
                   </div>
                 )}
                 <Radio className="h-8 w-8 mb-3 text-green-500" />
-                <h3 className="font-semibold mb-1">Subscribe to Stream</h3>
+                <h3 className="font-semibold mb-1">Subscribe to Streams</h3>
                 <p className="text-sm text-muted-foreground">
-                  Tap into an existing data stream (RPLidar, Telemetry, Camera, or another app)
+                  Mix and match data fields from multiple pipelines (RPLidar, Telemetry, Camera, custom apps)
                 </p>
-                <Badge variant="secondary" className="mt-2">Easiest</Badge>
+                <Badge variant="secondary" className="mt-2">Most Powerful</Badge>
               </button>
 
               {/* Passthrough */}
@@ -522,13 +645,21 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
           </CardContent>
         </Card>
 
-        {/* Stream Subscription: Stream Picker */}
+        {/* Stream Subscription: Multi-Stream Picker with Per-Field Selection */}
         {dataSource === "stream_subscription" && (
           <Card>
             <CardHeader>
-              <CardTitle>Select Data Stream</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span>Select Data Streams & Fields</span>
+                {totalSelectedFields > 0 && (
+                  <Badge variant="default" className="text-xs">
+                    {streamSubscriptions.length} stream{streamSubscriptions.length !== 1 ? 's' : ''} · {totalSelectedFields} field{totalSelectedFields !== 1 ? 's' : ''}
+                  </Badge>
+                )}
+              </CardTitle>
               <CardDescription>
-                Choose an existing data stream to subscribe to. Your app will receive live data from this stream.
+                Select one or more data streams, then choose which fields to include in your app.
+                Fields from different streams are merged into a single data object for your widgets.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -538,59 +669,139 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
                 <p className="text-muted-foreground">No streams available</p>
               ) : (
                 <div className="space-y-3">
-                  {availableStreams.map((stream) => (
-                    <button
-                      key={stream.id}
-                      onClick={() => handleStreamSelect(stream.id)}
-                      className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
-                        selectedStreamId === stream.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold">{stream.name}</h4>
-                          <p className="text-sm text-muted-foreground">{stream.description}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {Object.keys(stream.fields).length} fields
-                          </Badge>
-                          {selectedStreamId === stream.id && (
-                            <Check className="h-5 w-5 text-primary" />
+                  {availableStreams.map((stream) => {
+                    const isSubscribed = streamSubscriptions.some(s => s.streamId === stream.id);
+                    const sub = streamSubscriptions.find(s => s.streamId === stream.id);
+                    const isExpanded = expandedStreams.has(stream.id);
+                    const allFields = Object.keys(stream.fields);
+                    const selectedCount = sub?.selectedFields.length || 0;
+
+                    return (
+                      <div
+                        key={stream.id}
+                        className={`rounded-lg border-2 transition-all ${
+                          isSubscribed
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/30"
+                        }`}
+                      >
+                        {/* Stream Header */}
+                        <div className="p-4 flex items-center gap-3">
+                          <Checkbox
+                            checked={isSubscribed}
+                            onCheckedChange={() => toggleStreamSubscription(stream.id)}
+                            className="h-5 w-5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold">{stream.name}</h4>
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {allFields.length} fields
+                              </Badge>
+                              {isSubscribed && selectedCount > 0 && (
+                                <Badge variant="default" className="text-xs shrink-0">
+                                  {selectedCount} selected
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground truncate">{stream.description}</p>
+                          </div>
+                          {isSubscribed && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleStreamExpanded(stream.id);
+                              }}
+                              className="shrink-0"
+                            >
+                              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </Button>
                           )}
                         </div>
-                      </div>
-                      {/* Show fields when selected */}
-                      {selectedStreamId === stream.id && (
-                        <div className="mt-3 pt-3 border-t border-border">
-                          <p className="text-xs text-muted-foreground mb-2 font-medium">Available Fields:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(stream.fields).map(([fieldPath, fieldInfo]) => (
-                              <Badge key={fieldPath} variant="secondary" className="text-xs font-mono">
-                                {fieldPath}
-                                <span className="ml-1 text-muted-foreground">({fieldInfo.type})</span>
-                              </Badge>
-                            ))}
+
+                        {/* Field Selection (expanded) */}
+                        {isSubscribed && isExpanded && (
+                          <div className="px-4 pb-4 border-t border-border/50 pt-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-xs text-muted-foreground font-medium">Select individual fields:</p>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => toggleAllFields(stream.id, true)}
+                                >
+                                  Select All
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => toggleAllFields(stream.id, false)}
+                                >
+                                  Deselect All
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {Object.entries(stream.fields).map(([fieldPath, fieldInfo]) => {
+                                const isSelected = sub?.selectedFields.includes(fieldPath) || false;
+                                return (
+                                  <label
+                                    key={fieldPath}
+                                    className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${
+                                      isSelected
+                                        ? "bg-primary/10 border border-primary/30"
+                                        : "bg-muted/30 border border-transparent hover:bg-muted/50"
+                                    }`}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={() => toggleField(stream.id, fieldPath)}
+                                      className="h-4 w-4"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-sm font-mono block truncate">{fieldPath}</span>
+                                      <span className="text-xs text-muted-foreground block truncate">
+                                        {fieldInfo.type} — {fieldInfo.description}
+                                      </span>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </button>
-                  ))}
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
-              {selectedStream && (
+              {/* Combined fields summary */}
+              {totalSelectedFields > 0 && (
                 <div className="mt-4 p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-start gap-2">
                     <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                     <div className="text-sm">
-                      <p className="font-medium">How it works</p>
-                      <p className="text-muted-foreground mt-1">
-                        Your app will automatically subscribe to the <strong>{selectedStream.name}</strong> WebSocket channel.
-                        Data fields will be mapped to your UI widgets. No parser code needed.
+                      <p className="font-medium">Combined Data Fields</p>
+                      <p className="text-muted-foreground mt-1 mb-2">
+                        Your app will receive a merged data object with {totalSelectedFields} fields from {streamSubscriptions.length} stream{streamSubscriptions.length !== 1 ? 's' : ''}.
+                        These fields will be available for binding to UI widgets.
                       </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(() => {
+                          const { schema } = buildCombinedSchema();
+                          return Object.entries(schema).map(([name, info]: [string, any]) => (
+                            <Badge key={name} variant="secondary" className="text-xs font-mono">
+                              {name}
+                              <span className="ml-1 text-muted-foreground">({info.type})</span>
+                            </Badge>
+                          ));
+                        })()}
+                      </div>
                     </div>
                   </div>
                 </div>

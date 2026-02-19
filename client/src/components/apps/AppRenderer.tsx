@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -26,6 +26,31 @@ interface UISchema {
 
 interface AppRendererProps {
   appId: string;
+}
+
+/** Per-stream subscription config */
+interface StreamSubscription {
+  streamId: string;
+  streamEvent: string;
+  subscribeEvent: string;
+  subscribeParam: string;
+  selectedFields: string[];
+  fieldAliases: Record<string, string>;
+}
+
+/** Multi-stream config format */
+interface MultiStreamConfig {
+  streams: StreamSubscription[];
+  fieldMappings: Record<string, string>; // widgetField -> "streamId:fieldPath"
+}
+
+/** Legacy single-stream config */
+interface LegacyStreamConfig {
+  streamId: string;
+  streamEvent: string;
+  subscribeEvent: string;
+  subscribeParam: string;
+  fieldMappings: Record<string, string>;
 }
 
 /**
@@ -115,6 +140,8 @@ function CanvasWidget({
 export default function AppRenderer({ appId }: AppRendererProps) {
   const [liveData, setLiveData] = useState<Record<string, any>>({});
   const [socket, setSocket] = useState<Socket | null>(null);
+  // Ref to accumulate data from multiple streams without stale closure issues
+  const liveDataRef = useRef<Record<string, any>>({});
   
   // Load app configuration
   const { data: apps } = trpc.appBuilder.listApps.useQuery({ publishedOnly: false });
@@ -136,19 +163,83 @@ export default function AppRenderer({ appId }: AppRendererProps) {
     return raw;
   }, [app]);
 
-  // Helper to extract nested values using dot notation (e.g., "stats.point_count")
-  const getNestedValue = (obj: any, path: string): any => {
-    return path.split('.').reduce((current, key) => current?.[key], obj);
-  };
+  // Normalize config to multi-stream format (handles legacy single-stream)
+  const normalizedConfig = useMemo((): MultiStreamConfig | null => {
+    if (dataSource !== 'stream_subscription' || !dataSourceConfig) return null;
 
-  // Apply field mappings to transform stream data into widget-compatible format
-  const applyFieldMappings = (rawData: any, mappings: Record<string, string>): Record<string, any> => {
-    const result: Record<string, any> = {};
-    for (const [widgetField, streamPath] of Object.entries(mappings)) {
-      result[widgetField] = getNestedValue(rawData, streamPath);
+    // New multi-stream format
+    if (dataSourceConfig.streams && Array.isArray(dataSourceConfig.streams)) {
+      return dataSourceConfig as MultiStreamConfig;
     }
-    return result;
-  };
+
+    // Legacy single-stream format: convert to multi-stream
+    if (dataSourceConfig.streamId) {
+      const legacy = dataSourceConfig as LegacyStreamConfig;
+      return {
+        streams: [{
+          streamId: legacy.streamId,
+          streamEvent: legacy.streamEvent,
+          subscribeEvent: legacy.subscribeEvent,
+          subscribeParam: legacy.subscribeParam,
+          selectedFields: legacy.fieldMappings ? Object.values(legacy.fieldMappings) : [],
+          fieldAliases: {},
+        }],
+        fieldMappings: legacy.fieldMappings || {},
+      };
+    }
+
+    return null;
+  }, [dataSource, dataSourceConfig]);
+
+  // Helper to extract nested values using dot notation (e.g., "stats.point_count")
+  const getNestedValue = useCallback((obj: any, path: string): any => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }, []);
+
+  // Parse a field mapping string into streamId and fieldPath
+  // Handles app: prefixed IDs (e.g., "app:weather-station:temperature")
+  const parseFieldMapping = useCallback((mapping: string): { streamId: string; fieldPath: string } | null => {
+    if (mapping.startsWith('app:')) {
+      const afterApp = mapping.substring(4);
+      const colonIdx = afterApp.indexOf(':');
+      if (colonIdx === -1) return null;
+      return {
+        streamId: 'app:' + afterApp.substring(0, colonIdx),
+        fieldPath: afterApp.substring(colonIdx + 1),
+      };
+    }
+    const colonIdx = mapping.indexOf(':');
+    if (colonIdx === -1) return null;
+    return {
+      streamId: mapping.substring(0, colonIdx),
+      fieldPath: mapping.substring(colonIdx + 1),
+    };
+  }, []);
+
+  // Apply field mappings from a specific stream to update merged data
+  const applyStreamData = useCallback((
+    streamId: string,
+    rawData: any,
+    fieldMappings: Record<string, string>
+  ) => {
+    const updates: Record<string, any> = {};
+    
+    for (const [widgetField, mapping] of Object.entries(fieldMappings)) {
+      const parsed = parseFieldMapping(mapping);
+      if (!parsed) continue;
+      
+      if (parsed.streamId === streamId) {
+        updates[widgetField] = getNestedValue(rawData, parsed.fieldPath);
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      // Merge with existing data from other streams
+      const newData = { ...liveDataRef.current, ...updates };
+      liveDataRef.current = newData;
+      setLiveData(newData);
+    }
+  }, [getNestedValue, parseFieldMapping]);
 
   // Connect to WebSocket for live data
   useEffect(() => {
@@ -159,18 +250,22 @@ export default function AppRenderer({ appId }: AppRendererProps) {
     newSocket.on("connect", () => {
       console.log("[AppRenderer] WebSocket connected, dataSource:", dataSource);
 
-      if (dataSource === 'stream_subscription' && dataSourceConfig) {
-        const { streamId } = dataSourceConfig;
-        console.log(`[AppRenderer] Subscribing to stream: ${streamId}`);
+      if (dataSource === 'stream_subscription' && normalizedConfig) {
+        // Multi-stream: subscribe to each unique stream
+        const subscribedStreams = new Set<string>();
         
-        if (streamId?.startsWith('app:')) {
-          // Subscribe to another custom app's data
-          const sourceAppId = streamId.replace('app:', '');
-          newSocket.emit('subscribe_app', sourceAppId);
-        } else {
-          // For built-in streams (pointcloud, telemetry, camera_status),
-          // use the generic subscribe_stream event to join the stream room
-          newSocket.emit('subscribe_stream', streamId);
+        for (const sub of normalizedConfig.streams) {
+          if (subscribedStreams.has(sub.streamId)) continue;
+          subscribedStreams.add(sub.streamId);
+          
+          console.log(`[AppRenderer] Subscribing to stream: ${sub.streamId}`);
+          
+          if (sub.streamId.startsWith('app:')) {
+            const sourceAppId = sub.streamId.replace('app:', '');
+            newSocket.emit('subscribe_app', sourceAppId);
+          } else {
+            newSocket.emit('subscribe_stream', sub.streamId);
+          }
         }
       } else {
         // Default: subscribe to this app's own data channel
@@ -178,52 +273,40 @@ export default function AppRenderer({ appId }: AppRendererProps) {
       }
     });
 
-    // Handle app_data events (for custom_endpoint and passthrough modes, or app: stream subscriptions)
+    // Handle app_data events (for custom_endpoint, passthrough, or app: stream subscriptions)
     newSocket.on("app_data", (message: { appId: string; data: any; timestamp: string }) => {
-      if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId?.startsWith('app:')) {
-        const sourceAppId = dataSourceConfig.streamId.replace('app:', '');
-        if (message.appId === sourceAppId) {
-          const mapped = dataSourceConfig.fieldMappings
-            ? applyFieldMappings(message.data, dataSourceConfig.fieldMappings)
-            : message.data;
-          setLiveData(mapped);
+      if (dataSource === 'stream_subscription' && normalizedConfig) {
+        // Check if any stream subscriptions are for custom apps
+        for (const sub of normalizedConfig.streams) {
+          if (sub.streamId.startsWith('app:')) {
+            const sourceAppId = sub.streamId.replace('app:', '');
+            if (message.appId === sourceAppId) {
+              applyStreamData(sub.streamId, message.data, normalizedConfig.fieldMappings);
+            }
+          }
         }
       } else if (message.appId === appId) {
+        liveDataRef.current = message.data;
         setLiveData(message.data);
       }
     });
 
-    // Handle pointcloud events (for stream_subscription to pointcloud)
-    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'pointcloud') {
-      newSocket.on("pointcloud", (message: any) => {
-        console.log("[AppRenderer] Received pointcloud stream data");
-        const mapped = dataSourceConfig.fieldMappings
-          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
-          : message;
-        setLiveData(mapped);
-      });
-    }
+    // Handle built-in stream events (pointcloud, telemetry, camera_status)
+    if (dataSource === 'stream_subscription' && normalizedConfig) {
+      const builtInEvents = new Set<string>();
+      
+      for (const sub of normalizedConfig.streams) {
+        if (!sub.streamId.startsWith('app:')) {
+          builtInEvents.add(sub.streamId);
+        }
+      }
 
-    // Handle telemetry events (for stream_subscription to telemetry)
-    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'telemetry') {
-      newSocket.on("telemetry", (message: any) => {
-        console.log("[AppRenderer] Received telemetry stream data");
-        const mapped = dataSourceConfig.fieldMappings
-          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
-          : message;
-        setLiveData(mapped);
-      });
-    }
-
-    // Handle camera_status events
-    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'camera_status') {
-      newSocket.on("camera_status", (message: any) => {
-        console.log("[AppRenderer] Received camera_status stream data");
-        const mapped = dataSourceConfig.fieldMappings
-          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
-          : message;
-        setLiveData(mapped);
-      });
+      for (const eventName of Array.from(builtInEvents)) {
+        newSocket.on(eventName, (message: any) => {
+          console.log(`[AppRenderer] Received ${eventName} stream data`);
+          applyStreamData(eventName, message, normalizedConfig.fieldMappings);
+        });
+      }
     }
 
     newSocket.on("disconnect", () => {
@@ -234,13 +317,18 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
     return () => {
       if (newSocket) {
-        if (dataSource === 'stream_subscription' && dataSourceConfig) {
-          const { streamId } = dataSourceConfig;
-          if (streamId?.startsWith('app:')) {
-            const sourceAppId = streamId.replace('app:', '');
-            newSocket.emit('unsubscribe_app', sourceAppId);
-          } else {
-            newSocket.emit('unsubscribe_stream', streamId);
+        if (dataSource === 'stream_subscription' && normalizedConfig) {
+          const unsubscribedStreams = new Set<string>();
+          for (const sub of normalizedConfig.streams) {
+            if (unsubscribedStreams.has(sub.streamId)) continue;
+            unsubscribedStreams.add(sub.streamId);
+            
+            if (sub.streamId.startsWith('app:')) {
+              const sourceAppId = sub.streamId.replace('app:', '');
+              newSocket.emit('unsubscribe_app', sourceAppId);
+            } else {
+              newSocket.emit('unsubscribe_stream', sub.streamId);
+            }
           }
         } else {
           newSocket.emit("unsubscribe_app", appId);
@@ -248,7 +336,7 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         newSocket.disconnect();
       }
     };
-  }, [appId, dataSource, dataSourceConfig]);
+  }, [appId, dataSource, normalizedConfig, applyStreamData]);
 
   if (!app) {
     return (
@@ -275,7 +363,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
   const renderWidget = (widget: Widget) => {
     const dataField = widget.dataBinding?.field;
-    console.log(`[Widget ${widget.id}] dataField: ${dataField}, liveData:`, liveData, `value:`, dataField ? liveData[dataField] : undefined);
     const value = dataField ? (liveData[dataField] ?? 0) : 0;
     const config = widget.config || {};
 
@@ -305,7 +392,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
               <p className="text-sm text-muted-foreground mb-4">{config.label || dataField || "Value"}</p>
               <div className="relative w-32 h-32 mx-auto">
                 <svg className="w-full h-full" viewBox="0 0 100 100">
-                  {/* Background circle */}
                   <circle
                     cx="50"
                     cy="50"
@@ -316,7 +402,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
                     className="text-muted"
                     opacity="0.2"
                   />
-                  {/* Progress circle */}
                   <circle
                     cx="50"
                     cy="50"
@@ -357,7 +442,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
       case "line_chart":
       case "line-chart":
-        // Line chart for time-series data
         return (
           <Card key={widget.id} className="p-4">
             <div>
@@ -376,7 +460,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
       case "bar_chart":
       case "bar-chart":
-        // Bar chart for categorical data
         return (
           <Card key={widget.id} className="p-4">
             <div>
@@ -394,7 +477,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         );
 
       case "map":
-        // Map widget expects latitude and longitude fields
         const latField = config.latitudeField || 'latitude';
         const lonField = config.longitudeField || 'longitude';
         const latitude = liveData[latField] || 0;
@@ -460,8 +542,6 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         );
 
       case "canvas":
-        // Canvas widget for custom visualizations (e.g., point clouds)
-        // Matches RPLidar LidarApp with 2D/3D toggle
         return (
           <CanvasWidget
             key={widget.id}
@@ -492,6 +572,9 @@ export default function AppRenderer({ appId }: AppRendererProps) {
           <div className={`w-2 h-2 rounded-full ${socket?.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
           <span className="text-xs text-muted-foreground">
             {socket?.connected ? 'Connected' : 'Disconnected'}
+            {normalizedConfig && normalizedConfig.streams.length > 1 && (
+              <> · {normalizedConfig.streams.length} streams</>
+            )}
           </span>
         </div>
       </div>

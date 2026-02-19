@@ -763,3 +763,20 @@
 
 - [x] Fix "Failed to fetch" error at LidarApp.tsx line 183 (added 2s debounce, silenced transient errors)
 - [x] Reverted polling interval back to 100ms per user request
+
+## Multi-Stream Subscription for App Builder
+
+- [x] Design multi-stream data model (streams array + fieldMappings with streamId:fieldPath format)
+- [x] Update dataSourceConfig schema to support array of stream subscriptions with selected fields
+- [x] Update getAvailableStreams backend to return field metadata
+- [x] Update AppBuilder UI: multi-stream picker with checkboxes for individual fields
+- [x] Show combined field list from all selected streams for widget data binding
+- [x] Handle field name conflicts across streams (auto-prefix with stream name + alias support)
+- [x] Update AppRenderer to subscribe to multiple WebSocket stream rooms (with deduplication)
+- [x] Merge incoming data from multiple streams into unified widget data object
+- [x] Update saveApp to validate multi-stream config (z.any() accepts both formats)
+- [x] Fix app: prefixed stream ID parsing in field mappings (parseFieldMapping helper)
+- [ ] Test: create app subscribing to RPLidar + Telemetry streams with mixed fields (via UI)
+- [x] Test: existing single-stream apps still work (backward compatibility - verified in tests)
+- [x] Write unit tests for multi-stream data merging (22 tests in multi-stream.test.ts)
+- [x] All 117 tests passing across 6 test files
