@@ -1,0 +1,14 @@
+{
+  "query": "SELECT `key`, droneId FROM apiKeys WHERE isActive = 1 LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT `key`, droneId FROM apiKeys WHERE isActive = 1 LIMIT 5;",
+  "rows": [
+    {
+      "key": "sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M",
+      "droneId": "quiver_001"
+    }
+  ],
+  "messages": [],
+  "stdout": "key\tdroneId\nsp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M\tquiver_001\n",
+  "stderr": "",
+  "execution_time_ms": 372
+}

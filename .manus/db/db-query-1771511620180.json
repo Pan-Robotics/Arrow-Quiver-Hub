@@ -1,0 +1,42 @@
+{
+  "query": "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_name = 'scans' AND table_schema = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_name = 'scans' AND table_schema = DATABASE();",
+  "rows": [
+    {
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "droneId",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "timestamp",
+      "DATA_TYPE": "timestamp"
+    },
+    {
+      "COLUMN_NAME": "pointCount",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "minDistance",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "maxDistance",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "avgQuality",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "createdAt",
+      "DATA_TYPE": "timestamp"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\tDATA_TYPE\nid\tint\ndroneId\tvarchar\ntimestamp\ttimestamp\npointCount\tint\nminDistance\tint\nmaxDistance\tint\navgQuality\tint\ncreatedAt\ttimestamp\n",
+  "stderr": "",
+  "execution_time_ms": 360
+}

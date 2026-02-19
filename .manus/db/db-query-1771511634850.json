@@ -1,0 +1,50 @@
+{
+  "query": "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns WHERE table_name = 'scans' AND table_schema = DATABASE() ORDER BY ORDINAL_POSITION;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns WHERE table_name = 'scans' AND table_schema = DATABASE() ORDER BY ORDINAL_POSITION;",
+  "rows": [
+    {
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "int",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "droneId",
+      "DATA_TYPE": "varchar",
+      "CHARACTER_MAXIMUM_LENGTH": "64"
+    },
+    {
+      "COLUMN_NAME": "timestamp",
+      "DATA_TYPE": "timestamp",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "pointCount",
+      "DATA_TYPE": "int",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "minDistance",
+      "DATA_TYPE": "int",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "maxDistance",
+      "DATA_TYPE": "int",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "avgQuality",
+      "DATA_TYPE": "int",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    },
+    {
+      "COLUMN_NAME": "createdAt",
+      "DATA_TYPE": "timestamp",
+      "CHARACTER_MAXIMUM_LENGTH": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\tDATA_TYPE\tCHARACTER_MAXIMUM_LENGTH\nid\tint\tNULL\ndroneId\tvarchar\t64\ntimestamp\ttimestamp\tNULL\npointCount\tint\tNULL\nminDistance\tint\tNULL\nmaxDistance\tint\tNULL\navgQuality\tint\tNULL\ncreatedAt\ttimestamp\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 367
+}

@@ -697,3 +697,14 @@
 - [x] Add WebSocket bridge for camera commands from Quiver Hub
 - [x] Create systemd service files for deployment
 - [x] Write deployment documentation
+
+## Point Cloud Widget Verification
+
+- [x] Review LidarApp and PointCloudCanvas data format compatibility
+- [x] Test with mock data (demo mode) to verify rendering matches original
+- [x] Fix rendering issue: added 2D Canvas fallback renderer (PointCloudCanvas2D)
+- [x] Verify data pipeline: mock generator → convertTo3D → renderer
+- [x] Add 2D/3D render mode toggle to LidarApp header
+- [x] Write 22 unit tests for mock data generator and data transformation
+- [x] All tests passing (format compatibility, data ranges, obstacle simulation)
+- [ ] Query database for existing scan data to use as replay (deferred - no scans in DB yet)

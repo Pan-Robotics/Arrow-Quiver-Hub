@@ -1,6 +1,6 @@
-import { useRef, useEffect, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { useRef, useMemo, useEffect } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface Point {
@@ -26,7 +26,7 @@ function PointCloud({
   colorMode = 'distance',
   minDistance = 0,
   maxDistance = 5000,
-  pointSize = 2
+  pointSize = 4
 }: { 
   points: Point[];
   colorMode: 'distance' | 'intensity' | 'height';
@@ -36,7 +36,6 @@ function PointCloud({
 }) {
   const pointsRef = useRef<THREE.Points>(null);
 
-  // Create geometry and material
   const { geometry, material } = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     const positions = new Float32Array(points.length * 3);
@@ -47,7 +46,6 @@ function PointCloud({
       positions[i * 3 + 1] = point.y;
       positions[i * 3 + 2] = point.z;
 
-      // Calculate color based on mode
       let value = 0;
       if (colorMode === 'distance') {
         value = point.distance || Math.sqrt(point.x ** 2 + point.y ** 2 + point.z ** 2);
@@ -57,21 +55,19 @@ function PointCloud({
         value = point.z;
       }
 
-      // Normalize value to 0-1 range
       const normalized = Math.max(0, Math.min(1, (value - minDistance) / (maxDistance - minDistance)));
 
-      // Color gradient: blue (close) -> green -> yellow -> red (far)
       const color = new THREE.Color();
-      if (normalized < 0.33) {
-        // Blue to green
-        color.setRGB(0, normalized * 3, 1 - normalized * 3);
-      } else if (normalized < 0.66) {
-        // Green to yellow
-        const t = (normalized - 0.33) * 3;
+      if (normalized < 0.25) {
+        color.setRGB(0, normalized * 4, 1);
+      } else if (normalized < 0.5) {
+        const t = (normalized - 0.25) * 4;
+        color.setRGB(0, 1, 1 - t);
+      } else if (normalized < 0.75) {
+        const t = (normalized - 0.5) * 4;
         color.setRGB(t, 1, 0);
       } else {
-        // Yellow to red
-        const t = (normalized - 0.66) * 3;
+        const t = (normalized - 0.75) * 4;
         color.setRGB(1, 1 - t, 0);
       }
 
@@ -86,21 +82,84 @@ function PointCloud({
     const mat = new THREE.PointsMaterial({
       size: pointSize,
       vertexColors: true,
-      sizeAttenuation: true,
+      sizeAttenuation: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.9,
     });
 
     return { geometry: geo, material: mat };
   }, [points, colorMode, minDistance, maxDistance, pointSize]);
 
-  // Optional: Add rotation animation
-  useFrame(() => {
-    if (pointsRef.current) {
-      // Slowly rotate the point cloud for better visualization
-      // pointsRef.current.rotation.z += 0.001;
-    }
-  });
+  // Dispose previous geometry/material on update
+  useEffect(() => {
+    return () => {
+      geometry.dispose();
+      material.dispose();
+    };
+  }, [geometry, material]);
 
   return <points ref={pointsRef} geometry={geometry} material={material} />;
+}
+
+/**
+ * Camera controller that auto-fits to view all points.
+ * Uses orthographic-like perspective for 2D lidar data (top-down view).
+ */
+function AutoFitCamera({ points }: { points: Point[] }) {
+  const { camera } = useThree();
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (initialized.current) return;
+    initialized.current = true;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const rangeX = maxX - minX;
+    const rangeY = maxY - minY;
+    const maxRange = Math.max(rangeX, rangeY, 100);
+
+    // Position camera directly above, looking down at the XY plane
+    camera.position.set(centerX, centerY, maxRange * 1.5);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(centerX, centerY, 0);
+    camera.updateProjectionMatrix();
+  }, [points, camera]);
+
+  return null;
+}
+
+/**
+ * Grid lines drawn in the XY plane (z=0) for 2D lidar data.
+ */
+function XYGrid({ size = 10000, divisions = 20 }: { size?: number; divisions?: number }) {
+  const gridRef = useRef<THREE.GridHelper>(null);
+
+  useEffect(() => {
+    // Rotate grid to lie in XY plane (default is XZ)
+    if (gridRef.current) {
+      gridRef.current.rotation.x = Math.PI / 2;
+    }
+  }, []);
+
+  return (
+    <gridHelper 
+      ref={gridRef}
+      args={[size, divisions, 0x444444, 0x333333]} 
+    />
+  );
 }
 
 export default function PointCloudCanvas({
@@ -108,11 +167,10 @@ export default function PointCloudCanvas({
   colorMode = 'distance',
   minDistance = 0,
   maxDistance = 5000,
-  pointSize = 2,
+  pointSize = 4,
   showGrid = true,
   showAxes = true,
 }: PointCloudCanvasProps) {
-  // Parse points if they're in string format
   const parsedPoints = useMemo(() => {
     if (typeof points === 'string') {
       try {
@@ -139,30 +197,42 @@ export default function PointCloudCanvas({
   }
 
   return (
-    <div className="w-full h-full relative">
-      <Canvas>
-        <PerspectiveCamera makeDefault position={[0, -2000, 1000]} />
+    <div className="w-full h-full relative bg-black rounded-lg overflow-hidden">
+      <Canvas
+        gl={{ 
+          antialias: true,
+          alpha: false,
+          powerPreference: 'default',
+        }}
+        camera={{
+          fov: 50,
+          near: 1,
+          far: 100000,
+          position: [0, 0, 8000],
+        }}
+        style={{ background: '#111111' }}
+      >
+        <color attach="background" args={['#111111']} />
+        
         <OrbitControls 
           enableDamping
-          dampingFactor={0.05}
+          dampingFactor={0.1}
           rotateSpeed={0.5}
-          zoomSpeed={0.8}
-          panSpeed={0.5}
+          zoomSpeed={1.2}
+          panSpeed={0.8}
+          minDistance={100}
+          maxDistance={50000}
+          enableRotate={true}
         />
         
-        {/* Lighting */}
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
+        <AutoFitCamera points={parsedPoints} />
         
-        {/* Grid helper */}
-        {showGrid && (
-          <gridHelper args={[10000, 50, 0x444444, 0x222222]} rotation={[0, 0, 0]} />
-        )}
+        <ambientLight intensity={1.0} />
         
-        {/* Axes helper */}
-        {showAxes && <axesHelper args={[1000]} />}
+        {showGrid && <XYGrid size={10000} divisions={20} />}
         
-        {/* Point cloud */}
+        {showAxes && <axesHelper args={[2000]} />}
+        
         <PointCloud 
           points={parsedPoints}
           colorMode={colorMode}
@@ -173,17 +243,17 @@ export default function PointCloudCanvas({
       </Canvas>
       
       {/* Info overlay */}
-      <div className="absolute bottom-2 left-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 text-xs">
-        <div className="text-muted-foreground">
+      <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm rounded px-2 py-1 text-xs">
+        <div className="text-gray-400">
           Points: {(parsedPoints?.length || 0).toLocaleString()}
         </div>
-        <div className="text-muted-foreground">
+        <div className="text-gray-400">
           Color: {colorMode}
         </div>
       </div>
       
       {/* Controls hint */}
-      <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 text-xs text-muted-foreground">
+      <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded px-2 py-1 text-xs text-gray-400">
         <div>Left click: Rotate</div>
         <div>Right click: Pan</div>
         <div>Scroll: Zoom</div>

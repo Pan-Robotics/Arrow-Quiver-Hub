@@ -1,0 +1,46 @@
+{
+  "query": "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();",
+  "rows": [
+    {
+      "table_name": "__drizzle_migrations"
+    },
+    {
+      "table_name": "users"
+    },
+    {
+      "table_name": "apiKeys"
+    },
+    {
+      "table_name": "drones"
+    },
+    {
+      "table_name": "scans"
+    },
+    {
+      "table_name": "telemetry"
+    },
+    {
+      "table_name": "customApps"
+    },
+    {
+      "table_name": "appData"
+    },
+    {
+      "table_name": "userApps"
+    },
+    {
+      "table_name": "appVersions"
+    },
+    {
+      "table_name": "droneFiles"
+    },
+    {
+      "table_name": "droneJobs"
+    }
+  ],
+  "messages": [],
+  "stdout": "table_name\n__drizzle_migrations\nusers\napiKeys\ndrones\nscans\ntelemetry\ncustomApps\nappData\nuserApps\nappVersions\ndroneFiles\ndroneJobs\n",
+  "stderr": "",
+  "execution_time_ms": 432
+}
