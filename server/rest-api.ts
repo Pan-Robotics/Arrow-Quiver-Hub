@@ -10,7 +10,7 @@ import {
   insertScan,
   insertTelemetry,
 } from "./db";
-import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus } from "./websocket";
+import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./restApi";
 
@@ -136,6 +136,29 @@ router.post("/pointcloud/ingest", async (req: Request, res: Response) => {
     lastScans.set(drone_id, message);
 
     broadcastPointCloud(message);
+
+    // Also broadcast to the RPLidar Point Cloud Viewer custom app
+    // Convert raw 2D points to Point3D format for the canvas widget
+    const point3DData = points
+      .filter((p: any) => p.distance > 0)
+      .map((p: any) => ({
+        x: p.x,
+        y: p.y,
+        z: 0,
+        distance: p.distance,
+        intensity: p.quality,
+      }));
+
+    broadcastAppData('rplidar-pointcloud-viewer', {
+      point_cloud: point3DData,
+      point_count: stats.point_count,
+      valid_points: stats.valid_points,
+      avg_distance: stats.avg_distance,
+      avg_quality: stats.avg_quality,
+      min_distance: stats.min_distance,
+      max_distance: stats.max_distance,
+      drone_id,
+    });
 
     // Return success
     return res.status(200).json({

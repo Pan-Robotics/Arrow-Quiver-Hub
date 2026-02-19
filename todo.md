@@ -718,3 +718,13 @@
 - [x] Handle string data parsing in 2D renderer
 - [x] Verify compilation (no TypeScript errors)
 - [x] Write/update tests (16 tests passing)
+
+## Test UI Builder Canvas Widget with Live RPLidar Data
+
+- [x] Understand custom app data flow (AppRenderer, WebSocket, REST)
+- [x] Create custom app in database with canvas widget UI schema (rplidar-pointcloud-viewer)
+- [x] Wire custom app to receive RPLidar point cloud data via broadcastAppData in REST ingest
+- [x] Install custom app and verify it renders live data in AppRenderer (403 points, quiver_001)
+- [x] Confirm 2D/3D toggle works in the custom app context
+- [x] Write 17 integration tests for data broadcast pipeline (all passing)
+- [x] All 66 tests passing across 4 test files
