@@ -39,6 +39,10 @@ export default function Home() {
       icon: Radio,
       enabled: true,
     },
+  ];
+
+  // Bottom-pinned apps (shown just above the + button)
+  const bottomApps: App[] = [
     {
       id: "drone-config",
       name: "Drone Configuration",
@@ -134,6 +138,7 @@ export default function Home() {
       {/* Sidebar */}
       <AppSidebar
         apps={apps}
+        bottomApps={bottomApps}
         activeAppId={showAppStore ? "store" : activeAppId}
         onAppChange={(appId) => {
           setShowAppStore(false);

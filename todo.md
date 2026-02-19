@@ -754,3 +754,7 @@
 - [x] Test: existing custom_endpoint apps still work (RPLidar Point Cloud Viewer)
 - [x] Write unit tests for new data source logic (29 stream-subscription tests)
 - [x] All 95 tests passing across 5 test files
+
+## Sidebar Reorder
+
+- [x] Move Drone Configuration icon to just above the App Store + icon in sidebar

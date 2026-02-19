@@ -18,12 +18,40 @@ export interface App {
 
 interface AppSidebarProps {
   apps: App[];
+  bottomApps?: App[];
   activeAppId: string;
   onAppChange: (appId: string) => void;
   onAddApp: () => void;
 }
 
-export default function AppSidebar({ apps, activeAppId, onAppChange, onAddApp }: AppSidebarProps) {
+function SidebarAppButton({ app, isActive, onClick }: { app: App; isActive: boolean; onClick: () => void }) {
+  const Icon = app.icon;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant={isActive ? "default" : "ghost"}
+          size="icon"
+          className={cn(
+            "w-12 h-12 relative",
+            isActive && "bg-primary text-primary-foreground"
+          )}
+          onClick={onClick}
+        >
+          <Icon size={20} />
+          {isActive && (
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>{app.name}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export default function AppSidebar({ apps, bottomApps = [], activeAppId, onAppChange, onAddApp }: AppSidebarProps) {
   return (
     <TooltipProvider delayDuration={0}>
       <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50 overflow-hidden">
@@ -32,37 +60,31 @@ export default function AppSidebar({ apps, activeAppId, onAppChange, onAddApp }:
           <Radio className="text-primary" size={28} />
         </div>
 
-        {/* App Icons */}
+        {/* Main App Icons */}
         <div className="flex-1 flex flex-col gap-2 w-full px-2">
-          {apps.filter(app => app.enabled).map((app) => {
-            const Icon = app.icon;
-            const isActive = app.id === activeAppId;
-            
-            return (
-              <Tooltip key={app.id}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={isActive ? "default" : "ghost"}
-                    size="icon"
-                    className={cn(
-                      "w-12 h-12 relative",
-                      isActive && "bg-primary text-primary-foreground"
-                    )}
-                    onClick={() => onAppChange(app.id)}
-                  >
-                    <Icon size={20} />
-                    {isActive && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>{app.name}</p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
+          {apps.filter(app => app.enabled).map((app) => (
+            <SidebarAppButton
+              key={app.id}
+              app={app}
+              isActive={app.id === activeAppId}
+              onClick={() => onAppChange(app.id)}
+            />
+          ))}
         </div>
+
+        {/* Bottom-pinned apps (just above the + button) */}
+        {bottomApps.length > 0 && (
+          <div className="flex flex-col gap-2 w-full px-2 mb-2">
+            {bottomApps.filter(app => app.enabled).map((app) => (
+              <SidebarAppButton
+                key={app.id}
+                app={app}
+                isActive={app.id === activeAppId}
+                onClick={() => onAppChange(app.id)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Add App Button */}
         <div className="mb-4">
