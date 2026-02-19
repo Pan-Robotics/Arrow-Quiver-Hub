@@ -780,3 +780,7 @@
 - [x] Test: existing single-stream apps still work (backward compatibility - verified in tests)
 - [x] Write unit tests for multi-stream data merging (22 tests in multi-stream.test.ts)
 - [x] All 117 tests passing across 6 test files
+
+## Bug Fix: tRPC Failed to fetch error
+
+- [x] Fix tRPC "Failed to fetch" error on main page (added retry logic for transient network errors, silent warnings instead of error popups)
