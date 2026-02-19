@@ -50,6 +50,13 @@
       "when": 1767534070398,
       "tag": "0006_lyrical_captain_midlands",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1771527141544,
+      "tag": "0007_illegal_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

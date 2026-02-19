@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, appId, name, dataSource, dataSourceConfig, uiSchema FROM customApps WHERE name LIKE '%LiDAR%' LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT id, appId, name, dataSource, dataSourceConfig, uiSchema FROM customApps WHERE name LIKE '%LiDAR%' LIMIT 1;",
+  "rows": [
+    {
+      "id": "180002",
+      "appId": "lidar-stats-monitor",
+      "name": "LiDAR Stats Monitor",
+      "dataSource": "stream_subscription",
+      "dataSourceConfig": "{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"fieldMappings\":{\"drone_id\":\"drone_id\",\"timestamp\":\"timestamp\",\"points\":\"points\",\"point_count\":\"stats.point_count\",\"valid_points\":\"stats.valid_points\",\"avg_distance\":\"stats.avg_distance\",\"avg_quality\":\"stats.avg_quality\",\"min_distance\":\"stats.min_distance\",\"max_distance\":\"stats.max_distance\"}}",
+      "uiSchema": "{\"version\":\"1.0\",\"layout\":{\"type\":\"grid\",\"columns\":3,\"gap\":16,\"padding\":24},\"widgets\":[{\"id\":\"widget-1771529300489\",\"type\":\"canvas\",\"position\":{\"row\":1,\"col\":1,\"colSpan\":3},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"backgroundColor\":\"#000000\",\"renderMode\":\"2d\"},\"dataBinding\":{\"field\":\"points\"}},{\"id\":\"widget-1771529797238\",\"type\":\"gauge\",\"position\":{\"row\":2,\"col\":1,\"colSpan\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Avg Distance (mm)\",\"min\":0,\"max\":100,\"showValue\":true},\"dataBinding\":{\"field\":\"avg_distance\"}},{\"id\":\"widget-1771530638059\",\"type\":\"text\",\"position\":{\"row\":3,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Drone ID\",\"fontSize\":24,\"showUnit\":true,\"decimalPlaces\":1},\"dataBinding\":{\"field\":\"drone_id\"}}]}"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tappId\tname\tdataSource\tdataSourceConfig\tuiSchema\n180002\tlidar-stats-monitor\tLiDAR Stats Monitor\tstream_subscription\t{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"fieldMappings\":{\"drone_id\":\"drone_id\",\"timestamp\":\"timestamp\",\"points\":\"points\",\"point_count\":\"stats.point_count\",\"valid_points\":\"stats.valid_points\",\"avg_distance\":\"stats.avg_distance\",\"avg_quality\":\"stats.avg_quality\",\"min_distance\":\"stats.min_distance\",\"max_distance\":\"stats.max_distance\"}}\t{\"version\":\"1.0\",\"layout\":{\"type\":\"grid\",\"columns\":3,\"gap\":16,\"padding\":24},\"widgets\":[{\"id\":\"widget-1771529300489\",\"type\":\"canvas\",\"position\":{\"row\":1,\"col\":1,\"colSpan\":3},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"backgroundColor\":\"#000000\",\"renderMode\":\"2d\"},\"dataBinding\":{\"field\":\"points\"}},{\"id\":\"widget-1771529797238\",\"type\":\"gauge\",\"position\":{\"row\":2,\"col\":1,\"colSpan\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Avg Distance (mm)\",\"min\":0,\"max\":100,\"showValue\":true},\"dataBinding\":{\"field\":\"avg_distance\"}},{\"id\":\"widget-1771530638059\",\"type\":\"text\",\"position\":{\"row\":3,\"col\":1},\"size\":{\"width\":\"auto\",\"height\":\"auto\"},\"config\":{\"label\":\"Drone ID\",\"fontSize\":24,\"showUnit\":true,\"decimalPlaces\":1},\"dataBinding\":{\"field\":\"drone_id\"}}]}\n",
+  "stderr": "",
+  "execution_time_ms": 350
+}

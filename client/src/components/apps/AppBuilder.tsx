@@ -4,17 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Play, Save, FileUp } from "lucide-react";
+import { ArrowLeft, Play, FileUp, Radio, Code, Zap, Check, ChevronRight, Info } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useRef, useState, useEffect } from "react";
-
-interface DataField {
-  name: string;
-  type: "number" | "string" | "boolean";
-  unit?: string;
-  description?: string;
-}
+import { useRef, useState, useEffect, useMemo } from "react";
 
 interface AppBuilderProps {
   onBack: () => void;
@@ -22,41 +16,29 @@ interface AppBuilderProps {
   editingAppId?: string;
 }
 
+type DataSourceType = "custom_endpoint" | "stream_subscription" | "passthrough";
+
+interface StreamConfig {
+  streamId: string;
+  streamEvent: string;
+  subscribeEvent: string;
+  subscribeParam: string;
+  fieldMappings: Record<string, string>; // widgetField -> streamField
+}
+
 const STORAGE_KEY = "appBuilder_formData";
 
 const DEFAULT_PARSER_TEMPLATE = `# Payload Parser Template
 # Transform raw payload data into structured format for UI visualization
-#
-# FOR QUIVER EDGE DEPLOYMENT:
-# See docs/QUIVER_DEPLOYMENT_TEMPLATE.md for complete Flask/FastAPI server setup
-# to run this parser autonomously on Quiver devices with automatic data forwarding
 #
 # OUTPUT FORMAT REQUIREMENTS:
 # 1. parse_payload() must return a dictionary
 # 2. All output fields must be defined in SCHEMA
 # 3. Field types: "number", "string", or "boolean"
 # 4. Include units for number fields (e.g., "°C", "km/h", "%")
-# 5. Set min/max for gauges and charts
-#
-# See docs/PARSER_OUTPUT_FORMAT.md for complete specification
 
 def parse_payload(raw_data: dict) -> dict:
-    """
-    Transform raw incoming data into structured format.
-    
-    Args:
-        raw_data: Dictionary containing raw payload data
-        
-    Returns:
-        Dictionary with structured data matching SCHEMA
-        
-    Example input:
-        {"temp_raw": 2350, "hum_raw": 6500, "ts": "2025-01-01T12:00:00Z"}
-    
-    Example output:
-        {"temperature": 23.5, "humidity": 65.0, "timestamp": "2025-01-01T12:00:00Z"}
-    """
-    # Extract and transform data with defaults
+    """Transform raw incoming data into structured format."""
     return {
         "temperature": raw_data.get("temp_raw", 0) / 100.0,
         "humidity": raw_data.get("hum_raw", 0) / 100.0,
@@ -64,7 +46,6 @@ def parse_payload(raw_data: dict) -> dict:
     }
 
 # Define output schema - REQUIRED for UI Builder
-# This tells the UI what fields are available and how to display them
 SCHEMA = {
     "temperature": {
         "type": "number",
@@ -82,8 +63,7 @@ SCHEMA = {
     },
     "timestamp": {
         "type": "string",
-        "description": "ISO 8601 timestamp",
-        "format": "iso8601"
+        "description": "ISO 8601 timestamp"
     }
 }
 `;
@@ -95,13 +75,15 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
     { appId: editingAppId! },
     { enabled: !!editingAppId && editMode }
   );
+
+  // Fetch available streams
+  const { data: availableStreams } = trpc.appBuilder.getAvailableStreams.useQuery();
+
   // Load saved form data from localStorage
   const loadSavedData = () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved);
-      }
+      if (saved) return JSON.parse(saved);
     } catch (error) {
       console.error('Failed to load saved form data:', error);
     }
@@ -112,20 +94,36 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
 
   const [appName, setAppName] = useState(savedData?.appName || "");
   const [appDescription, setAppDescription] = useState(savedData?.appDescription || "");
+  const [dataSource, setDataSource] = useState<DataSourceType>(savedData?.dataSource || "custom_endpoint");
+  const [selectedStreamId, setSelectedStreamId] = useState<string>(savedData?.selectedStreamId || "");
+  const [streamConfig, setStreamConfig] = useState<StreamConfig | null>(savedData?.streamConfig || null);
   const [parserCode, setParserCode] = useState(savedData?.parserCode || DEFAULT_PARSER_TEMPLATE);
   const [testData, setTestData] = useState(savedData?.testData || DEFAULT_TEST_DATA);
-  
+
   // Load existing app data when in edit mode
   useEffect(() => {
     if (editMode && existingApp) {
       setAppName(existingApp.name);
       setAppDescription(existingApp.description || "");
       setParserCode(existingApp.parserCode);
-      // Parse data schema to populate test data if available
+      if ((existingApp as any).dataSource) {
+        setDataSource((existingApp as any).dataSource);
+      }
+      if ((existingApp as any).dataSourceConfig) {
+        try {
+          const config = typeof (existingApp as any).dataSourceConfig === 'string'
+            ? JSON.parse((existingApp as any).dataSourceConfig)
+            : (existingApp as any).dataSourceConfig;
+          setStreamConfig(config);
+          if (config?.streamId) setSelectedStreamId(config.streamId);
+        } catch (e) {
+          console.error('Failed to parse dataSourceConfig:', e);
+        }
+      }
       if (existingApp.dataSchema) {
         try {
-          const schemaObj = typeof existingApp.dataSchema === 'string' 
-            ? JSON.parse(existingApp.dataSchema) 
+          const schemaObj = typeof existingApp.dataSchema === 'string'
+            ? JSON.parse(existingApp.dataSchema)
             : existingApp.dataSchema;
           setParsedSchema(schemaObj);
         } catch (e) {
@@ -134,6 +132,7 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
       }
     }
   }, [editMode, existingApp]);
+
   const [testResult, setTestResult] = useState<string>("");
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -146,22 +145,22 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
     const formData = {
       appName,
       appDescription,
+      dataSource,
+      selectedStreamId,
+      streamConfig,
       parserCode,
       testData,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
-      console.log('[AppBuilder] Form data saved to localStorage');
     } catch (error) {
       console.error('[AppBuilder] Failed to save form data:', error);
     }
-  }, [appName, appDescription, parserCode, testData]);
+  }, [appName, appDescription, dataSource, selectedStreamId, streamConfig, parserCode, testData]);
 
-  // Clear saved data when component unmounts after successful save
   const clearSavedData = () => {
     try {
       localStorage.removeItem(STORAGE_KEY);
-      console.log('[AppBuilder] Cleared saved form data');
     } catch (error) {
       console.error('[AppBuilder] Failed to clear saved data:', error);
     }
@@ -170,54 +169,99 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
   const testParserMutation = trpc.appBuilder.testParser.useMutation();
   const extractSchemaMutation = trpc.appBuilder.extractSchema.useMutation();
 
+  // Get the selected stream object
+  const selectedStream = useMemo(() => {
+    if (!availableStreams || !selectedStreamId) return null;
+    return availableStreams.find(s => s.id === selectedStreamId) || null;
+  }, [availableStreams, selectedStreamId]);
+
+  // Re-derive parsedSchema when streams load and a stream was previously selected (e.g., from localStorage)
+  useEffect(() => {
+    if (dataSource === 'stream_subscription' && selectedStreamId && availableStreams && !parsedSchema) {
+      const stream = availableStreams.find(s => s.id === selectedStreamId);
+      if (stream) {
+        const schema: Record<string, any> = {};
+        const fieldMappings: Record<string, string> = {};
+        for (const [fieldPath, fieldInfo] of Object.entries(stream.fields)) {
+          const simpleName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
+          schema[simpleName] = { type: fieldInfo.type, description: fieldInfo.description };
+          fieldMappings[simpleName] = fieldPath;
+        }
+        setParsedSchema(schema);
+        if (!streamConfig) {
+          setStreamConfig({
+            streamId: stream.id,
+            streamEvent: stream.event,
+            subscribeEvent: stream.subscribeEvent,
+            subscribeParam: stream.subscribeParam,
+            fieldMappings,
+          });
+        }
+      }
+    }
+  }, [dataSource, selectedStreamId, availableStreams, parsedSchema, streamConfig]);
+
+  // When a stream is selected, build the schema from its fields and create streamConfig
+  const handleStreamSelect = (streamId: string) => {
+    setSelectedStreamId(streamId);
+    const stream = availableStreams?.find(s => s.id === streamId);
+    if (!stream) return;
+
+    // Build schema from stream fields
+    const schema: Record<string, any> = {};
+    const fieldMappings: Record<string, string> = {};
+
+    for (const [fieldPath, fieldInfo] of Object.entries(stream.fields)) {
+      // Use the last part of the path as the field name for the widget
+      const simpleName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
+      schema[simpleName] = {
+        type: fieldInfo.type,
+        description: fieldInfo.description,
+      };
+      fieldMappings[simpleName] = fieldPath;
+    }
+
+    setParsedSchema(schema);
+    setStreamConfig({
+      streamId: stream.id,
+      streamEvent: stream.event,
+      subscribeEvent: stream.subscribeEvent,
+      subscribeParam: stream.subscribeParam,
+      fieldMappings,
+    });
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
-    // Check file extension
     if (!file.name.endsWith('.py')) {
       toast.error('Please upload a .py file');
       return;
     }
-
-    // Check file size (max 1MB)
     if (file.size > 1024 * 1024) {
       toast.error('File size must be less than 1MB');
       return;
     }
-
-    // Read file content
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
       setParserCode(content);
       toast.success(`Loaded ${file.name}`);
     };
-    reader.onerror = () => {
-      toast.error('Failed to read file');
-    };
+    reader.onerror = () => toast.error('Failed to read file');
     reader.readAsText(file);
-
-    // Reset input so same file can be uploaded again
-    if (event.target) {
-      event.target.value = '';
-    }
+    if (event.target) event.target.value = '';
   };
 
   const handleTest = async () => {
     setIsTesting(true);
     setTestResult("");
-    
     try {
-      // Parse test data
       const testDataObj = JSON.parse(testData);
-      
-      // Send to backend for execution
       const result = await testParserMutation.mutateAsync({
         parserCode,
         testData: testDataObj
       });
-      
       if (result.success) {
         setTestResult(JSON.stringify(result.output, null, 2));
         toast.success(`Parser test successful! (${result.executionTime}ms)`);
@@ -235,50 +279,66 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
   };
 
   const handleContinueToUI = async () => {
-    console.log('handleContinueToUI called');
-    console.log('appName:', appName);
-    console.log('parserCode length:', parserCode.length);
-    
     if (!appName.trim()) {
-      console.log('Validation failed: appName is empty');
       toast.error("Please enter an app name");
       return;
     }
-    
-    console.log('appName validation passed');
-    
+
+    // For stream_subscription, schema is already set from the stream
+    if (dataSource === 'stream_subscription') {
+      if (!selectedStreamId || !streamConfig) {
+        toast.error("Please select a data stream");
+        return;
+      }
+      if (!parsedSchema) {
+        toast.error("No schema available from selected stream");
+        return;
+      }
+      setShowUIBuilder(true);
+      toast.success("Stream configured! Now design your UI");
+      return;
+    }
+
+    // For passthrough, we need the user to define a manual schema
+    if (dataSource === 'passthrough') {
+      if (!parserCode.trim()) {
+        toast.error("Please define a SCHEMA in the code editor (no parse_payload function needed)");
+        return;
+      }
+      // Try to extract just the SCHEMA
+      try {
+        toast.info("Extracting schema...");
+        const schemaResult = await extractSchemaMutation.mutateAsync({ parserCode });
+        if (!schemaResult.success || !schemaResult.schema) {
+          toast.error(schemaResult.error || "Failed to extract SCHEMA");
+          return;
+        }
+        setParsedSchema(schemaResult.schema);
+        setShowUIBuilder(true);
+        toast.success("Schema validated! Now design your UI");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        toast.error(`Failed to extract schema: ${message}`);
+      }
+      return;
+    }
+
+    // For custom_endpoint, validate parser code
     if (!parserCode.trim()) {
-      console.log('Validation failed: parserCode is empty');
       toast.error("Please enter parser code");
       return;
     }
-    
-    console.log('parserCode validation passed');
-
     try {
-      console.log('Extracting schema from parser code...');
       toast.info("Extracting schema from parser...");
-      
-      // Extract SCHEMA from parser code using backend
-      const schemaResult = await extractSchemaMutation.mutateAsync({
-        parserCode
-      });
-      
-      console.log('Schema extraction result:', schemaResult);
-      
+      const schemaResult = await extractSchemaMutation.mutateAsync({ parserCode });
       if (!schemaResult.success || !schemaResult.schema) {
-        console.error('Schema extraction failed:', schemaResult.error);
         toast.error(schemaResult.error || "Failed to extract SCHEMA from parser code");
         return;
       }
-
-      console.log('Setting parsed schema:', schemaResult.schema);
       setParsedSchema(schemaResult.schema);
       setShowUIBuilder(true);
-      console.log('UI Builder should now be visible');
       toast.success("Parser validated! Now design your UI");
     } catch (error) {
-      console.error('Error in handleContinueToUI:', error);
       const message = error instanceof Error ? error.message : "Unknown error";
       toast.error(`Failed to extract schema: ${message}`);
     }
@@ -289,37 +349,38 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
 
   const handleSaveUI = async (uiSchema: any) => {
     setIsSaving(true);
-    
     try {
+      // For stream_subscription, use a minimal passthrough parser
+      const effectiveParserCode = dataSource === 'stream_subscription'
+        ? `# Auto-generated: This app subscribes to a data stream\n# No parser needed - data flows directly from the stream\ndef parse_payload(raw_data: dict) -> dict:\n    return raw_data\n\nSCHEMA = ${JSON.stringify(parsedSchema, null, 4)}`
+        : parserCode;
+
       if (editMode && editingAppId) {
-        // Update existing app with version snapshot
-        const result = await updateAppMutation.mutateAsync({
+        await updateAppMutation.mutateAsync({
           appId: editingAppId,
           name: appName,
           description: appDescription || undefined,
-          parserCode,
+          dataSource,
+          dataSourceConfig: streamConfig || undefined,
+          parserCode: effectiveParserCode,
           dataSchema: parsedSchema,
           uiSchema,
-          createVersion: true, // Create version snapshot before updating
+          createVersion: true,
         });
-        
-        toast.success(`App "${appName}" updated successfully! Version snapshot created.`);
-        console.log('Updated app:', result);
+        toast.success(`App "${appName}" updated successfully!`);
       } else {
-        // Save new app
-        const result = await saveAppMutation.mutateAsync({
+        await saveAppMutation.mutateAsync({
           name: appName,
           description: appDescription || undefined,
-          parserCode,
+          dataSource,
+          dataSourceConfig: streamConfig || undefined,
+          parserCode: effectiveParserCode,
           dataSchema: parsedSchema,
           uiSchema,
         });
-        
         toast.success(`App "${appName}" saved successfully!`);
-        console.log('Saved app:', result);
       }
-      
-      clearSavedData(); // Clear form data after successful save
+      clearSavedData();
       onBack();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -384,96 +445,297 @@ export default function AppBuilder({ onBack, editMode, editingAppId }: AppBuilde
           </CardContent>
         </Card>
 
-        {/* Parser Code */}
+        {/* Data Source Selection */}
         <Card>
           <CardHeader>
-            <CardTitle>Payload Parser</CardTitle>
-            <CardDescription>
-              Python code to transform raw payload data into structured format
-            </CardDescription>
+            <CardTitle>Data Source</CardTitle>
+            <CardDescription>Choose how your app receives data</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Label htmlFor="parserCode">Parser Code (Python)</Label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".py"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="ml-auto"
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Custom Endpoint */}
+              <button
+                onClick={() => setDataSource("custom_endpoint")}
+                className={`relative p-4 rounded-lg border-2 text-left transition-all ${
+                  dataSource === "custom_endpoint"
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
               >
-                <FileUp className="h-4 w-4 mr-2" />
-                Upload .py File
-              </Button>
-            </div>
-            <div className="space-y-2">
-              <Textarea
-                id="parserCode"
-                value={parserCode}
-                onChange={(e) => setParserCode(e.target.value)}
-                rows={20}
-                className="font-mono text-sm"
-              />
+                {dataSource === "custom_endpoint" && (
+                  <div className="absolute top-2 right-2">
+                    <Check className="h-4 w-4 text-primary" />
+                  </div>
+                )}
+                <Code className="h-8 w-8 mb-3 text-blue-500" />
+                <h3 className="font-semibold mb-1">Custom Endpoint</h3>
+                <p className="text-sm text-muted-foreground">
+                  Create your own REST endpoint with a Python parser to transform incoming data
+                </p>
+                <Badge variant="secondary" className="mt-2">Most Flexible</Badge>
+              </button>
+
+              {/* Stream Subscription */}
+              <button
+                onClick={() => setDataSource("stream_subscription")}
+                className={`relative p-4 rounded-lg border-2 text-left transition-all ${
+                  dataSource === "stream_subscription"
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                {dataSource === "stream_subscription" && (
+                  <div className="absolute top-2 right-2">
+                    <Check className="h-4 w-4 text-primary" />
+                  </div>
+                )}
+                <Radio className="h-8 w-8 mb-3 text-green-500" />
+                <h3 className="font-semibold mb-1">Subscribe to Stream</h3>
+                <p className="text-sm text-muted-foreground">
+                  Tap into an existing data stream (RPLidar, Telemetry, Camera, or another app)
+                </p>
+                <Badge variant="secondary" className="mt-2">Easiest</Badge>
+              </button>
+
+              {/* Passthrough */}
+              <button
+                onClick={() => setDataSource("passthrough")}
+                className={`relative p-4 rounded-lg border-2 text-left transition-all ${
+                  dataSource === "passthrough"
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                {dataSource === "passthrough" && (
+                  <div className="absolute top-2 right-2">
+                    <Check className="h-4 w-4 text-primary" />
+                  </div>
+                )}
+                <Zap className="h-8 w-8 mb-3 text-yellow-500" />
+                <h3 className="font-semibold mb-1">Passthrough</h3>
+                <p className="text-sm text-muted-foreground">
+                  Send raw JSON directly to widgets — no parser needed, just define the schema
+                </p>
+                <Badge variant="secondary" className="mt-2">Quick Setup</Badge>
+              </button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Test Parser */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Test Parser</CardTitle>
-            <CardDescription>Test your parser with sample data</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="testData">Test Input (JSON)</Label>
+        {/* Stream Subscription: Stream Picker */}
+        {dataSource === "stream_subscription" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Data Stream</CardTitle>
+              <CardDescription>
+                Choose an existing data stream to subscribe to. Your app will receive live data from this stream.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!availableStreams ? (
+                <p className="text-muted-foreground">Loading available streams...</p>
+              ) : availableStreams.length === 0 ? (
+                <p className="text-muted-foreground">No streams available</p>
+              ) : (
+                <div className="space-y-3">
+                  {availableStreams.map((stream) => (
+                    <button
+                      key={stream.id}
+                      onClick={() => handleStreamSelect(stream.id)}
+                      className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                        selectedStreamId === stream.id
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold">{stream.name}</h4>
+                          <p className="text-sm text-muted-foreground">{stream.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            {Object.keys(stream.fields).length} fields
+                          </Badge>
+                          {selectedStreamId === stream.id && (
+                            <Check className="h-5 w-5 text-primary" />
+                          )}
+                        </div>
+                      </div>
+                      {/* Show fields when selected */}
+                      {selectedStreamId === stream.id && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <p className="text-xs text-muted-foreground mb-2 font-medium">Available Fields:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(stream.fields).map(([fieldPath, fieldInfo]) => (
+                              <Badge key={fieldPath} variant="secondary" className="text-xs font-mono">
+                                {fieldPath}
+                                <span className="ml-1 text-muted-foreground">({fieldInfo.type})</span>
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedStream && (
+                <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium">How it works</p>
+                      <p className="text-muted-foreground mt-1">
+                        Your app will automatically subscribe to the <strong>{selectedStream.name}</strong> WebSocket channel.
+                        Data fields will be mapped to your UI widgets. No parser code needed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Custom Endpoint: Parser Code */}
+        {dataSource === "custom_endpoint" && (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Payload Parser</CardTitle>
+                <CardDescription>
+                  Python code to transform raw payload data into structured format
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Label htmlFor="parserCode">Parser Code (Python)</Label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".py"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="ml-auto"
+                  >
+                    <FileUp className="h-4 w-4 mr-2" />
+                    Upload .py File
+                  </Button>
+                </div>
                 <Textarea
-                  id="testData"
-                  value={testData}
-                  onChange={(e) => setTestData(e.target.value)}
-                  rows={10}
+                  id="parserCode"
+                  value={parserCode}
+                  onChange={(e) => setParserCode(e.target.value)}
+                  rows={20}
                   className="font-mono text-sm"
                 />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Test Parser</CardTitle>
+                <CardDescription>Test your parser with sample data</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="testData">Test Input (JSON)</Label>
+                    <Textarea
+                      id="testData"
+                      value={testData}
+                      onChange={(e) => setTestData(e.target.value)}
+                      rows={10}
+                      className="font-mono text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="testResult">Test Output</Label>
+                    <Textarea
+                      id="testResult"
+                      value={testResult}
+                      readOnly
+                      rows={10}
+                      className="font-mono text-sm bg-muted"
+                      placeholder="Test output will appear here..."
+                    />
+                  </div>
+                </div>
+                <Button onClick={handleTest} disabled={isTesting}>
+                  {isTesting ? (
+                    <>Testing...</>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Test Parser
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {/* Passthrough: Schema Definition */}
+        {dataSource === "passthrough" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Schema Definition</CardTitle>
+              <CardDescription>
+                Define the SCHEMA dictionary that describes your data fields. No parse_payload function needed — 
+                raw JSON will be passed directly to widgets.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Textarea
+                value={parserCode}
+                onChange={(e) => setParserCode(e.target.value)}
+                rows={15}
+                className="font-mono text-sm"
+                placeholder={`# Just define the SCHEMA — no parser function needed
+SCHEMA = {
+    "temperature": {
+        "type": "number",
+        "unit": "°C",
+        "description": "Temperature reading"
+    },
+    "status": {
+        "type": "string",
+        "description": "Device status"
+    }
+}`}
+              />
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-medium">Passthrough Endpoint</p>
+                    <p className="text-muted-foreground mt-1">
+                      Send JSON data to <code className="bg-muted px-1 rounded">POST /api/rest/payload/{'{'}<em>appId</em>{'}'}/ingest</code>.
+                      The raw JSON fields will be mapped directly to your UI widgets.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="testResult">Test Output</Label>
-                <Textarea
-                  id="testResult"
-                  value={testResult}
-                  readOnly
-                  rows={10}
-                  className="font-mono text-sm bg-muted"
-                  placeholder="Test output will appear here..."
-                />
-              </div>
-            </div>
-            <Button onClick={handleTest} disabled={isTesting}>
-              {isTesting ? (
-                <>Testing...</>
-              ) : (
-                <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Test Parser
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-4">
+        <div className="flex justify-end gap-4 pb-16">
           <Button variant="outline" onClick={onBack}>
             Cancel
           </Button>
           <Button onClick={handleContinueToUI}>
+            <ChevronRight className="h-4 w-4 mr-2" />
             Continue to UI Builder
           </Button>
         </div>

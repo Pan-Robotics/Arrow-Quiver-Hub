@@ -32,7 +32,11 @@ export const customApps = mysqlTable("customApps", {
   description: text("description"),
   /** App icon URL */
   icon: varchar("icon", { length: 512 }),
-  /** Python payload parser code */
+  /** Data source type: how this app receives data */
+  dataSource: mysqlEnum("dataSource", ["custom_endpoint", "stream_subscription", "passthrough"]).default("custom_endpoint").notNull(),
+  /** Data source configuration (JSON) - stream name, field mappings, etc. */
+  dataSourceConfig: text("dataSourceConfig"),
+  /** Python payload parser code (optional for stream_subscription and passthrough) */
   parserCode: text("parserCode").notNull(),
   /** JSON schema defining data structure */
   dataSchema: text("dataSchema").notNull(),

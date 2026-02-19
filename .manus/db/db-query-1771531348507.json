@@ -1,0 +1,14 @@
+{
+  "query": "SELECT ca.appId, u.id as userId FROM customApps ca, users u WHERE ca.name = 'LiDAR Stats Monitor' AND u.role = 'admin' LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT ca.appId, u.id as userId FROM customApps ca, users u WHERE ca.name = 'LiDAR Stats Monitor' AND u.role = 'admin' LIMIT 1;",
+  "rows": [
+    {
+      "appId": "lidar-stats-monitor",
+      "userId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "appId\tuserId\nlidar-stats-monitor\t1\n",
+  "stderr": "",
+  "execution_time_ms": 379
+}

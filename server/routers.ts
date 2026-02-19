@@ -266,12 +266,108 @@ export const appRouter = router({
         return result;
       }),
 
+    // Get available data streams that apps can subscribe to
+    getAvailableStreams: publicProcedure.query(async () => {
+      // Built-in streams
+      const streams: Array<{
+        id: string;
+        name: string;
+        description: string;
+        event: string;
+        subscribeEvent: string;
+        subscribeParam: string;
+        fields: Record<string, { type: string; description: string }>;
+      }> = [
+        {
+          id: 'pointcloud',
+          name: 'RPLidar Point Cloud',
+          description: 'Real-time LiDAR scan data from connected drones',
+          event: 'pointcloud',
+          subscribeEvent: 'subscribe',
+          subscribeParam: 'drone_id',
+          fields: {
+            drone_id: { type: 'string', description: 'Drone identifier' },
+            timestamp: { type: 'string', description: 'ISO timestamp' },
+            points: { type: 'array', description: 'Array of {angle, distance, quality, x, y} points' },
+            'stats.point_count': { type: 'number', description: 'Total points in scan' },
+            'stats.valid_points': { type: 'number', description: 'Valid (non-zero) points' },
+            'stats.avg_distance': { type: 'number', description: 'Average distance in mm' },
+            'stats.avg_quality': { type: 'number', description: 'Average quality score' },
+            'stats.min_distance': { type: 'number', description: 'Minimum distance in mm' },
+            'stats.max_distance': { type: 'number', description: 'Maximum distance in mm' },
+          },
+        },
+        {
+          id: 'telemetry',
+          name: 'Flight Telemetry',
+          description: 'Attitude, position, GPS, and battery data from flight controller',
+          event: 'telemetry',
+          subscribeEvent: 'subscribe',
+          subscribeParam: 'drone_id',
+          fields: {
+            drone_id: { type: 'string', description: 'Drone identifier' },
+            timestamp: { type: 'string', description: 'ISO timestamp' },
+            'telemetry.attitude.roll_deg': { type: 'number', description: 'Roll angle in degrees' },
+            'telemetry.attitude.pitch_deg': { type: 'number', description: 'Pitch angle in degrees' },
+            'telemetry.attitude.yaw_deg': { type: 'number', description: 'Yaw angle in degrees' },
+            'telemetry.position.latitude_deg': { type: 'number', description: 'Latitude' },
+            'telemetry.position.longitude_deg': { type: 'number', description: 'Longitude' },
+            'telemetry.position.relative_altitude_m': { type: 'number', description: 'Relative altitude in meters' },
+            'telemetry.gps.num_satellites': { type: 'number', description: 'Number of GPS satellites' },
+            'telemetry.battery_fc.voltage_v': { type: 'number', description: 'Battery voltage' },
+            'telemetry.battery_fc.remaining_percent': { type: 'number', description: 'Battery remaining %' },
+            'telemetry.in_air': { type: 'boolean', description: 'Whether drone is in air' },
+          },
+        },
+        {
+          id: 'camera_status',
+          name: 'Camera Status',
+          description: 'Camera connection, recording, and gimbal status',
+          event: 'camera_status',
+          subscribeEvent: 'subscribe_camera',
+          subscribeParam: 'drone_id',
+          fields: {
+            drone_id: { type: 'string', description: 'Drone identifier' },
+            connected: { type: 'boolean', description: 'Camera connected' },
+            recording: { type: 'boolean', description: 'Currently recording' },
+            'attitude.yaw': { type: 'number', description: 'Gimbal yaw' },
+            'attitude.pitch': { type: 'number', description: 'Gimbal pitch' },
+            zoom_level: { type: 'number', description: 'Current zoom level' },
+          },
+        },
+      ];
+
+      // Also list custom apps that other apps can subscribe to
+      const customAppsList = await getAllCustomApps(true);
+      for (const app of customAppsList) {
+        const schema = app.dataSchema ? JSON.parse(app.dataSchema) : {};
+        streams.push({
+          id: `app:${app.appId}`,
+          name: `${app.name} (Custom App)`,
+          description: app.description || `Data stream from ${app.name}`,
+          event: 'app_data',
+          subscribeEvent: 'subscribe_app',
+          subscribeParam: app.appId,
+          fields: Object.fromEntries(
+            Object.entries(schema).map(([key, val]: [string, any]) => [
+              key,
+              { type: val.type || 'string', description: val.description || key },
+            ])
+          ),
+        });
+      }
+
+      return streams;
+    }),
+
     // Save a complete custom app (parser + UI schema)
     saveApp: protectedProcedure
       .input(
         z.object({
           name: z.string(),
           description: z.string().optional(),
+          dataSource: z.enum(['custom_endpoint', 'stream_subscription', 'passthrough']).optional().default('custom_endpoint'),
+          dataSourceConfig: z.any().optional(), // { streamId, streamEvent, subscribeEvent, subscribeParam, fieldMappings }
           parserCode: z.string(),
           dataSchema: z.any(), // JSON schema
           uiSchema: z.any(), // UI layout configuration
@@ -296,6 +392,8 @@ export const appRouter = router({
           name: input.name,
           description: input.description || null,
           icon: null,
+          dataSource: input.dataSource,
+          dataSourceConfig: input.dataSourceConfig ? JSON.stringify(input.dataSourceConfig) : null,
           parserCode: input.parserCode,
           dataSchema: JSON.stringify(input.dataSchema),
           uiSchema: JSON.stringify(input.uiSchema),
@@ -327,6 +425,8 @@ export const appRouter = router({
           createdAt: app.createdAt,
           uiSchema: app.uiSchema,
           dataSchema: app.dataSchema,
+          dataSource: app.dataSource,
+          dataSourceConfig: app.dataSourceConfig,
         }));
       }),
 
@@ -408,6 +508,8 @@ export const appRouter = router({
           appId: z.string(),
           name: z.string().optional(),
           description: z.string().optional(),
+          dataSource: z.enum(['custom_endpoint', 'stream_subscription', 'passthrough']).optional(),
+          dataSourceConfig: z.any().optional(),
           parserCode: z.string().optional(),
           dataSchema: z.any().optional(),
           uiSchema: z.any().optional(),
@@ -434,6 +536,8 @@ export const appRouter = router({
         const updates: any = {};
         if (input.name) updates.name = input.name;
         if (input.description !== undefined) updates.description = input.description;
+        if (input.dataSource) updates.dataSource = input.dataSource;
+        if (input.dataSourceConfig !== undefined) updates.dataSourceConfig = JSON.stringify(input.dataSourceConfig);
         if (input.parserCode) updates.parserCode = input.parserCode;
         if (input.dataSchema) updates.dataSchema = JSON.stringify(input.dataSchema);
         if (input.uiSchema) updates.uiSchema = JSON.stringify(input.uiSchema);

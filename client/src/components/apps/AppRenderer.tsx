@@ -125,6 +125,31 @@ export default function AppRenderer({ appId }: AppRendererProps) {
     ? (typeof app.uiSchema === 'string' ? JSON.parse(app.uiSchema) : app.uiSchema)
     : null;
 
+  // Parse data source config
+  const dataSource = (app as any)?.dataSource || 'custom_endpoint';
+  const dataSourceConfig = useMemo(() => {
+    const raw = (app as any)?.dataSourceConfig;
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return null; }
+    }
+    return raw;
+  }, [app]);
+
+  // Helper to extract nested values using dot notation (e.g., "stats.point_count")
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  // Apply field mappings to transform stream data into widget-compatible format
+  const applyFieldMappings = (rawData: any, mappings: Record<string, string>): Record<string, any> => {
+    const result: Record<string, any> = {};
+    for (const [widgetField, streamPath] of Object.entries(mappings)) {
+      result[widgetField] = getNestedValue(rawData, streamPath);
+    }
+    return result;
+  };
+
   // Connect to WebSocket for live data
   useEffect(() => {
     const newSocket = io({
@@ -132,19 +157,74 @@ export default function AppRenderer({ appId }: AppRendererProps) {
     });
 
     newSocket.on("connect", () => {
-      console.log("[AppRenderer] WebSocket connected");
-      newSocket.emit("subscribe_app", appId);
+      console.log("[AppRenderer] WebSocket connected, dataSource:", dataSource);
+
+      if (dataSource === 'stream_subscription' && dataSourceConfig) {
+        const { streamId } = dataSourceConfig;
+        console.log(`[AppRenderer] Subscribing to stream: ${streamId}`);
+        
+        if (streamId?.startsWith('app:')) {
+          // Subscribe to another custom app's data
+          const sourceAppId = streamId.replace('app:', '');
+          newSocket.emit('subscribe_app', sourceAppId);
+        } else {
+          // For built-in streams (pointcloud, telemetry, camera_status),
+          // use the generic subscribe_stream event to join the stream room
+          newSocket.emit('subscribe_stream', streamId);
+        }
+      } else {
+        // Default: subscribe to this app's own data channel
+        newSocket.emit("subscribe_app", appId);
+      }
     });
 
+    // Handle app_data events (for custom_endpoint and passthrough modes, or app: stream subscriptions)
     newSocket.on("app_data", (message: { appId: string; data: any; timestamp: string }) => {
-      console.log("[AppRenderer] Received app data:", message);
-      console.log("[AppRenderer] Data fields:", Object.keys(message.data));
-      console.log("[AppRenderer] Data values:", message.data);
-      if (message.appId === appId) {
-        console.log("[AppRenderer] Setting liveData to:", message.data);
+      if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId?.startsWith('app:')) {
+        const sourceAppId = dataSourceConfig.streamId.replace('app:', '');
+        if (message.appId === sourceAppId) {
+          const mapped = dataSourceConfig.fieldMappings
+            ? applyFieldMappings(message.data, dataSourceConfig.fieldMappings)
+            : message.data;
+          setLiveData(mapped);
+        }
+      } else if (message.appId === appId) {
         setLiveData(message.data);
       }
     });
+
+    // Handle pointcloud events (for stream_subscription to pointcloud)
+    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'pointcloud') {
+      newSocket.on("pointcloud", (message: any) => {
+        console.log("[AppRenderer] Received pointcloud stream data");
+        const mapped = dataSourceConfig.fieldMappings
+          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
+          : message;
+        setLiveData(mapped);
+      });
+    }
+
+    // Handle telemetry events (for stream_subscription to telemetry)
+    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'telemetry') {
+      newSocket.on("telemetry", (message: any) => {
+        console.log("[AppRenderer] Received telemetry stream data");
+        const mapped = dataSourceConfig.fieldMappings
+          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
+          : message;
+        setLiveData(mapped);
+      });
+    }
+
+    // Handle camera_status events
+    if (dataSource === 'stream_subscription' && dataSourceConfig?.streamId === 'camera_status') {
+      newSocket.on("camera_status", (message: any) => {
+        console.log("[AppRenderer] Received camera_status stream data");
+        const mapped = dataSourceConfig.fieldMappings
+          ? applyFieldMappings(message, dataSourceConfig.fieldMappings)
+          : message;
+        setLiveData(mapped);
+      });
+    }
 
     newSocket.on("disconnect", () => {
       console.log("[AppRenderer] WebSocket disconnected");
@@ -154,11 +234,21 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
     return () => {
       if (newSocket) {
-        newSocket.emit("unsubscribe_app", appId);
+        if (dataSource === 'stream_subscription' && dataSourceConfig) {
+          const { streamId } = dataSourceConfig;
+          if (streamId?.startsWith('app:')) {
+            const sourceAppId = streamId.replace('app:', '');
+            newSocket.emit('unsubscribe_app', sourceAppId);
+          } else {
+            newSocket.emit('unsubscribe_stream', streamId);
+          }
+        } else {
+          newSocket.emit("unsubscribe_app", appId);
+        }
         newSocket.disconnect();
       }
     };
-  }, [appId]);
+  }, [appId, dataSource, dataSourceConfig]);
 
   if (!app) {
     return (

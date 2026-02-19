@@ -143,6 +143,17 @@ export function initializeWebSocket(httpServer: HTTPServer) {
       socket.data.companionType = data.type;
     });
 
+    // Subscribe to a data stream (for stream_subscription apps)
+    socket.on('subscribe_stream', (streamId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to stream: ${streamId}`);
+      socket.join(`stream:${streamId}`);
+    });
+
+    socket.on('unsubscribe_stream', (streamId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from stream: ${streamId}`);
+      socket.leave(`stream:${streamId}`);
+    });
+
     socket.on('disconnect', () => {
       console.log(`[WebSocket] Client disconnected: ${socket.id}`);
     });
@@ -161,6 +172,9 @@ export function broadcastPointCloud(message: PointCloudMessage) {
   // Broadcast to all clients subscribed to this drone
   io.to(`drone:${message.drone_id}`).emit('pointcloud', message);
   
+  // Also broadcast to the general 'stream:pointcloud' room for stream subscribers
+  io.to('stream:pointcloud').emit('pointcloud', message);
+  
   // Also broadcast to general channel for dashboard
   io.emit('pointcloud_update', {
     drone_id: message.drone_id,
@@ -177,6 +191,9 @@ export function broadcastTelemetry(message: TelemetryMessage) {
 
   // Broadcast to all clients subscribed to this drone
   io.to(`drone:${message.drone_id}`).emit('telemetry', message);
+  
+  // Also broadcast to the general 'stream:telemetry' room for stream subscribers
+  io.to('stream:telemetry').emit('telemetry', message);
   
   // Also broadcast to general channel for dashboard
   io.emit('telemetry_update', {
@@ -215,6 +232,9 @@ export function broadcastCameraStatus(message: CameraStatusMessage) {
 
   // Broadcast to all clients subscribed to this drone's camera
   io.to(`camera:${message.drone_id}`).emit('camera_status', message);
+  
+  // Also broadcast to the general 'stream:camera_status' room for stream subscribers
+  io.to('stream:camera_status').emit('camera_status', message);
 }
 
 /**

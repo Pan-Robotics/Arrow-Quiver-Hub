@@ -1,0 +1,2 @@
+ALTER TABLE `customApps` ADD `dataSource` enum('custom_endpoint','stream_subscription','passthrough') DEFAULT 'custom_endpoint' NOT NULL;--> statement-breakpoint
+ALTER TABLE `customApps` ADD `dataSourceConfig` text;

@@ -37,33 +37,53 @@ export async function handlePayloadIngest(req: Request, res: Response) {
       });
     }
 
-    // Execute the parser
-    const parseResult = await executeParser(app.parserCode, rawPayload);
+    // Determine data source mode
+    const dataSourceMode = app.dataSource || 'custom_endpoint';
     
-    if (!parseResult.success) {
+    let outputData: any;
+    let executionTime: number | undefined;
+
+    if (dataSourceMode === 'passthrough') {
+      // Passthrough mode: skip parser, use raw payload directly
+      outputData = rawPayload;
+      console.log(`[REST API] Passthrough mode for app ${appId}`);
+    } else if (dataSourceMode === 'stream_subscription') {
+      // Stream subscription apps shouldn't receive data via REST
       return res.status(400).json({
         success: false,
-        error: `Parser execution failed: ${parseResult.error}`,
+        error: `App "${appId}" uses stream subscription and does not accept REST payloads`,
       });
+    } else {
+      // Custom endpoint mode: execute the parser
+      const parseResult = await executeParser(app.parserCode, rawPayload);
+      
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: `Parser execution failed: ${parseResult.error}`,
+        });
+      }
+      outputData = parseResult.output;
+      executionTime = parseResult.executionTime;
     }
 
     // Store the parsed data
     const storedData = await storeAppData({
       appId,
-      data: parseResult.output,
+      data: outputData,
       rawPayload,
     });
 
     // Broadcast to connected WebSocket clients
-    broadcastAppData(appId, parseResult.output);
+    broadcastAppData(appId, outputData);
 
     // Return success response
     return res.status(200).json({
       success: true,
       appId,
-      data: parseResult.output,
+      data: outputData,
       timestamp: storedData.timestamp,
-      executionTime: parseResult.executionTime,
+      ...(executionTime && { executionTime }),
     });
   } catch (error) {
     console.error("[REST API] Payload ingest error:", error);

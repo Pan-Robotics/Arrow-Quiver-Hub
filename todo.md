@@ -728,3 +728,29 @@
 - [x] Confirm 2D/3D toggle works in the custom app context
 - [x] Write 17 integration tests for data broadcast pipeline (all passing)
 - [x] All 66 tests passing across 4 test files
+
+## App Builder Developer Experience Audit & Expansion
+
+### Phase 1: Audit Current Workflow
+- [x] Map the complete App Builder user-facing workflow (step by step)
+- [x] Test creating a point cloud viewer app through the UI
+- [x] Document all limitations and friction points (APP_BUILDER_AUDIT.md)
+- [x] Identify what developers can't do today that they should be able to
+
+### Phase 2: Data Source Configuration (P0)
+- [x] Add dataSource field to customApps DB schema (type: 'custom_endpoint' | 'stream_subscription' | 'passthrough')
+- [x] Add dataSourceConfig field to store stream subscription details
+- [x] Run database migration
+- [x] Update AppBuilder UI: add Data Source step before parser step
+- [x] Add stream picker UI (list available streams: pointcloud, telemetry, camera, custom apps)
+- [x] Add field mapping UI for stream subscriptions (auto-mapped from stream fields)
+- [x] Make parser step optional when data source is 'stream_subscription' or 'passthrough'
+- [x] Update AppRenderer to handle stream subscriptions (subscribe_stream WebSocket event)
+- [x] Update saveApp/updateApp backend to store dataSource config
+- [x] Update restApi.ts to support passthrough mode (no parser execution)
+- [ ] Add enhanced canvas widget config to UI Builder properties panel
+- [x] Test: create LiDAR Stats Monitor app via UI that subscribes to RPLidar stream - WORKING
+- [ ] Test: create passthrough app via UI
+- [x] Test: existing custom_endpoint apps still work (RPLidar Point Cloud Viewer)
+- [x] Write unit tests for new data source logic (29 stream-subscription tests)
+- [x] All 95 tests passing across 5 test files
