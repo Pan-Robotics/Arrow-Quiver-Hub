@@ -758,3 +758,7 @@
 ## Sidebar Reorder
 
 - [x] Move Drone Configuration icon to just above the App Store + icon in sidebar
+
+## Bug Fix: Failed to fetch in LidarApp
+
+- [x] Fix "Failed to fetch" error at LidarApp.tsx line 183 (polling interval 100ms→1s, added 2s debounce, silenced transient errors)

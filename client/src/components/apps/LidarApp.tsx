@@ -261,33 +261,40 @@ export default function LidarApp() {
       startPolling();
     }
 
-    // Polling fallback function
+    // Polling fallback function with debounce to avoid race with WebSocket reconnect
+    let pollingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     function startPolling() {
       if (pollingIntervalRef.current) return;
 
-      console.log("Starting polling fallback for drone:", selectedDrone);
+      // Debounce: wait 2s before starting polling in case WebSocket reconnects quickly
+      if (pollingDebounceTimer) clearTimeout(pollingDebounceTimer);
+      pollingDebounceTimer = setTimeout(() => {
+        if (pollingIntervalRef.current) return; // Already started or WebSocket reconnected
+        console.log("Starting polling fallback for drone:", selectedDrone);
 
-      pollingIntervalRef.current = setInterval(async () => {
-        try {
-          const response = await fetch(`/api/rest/pointcloud/latest/${selectedDrone}`);
-          if (response.ok) {
-            const result = await response.json();
-            if (result.success && result.data) {
-              setLatestData(result.data);
-              setPoints3D(convertTo3D(result.data.points));
-              setConnected(true);
+        pollingIntervalRef.current = setInterval(async () => {
+          try {
+            const response = await fetch(`/api/rest/pointcloud/latest/${selectedDrone}`);
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success && result.data) {
+                setLatestData(result.data);
+                setPoints3D(convertTo3D(result.data.points));
+                setConnected(true);
+              }
+            } else if (response.status === 404) {
+              // No data yet — don't mark as disconnected, just waiting
             }
-          } else if (response.status === 404) {
-            setConnected(false);
+          } catch {
+            // Silently ignore transient fetch failures (network blips)
+            // WebSocket will reconnect and clear polling when ready
           }
-        } catch (error) {
-          console.error("Polling error:", error);
-          setConnected(false);
-        }
-      }, 100);
+        }, 1000); // Poll every 1s (not 100ms) — HTTP polling doesn't need 10Hz
+      }, 2000);
     }
 
     return () => {
+      if (pollingDebounceTimer) clearTimeout(pollingDebounceTimer);
       if (socketInstance) {
         socketInstance.emit("unsubscribe", selectedDrone);
         socketInstance.disconnect();
