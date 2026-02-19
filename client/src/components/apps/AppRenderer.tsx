@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Loader2, AlertCircle } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
+import PointCloudCanvas2D from "@/components/widgets/PointCloudCanvas2D";
 import LineChartWidget from "@/components/widgets/LineChartWidget";
 import BarChartWidget from "@/components/widgets/BarChartWidget";
+import { Button } from "@/components/ui/button";
+import { Box, Grid2x2 } from "lucide-react";
 
 interface Widget {
   id: string;
@@ -23,6 +26,90 @@ interface UISchema {
 
 interface AppRendererProps {
   appId: string;
+}
+
+/**
+ * Canvas widget with 2D/3D render mode toggle.
+ * Matches the RPLidar LidarApp visualization approach.
+ */
+function CanvasWidget({
+  widget,
+  value,
+  config,
+}: {
+  widget: Widget;
+  value: any;
+  config: Record<string, any>;
+}) {
+  const [renderMode, setRenderMode] = useState<'2d' | '3d'>('2d');
+
+  // Parse point data - handle both string and array inputs
+  const parsedPoints = useMemo(() => {
+    if (!value) return [];
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [];
+      }
+    }
+    if (Array.isArray(value)) return value;
+    return [];
+  }, [value]);
+
+  return (
+    <Card key={widget.id} className="p-4">
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-muted-foreground">{config.label || "Canvas"}</p>
+          {/* 2D/3D Render Mode Toggle */}
+          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+            <Button
+              variant={renderMode === '2d' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setRenderMode('2d')}
+              className="h-7 px-2 text-xs"
+            >
+              <Grid2x2 size={12} className="mr-1" />
+              2D
+            </Button>
+            <Button
+              variant={renderMode === '3d' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setRenderMode('3d')}
+              className="h-7 px-2 text-xs"
+            >
+              <Box size={12} className="mr-1" />
+              3D
+            </Button>
+          </div>
+        </div>
+        <div className="w-full" style={{ height: config.height || 400 }}>
+          {renderMode === '2d' ? (
+            <PointCloudCanvas2D
+              points={parsedPoints}
+              colorMode={config.colorMode || 'distance'}
+              minDistance={config.minDistance || 0}
+              maxDistance={config.maxDistance || 5000}
+              pointSize={config.pointSize || 3}
+              showGrid={config.showGrid !== false}
+              showAxes={config.showAxes !== false}
+            />
+          ) : (
+            <PointCloudCanvas
+              points={parsedPoints}
+              colorMode={config.colorMode || 'distance'}
+              minDistance={config.minDistance || 0}
+              maxDistance={config.maxDistance || 5000}
+              pointSize={config.pointSize || 4}
+              showGrid={config.showGrid !== false}
+              showAxes={config.showAxes !== false}
+            />
+          )}
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 export default function AppRenderer({ appId }: AppRendererProps) {
@@ -284,25 +371,14 @@ export default function AppRenderer({ appId }: AppRendererProps) {
 
       case "canvas":
         // Canvas widget for custom visualizations (e.g., point clouds)
-        const canvasData = value;
-        
+        // Matches RPLidar LidarApp with 2D/3D toggle
         return (
-          <Card key={widget.id} className="p-4">
-            <div>
-              <p className="text-sm text-muted-foreground mb-2">{config.label || "Canvas"}</p>
-              <div className="w-full" style={{ height: config.height || 400 }}>
-                <PointCloudCanvas
-                  points={canvasData}
-                  colorMode={config.colorMode || 'distance'}
-                  minDistance={config.minDistance || 0}
-                  maxDistance={config.maxDistance || 5000}
-                  pointSize={config.pointSize || 2}
-                  showGrid={config.showGrid !== false}
-                  showAxes={config.showAxes !== false}
-                />
-              </div>
-            </div>
-          </Card>
+          <CanvasWidget
+            key={widget.id}
+            widget={widget}
+            value={value}
+            config={config}
+          />
         );
 
       default:

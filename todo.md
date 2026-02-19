@@ -708,3 +708,13 @@
 - [x] Write 22 unit tests for mock data generator and data transformation
 - [x] All tests passing (format compatibility, data ranges, obstacle simulation)
 - [ ] Query database for existing scan data to use as replay (deferred - no scans in DB yet)
+
+## Update UI Builder Canvas Widget to Match RPLidar App
+
+- [x] Add PointCloudCanvas2D import to AppRenderer
+- [x] Add 2D/3D render mode toggle to canvas widget in AppRenderer
+- [x] Default to 2D mode for reliability
+- [x] Match point size and config defaults to LidarApp (2D: 3, 3D: 4)
+- [x] Handle string data parsing in 2D renderer
+- [x] Verify compilation (no TypeScript errors)
+- [x] Write/update tests (16 tests passing)
