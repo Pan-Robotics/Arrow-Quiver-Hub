@@ -761,4 +761,5 @@
 
 ## Bug Fix: Failed to fetch in LidarApp
 
-- [x] Fix "Failed to fetch" error at LidarApp.tsx line 183 (polling interval 100ms→1s, added 2s debounce, silenced transient errors)
+- [x] Fix "Failed to fetch" error at LidarApp.tsx line 183 (added 2s debounce, silenced transient errors)
+- [x] Reverted polling interval back to 100ms per user request

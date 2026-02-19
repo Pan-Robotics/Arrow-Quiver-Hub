@@ -289,7 +289,7 @@ export default function LidarApp() {
             // Silently ignore transient fetch failures (network blips)
             // WebSocket will reconnect and clear polling when ready
           }
-        }, 1000); // Poll every 1s (not 100ms) — HTTP polling doesn't need 10Hz
+        }, 100); // Poll at 10Hz to match real-time data rate
       }, 2000);
     }
 
