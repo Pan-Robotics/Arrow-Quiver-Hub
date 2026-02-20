@@ -117,7 +117,7 @@ export default function Home() {
       case "camera":
         return <CameraFeedApp />;
       case "telemetry":
-        return <TelemetryApp droneId="quiver_001" />;
+        return <TelemetryApp />;
       case "drone-config":
         return <DroneConfig />;
       default:

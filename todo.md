@@ -813,3 +813,11 @@
 - [x] Add Edit Drone dialog in DroneConfig UI (edit name, droneId with validation)
 - [x] Add Edit button on each API key row to modify description inline or via dialog
 - [x] Write vitest tests for new update functions and procedures
+
+## Drone Selector on All Built-in Apps
+
+- [x] Add drone selector dropdown to TelemetryApp (currently hardcoded to quiver_001)
+- [x] Add drone selector dropdown to CameraFeedApp (currently hardcoded to quiver_001)
+- [x] Update Home.tsx to no longer pass hardcoded droneId to TelemetryApp
+- [x] Ensure LidarApp drone selector is consistent with other apps (already has one)
+- [x] Write vitest tests for drone selector integration

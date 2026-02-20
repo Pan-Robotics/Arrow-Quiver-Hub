@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Camera, 
   Video, 
@@ -18,9 +19,11 @@ import {
   Maximize2,
   X,
   Activity,
-  VideoOff
+  VideoOff,
+  Loader2
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import { trpc } from "@/lib/trpc";
 
 // Camera status interface
 interface CameraStatus {
@@ -44,6 +47,19 @@ type GimbalCommand =
   | { type: "recordToggle" };
 
 export default function CameraFeedApp() {
+  // Drone selector state
+  const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
+
+  // Fetch list of drones
+  const { data: drones, isLoading: dronesLoading } = trpc.pointcloud.getDrones.useQuery();
+
+  // Auto-select first drone if available
+  useEffect(() => {
+    if (drones && drones.length > 0 && !selectedDrone) {
+      setSelectedDrone(drones[0].droneId);
+    }
+  }, [drones, selectedDrone]);
+
   // Camera state
   const [status, setStatus] = useState<CameraStatus>({
     connected: false,
@@ -64,6 +80,20 @@ export default function CameraFeedApp() {
 
   // Initialize WebSocket connection
   useEffect(() => {
+    if (!selectedDrone) return;
+
+    // Reset state when switching drones
+    setStatus({
+      connected: false,
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      zoom: 1,
+      recording: false,
+      streamActive: false,
+    });
+    setStreamUrl(null);
+
     const socketInstance = io({
       path: "/socket.io/",
       timeout: 5000,
@@ -71,7 +101,7 @@ export default function CameraFeedApp() {
 
     socketInstance.on("connect", () => {
       console.log("Camera WebSocket connected");
-      socketInstance.emit("subscribe_camera", "quiver_001");
+      socketInstance.emit("subscribe_camera", selectedDrone);
     });
 
     socketInstance.on("disconnect", () => {
@@ -97,17 +127,17 @@ export default function CameraFeedApp() {
     setSocket(socketInstance);
 
     return () => {
-      socketInstance.emit("unsubscribe_camera", "quiver_001");
+      socketInstance.emit("unsubscribe_camera", selectedDrone);
       socketInstance.disconnect();
     };
-  }, []);
+  }, [selectedDrone]);
 
   // Send command to camera via WebSocket
   const sendCommand = useCallback((command: GimbalCommand) => {
-    if (socket?.connected) {
-      socket.emit("camera_command", { droneId: "quiver_001", command });
+    if (socket?.connected && selectedDrone) {
+      socket.emit("camera_command", { droneId: selectedDrone, command });
     }
-  }, [socket]);
+  }, [socket, selectedDrone]);
 
   // Gimbal rotation handlers (continuous while held)
   const startRotation = useCallback((yawSpeed: number, pitchSpeed: number) => {
@@ -165,7 +195,33 @@ export default function CameraFeedApp() {
             <h2 className="text-xl font-semibold text-white">Camera Feed</h2>
             <p className="text-sm text-zinc-400">SIYI A8 mini Gimbal Camera</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Drone Selector */}
+            {dronesLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="animate-spin text-zinc-400" size={16} />
+                <span className="text-sm text-zinc-400">Loading drones...</span>
+              </div>
+            ) : drones && drones.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-400">Drone:</span>
+                <Select value={selectedDrone || undefined} onValueChange={setSelectedDrone}>
+                  <SelectTrigger className="w-[200px] bg-zinc-700 border-zinc-600 text-white">
+                    <SelectValue placeholder="Select drone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {drones.map((drone) => (
+                      <SelectItem key={drone.id} value={drone.droneId}>
+                        {drone.name || drone.droneId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-400">No drones registered</div>
+            )}
+
             <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
               <Settings size={20} />
             </Button>
@@ -195,7 +251,12 @@ export default function CameraFeedApp() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
                   <VideoOff size={64} className="mb-4" />
                   <p className="text-lg font-medium">No Video Stream</p>
-                  <p className="text-sm text-zinc-600">Waiting for camera connection...</p>
+                  <p className="text-sm text-zinc-600">
+                    {selectedDrone 
+                      ? `Waiting for camera connection from ${selectedDrone}...`
+                      : "Select a drone to view camera feed"
+                    }
+                  </p>
                 </div>
               )}
               
@@ -408,12 +469,12 @@ export default function CameraFeedApp() {
           </div>
 
           {/* Connection Info */}
-          {!status.connected && (
+          {selectedDrone && !status.connected && (
             <Card className="bg-zinc-800/50 border-zinc-700 p-6 text-center">
               <VideoOff className="mx-auto mb-4 text-zinc-500" size={48} />
               <h3 className="text-lg font-medium text-white mb-2">Camera Not Connected</h3>
               <p className="text-sm text-zinc-400 mb-4">
-                The SIYI A8 mini camera is not responding. Please check:
+                The SIYI A8 mini camera on <strong>{selectedDrone}</strong> is not responding. Please check:
               </p>
               <ul className="text-sm text-zinc-500 text-left max-w-md mx-auto space-y-1">
                 <li>• Camera is powered on and connected to the network</li>
@@ -421,6 +482,16 @@ export default function CameraFeedApp() {
                 <li>• Companion computer camera service is running</li>
                 <li>• Network connectivity between components</li>
               </ul>
+            </Card>
+          )}
+
+          {!selectedDrone && !dronesLoading && (
+            <Card className="bg-zinc-800/50 border-zinc-700 p-6 text-center">
+              <VideoOff className="mx-auto mb-4 text-zinc-500" size={48} />
+              <h3 className="text-lg font-medium text-white mb-2">No Drone Selected</h3>
+              <p className="text-sm text-zinc-400">
+                Please register a drone in the Drone Configuration page and select it above to view the camera feed.
+              </p>
             </Card>
           )}
         </div>
