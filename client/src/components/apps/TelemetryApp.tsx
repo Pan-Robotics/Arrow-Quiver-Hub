@@ -17,7 +17,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { trpc } from '@/lib/trpc';
+import { useDroneSelection } from '@/hooks/useDroneSelection';
 
 interface TelemetryData {
   attitude: {
@@ -55,21 +55,11 @@ interface TelemetryData {
 }
 
 export default function TelemetryApp() {
-  const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
+  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection();
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
-
-  // Fetch list of drones
-  const { data: drones, isLoading: dronesLoading } = trpc.pointcloud.getDrones.useQuery();
-
-  // Auto-select first drone if available
-  useEffect(() => {
-    if (drones && drones.length > 0 && !selectedDrone) {
-      setSelectedDrone(drones[0].droneId);
-    }
-  }, [drones, selectedDrone]);
 
   useEffect(() => {
     if (!selectedDrone) return;

@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
 import PointCloudCanvas2D from "@/components/widgets/PointCloudCanvas2D";
-import { trpc } from "@/lib/trpc";
 import { Loader2, Radio, Activity, Play, Square, Box, Grid2x2 } from "lucide-react";
+import { useDroneSelection } from "@/hooks/useDroneSelection";
 import { io, Socket } from "socket.io-client";
 
 interface Point {
@@ -138,7 +138,7 @@ function convertTo3D(points: Point[]): Point3D[] {
 }
 
 export default function LidarApp() {
-  const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
+  const { selectedDrone, setSelectedDrone, drones, isLoading } = useDroneSelection();
   const [connected, setConnected] = useState(false);
   const [latestData, setLatestData] = useState<PointCloudData | null>(null);
   const [points3D, setPoints3D] = useState<Point3D[]>([]);
@@ -153,15 +153,7 @@ export default function LidarApp() {
   // Render mode: '2d' for reliable Canvas2D, '3d' for Three.js WebGL
   const [renderMode, setRenderMode] = useState<'2d' | '3d'>('2d');
 
-  // Fetch list of drones
-  const { data: drones, isLoading } = trpc.pointcloud.getDrones.useQuery();
-
-  // Auto-select first drone if available
-  useEffect(() => {
-    if (drones && drones.length > 0 && !selectedDrone) {
-      setSelectedDrone(drones[0].droneId);
-    }
-  }, [drones, selectedDrone]);
+  // Drone selection is handled by the shared useDroneSelection hook
 
   // Demo mode handler
   const toggleDemoMode = useCallback(() => {

@@ -821,3 +821,12 @@
 - [x] Update Home.tsx to no longer pass hardcoded droneId to TelemetryApp
 - [x] Ensure LidarApp drone selector is consistent with other apps (already has one)
 - [x] Write vitest tests for drone selector integration
+
+## Persist Drone Selection to localStorage
+
+- [x] Create shared useDroneSelection hook with localStorage persistence
+- [x] Integrate hook into LidarApp (replace inline state + useEffect)
+- [x] Integrate hook into TelemetryApp (replace inline state + useEffect)
+- [x] Integrate hook into CameraFeedApp (replace inline state + useEffect)
+- [x] Ensure selection persists across app switches and page reloads
+- [x] Write vitest tests for the shared hook and localStorage behavior

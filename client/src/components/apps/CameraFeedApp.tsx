@@ -23,7 +23,7 @@ import {
   Loader2
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
-import { trpc } from "@/lib/trpc";
+import { useDroneSelection } from "@/hooks/useDroneSelection";
 
 // Camera status interface
 interface CameraStatus {
@@ -47,18 +47,8 @@ type GimbalCommand =
   | { type: "recordToggle" };
 
 export default function CameraFeedApp() {
-  // Drone selector state
-  const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
-
-  // Fetch list of drones
-  const { data: drones, isLoading: dronesLoading } = trpc.pointcloud.getDrones.useQuery();
-
-  // Auto-select first drone if available
-  useEffect(() => {
-    if (drones && drones.length > 0 && !selectedDrone) {
-      setSelectedDrone(drones[0].droneId);
-    }
-  }, [drones, selectedDrone]);
+  // Drone selection via shared hook
+  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection();
 
   // Camera state
   const [status, setStatus] = useState<CameraStatus>({

@@ -3,18 +3,30 @@ import * as fs from "fs";
 import * as path from "path";
 
 /**
- * Tests to verify that all built-in apps have drone selector dropdowns.
- * These are structural tests that check the component source code for the
- * required drone selector patterns.
+ * Tests to verify that all built-in apps have drone selector dropdowns
+ * via the shared useDroneSelection hook.
  */
 
 const clientDir = path.resolve(__dirname, "../client/src/components/apps");
+const hookPath = path.resolve(__dirname, "../client/src/hooks/useDroneSelection.ts");
 
 function readComponent(filename: string): string {
   return fs.readFileSync(path.join(clientDir, filename), "utf-8");
 }
 
 describe("Drone selector in built-in apps", () => {
+  describe("Shared hook provides drone fetching", () => {
+    const hookSource = fs.readFileSync(hookPath, "utf-8");
+
+    it("hook fetches drones via trpc", () => {
+      expect(hookSource).toContain("trpc.pointcloud.getDrones.useQuery");
+    });
+
+    it("hook auto-selects first drone", () => {
+      expect(hookSource).toContain("drones[0].droneId");
+    });
+  });
+
   describe("LidarApp", () => {
     const source = readComponent("LidarApp.tsx");
 
@@ -26,8 +38,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses trpc to fetch drones", () => {
-      expect(source).toContain("trpc.pointcloud.getDrones.useQuery");
+    it("uses the shared useDroneSelection hook", () => {
+      expect(source).toContain("useDroneSelection()");
     });
 
     it("has selectedDrone state", () => {
@@ -38,10 +50,6 @@ describe("Drone selector in built-in apps", () => {
     it("renders a drone selector dropdown", () => {
       expect(source).toContain("Select drone");
       expect(source).toContain("onValueChange={setSelectedDrone}");
-    });
-
-    it("auto-selects first drone", () => {
-      expect(source).toContain("drones[0].droneId");
     });
   });
 
@@ -56,8 +64,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses trpc to fetch drones", () => {
-      expect(source).toContain("trpc.pointcloud.getDrones.useQuery");
+    it("uses the shared useDroneSelection hook", () => {
+      expect(source).toContain("useDroneSelection()");
     });
 
     it("has selectedDrone state", () => {
@@ -70,12 +78,7 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("onValueChange={setSelectedDrone}");
     });
 
-    it("auto-selects first drone", () => {
-      expect(source).toContain("drones[0].droneId");
-    });
-
     it("does NOT accept droneId as a prop", () => {
-      // The component should manage its own drone selection, not accept it as a prop
       expect(source).not.toMatch(/interface\s+\w*Props[\s\S]*droneId/);
       expect(source).not.toContain("{ droneId }");
     });
@@ -101,8 +104,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses trpc to fetch drones", () => {
-      expect(source).toContain("trpc.pointcloud.getDrones.useQuery");
+    it("uses the shared useDroneSelection hook", () => {
+      expect(source).toContain("useDroneSelection()");
     });
 
     it("has selectedDrone state", () => {
@@ -113,10 +116,6 @@ describe("Drone selector in built-in apps", () => {
     it("renders a drone selector dropdown", () => {
       expect(source).toContain("Select drone");
       expect(source).toContain("onValueChange={setSelectedDrone}");
-    });
-
-    it("auto-selects first drone", () => {
-      expect(source).toContain("drones[0].droneId");
     });
 
     it("does NOT hardcode quiver_001", () => {
