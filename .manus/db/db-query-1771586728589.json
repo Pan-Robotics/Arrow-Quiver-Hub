@@ -1,0 +1,87 @@
+{
+  "query": "SELECT appId, name, description, version, dataSource, dataSourceConfig, published, icon, creatorId FROM customApps;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT appId, name, description, version, dataSource, dataSourceConfig, published, icon, creatorId FROM customApps;",
+  "rows": [
+    {
+      "appId": "test",
+      "name": "test",
+      "description": "test",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "dataSourceConfig": "NULL",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test-sensor-app",
+      "name": "Test Sensor App",
+      "description": "Displays temperature and humidity sensor data",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "dataSourceConfig": "NULL",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test1",
+      "name": "Test1",
+      "description": "Test",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "dataSourceConfig": "NULL",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "all-widgets-test-app",
+      "name": "All Widgets Test App",
+      "description": "Comprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "dataSourceConfig": "NULL",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "rplidar-pointcloud-viewer",
+      "name": "RPLidar Point Cloud Viewer",
+      "description": "Live RPLidar point cloud visualization via UI Builder canvas widget. Taps into the existing RPLidar data stream.",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "dataSourceConfig": "NULL",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "lidar-stats-monitor",
+      "name": "LiDAR Stats Monitor",
+      "description": "Real-time LiDAR scan statistics dashboard - subscribes to the RPLidar point cloud stream",
+      "version": "1.0.0",
+      "dataSource": "stream_subscription",
+      "dataSourceConfig": "{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"fieldMappings\":{\"drone_id\":\"drone_id\",\"timestamp\":\"timestamp\",\"points\":\"points\",\"point_count\":\"stats.point_count\",\"valid_points\":\"stats.valid_points\",\"avg_distance\":\"stats.avg_distance\",\"avg_quality\":\"stats.avg_quality\",\"min_distance\":\"stats.min_distance\",\"max_distance\":\"stats.max_distance\"}}",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    },
+    {
+      "appId": "test5",
+      "name": "test5",
+      "description": "multi test",
+      "version": "1.0.0",
+      "dataSource": "stream_subscription",
+      "dataSourceConfig": "{\"streams\":[{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"drone_id\",\"timestamp\",\"stats.avg_distance\"],\"fieldAliases\":{}},{\"streamId\":\"camera_status\",\"streamEvent\":\"camera_status\",\"subscribeEvent\":\"subscribe_camera\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"connected\"],\"fieldAliases\":{}},{\"streamId\":\"telemetry\",\"streamEvent\":\"telemetry\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"telemetry.battery_fc.voltage_v\",\"telemetry.battery_fc.remaining_percent\",\"telemetry.in_air\",\"telemetry.position.relative_altitude_m\"],\"fieldAliases\":{}}],\"fieldMappings\":{\"drone_id\":\"pointcloud:drone_id\",\"timestamp\":\"pointcloud:timestamp\",\"avg_distance\":\"pointcloud:stats.avg_distance\",\"connected\":\"camera_status:connected\",\"voltage_v\":\"telemetry:telemetry.battery_fc.voltage_v\",\"remaining_percent\":\"telemetry:telemetry.battery_fc.remaining_percent\",\"in_air\":\"telemetry:telemetry.in_air\",\"relative_altitude_m\":\"telemetry:telemetry.position.relative_altitude_m\"}}",
+      "published": "published",
+      "icon": "NULL",
+      "creatorId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "appId\tname\tdescription\tversion\tdataSource\tdataSourceConfig\tpublished\ticon\tcreatorId\ntest\ttest\ttest\t1.0.0\tcustom_endpoint\tNULL\tpublished\tNULL\t1\ntest-sensor-app\tTest Sensor App\tDisplays temperature and humidity sensor data\t1.0.0\tcustom_endpoint\tNULL\tpublished\tNULL\t1\ntest1\tTest1\tTest\t1.0.0\tcustom_endpoint\tNULL\tpublished\tNULL\t1\nall-widgets-test-app\tAll Widgets Test App\tComprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer\t1.0.0\tcustom_endpoint\tNULL\tpublished\tNULL\t1\nrplidar-pointcloud-viewer\tRPLidar Point Cloud Viewer\tLive RPLidar point cloud visualization via UI Builder canvas widget. Taps into the existing RPLidar data stream.\t1.0.0\tcustom_endpoint\tNULL\tpublished\tNULL\t1\nlidar-stats-monitor\tLiDAR Stats Monitor\tReal-time LiDAR scan statistics dashboard - subscribes to the RPLidar point cloud stream\t1.0.0\tstream_subscription\t{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"fieldMappings\":{\"drone_id\":\"drone_id\",\"timestamp\":\"timestamp\",\"points\":\"points\",\"point_count\":\"stats.point_count\",\"valid_points\":\"stats.valid_points\",\"avg_distance\":\"stats.avg_distance\",\"avg_quality\":\"stats.avg_quality\",\"min_distance\":\"stats.min_distance\",\"max_distance\":\"stats.max_distance\"}}\tpublished\tNULL\t1\ntest5\ttest5\tmulti test\t1.0.0\tstream_subscription\t{\"streams\":[{\"streamId\":\"pointcloud\",\"streamEvent\":\"pointcloud\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"drone_id\",\"timestamp\",\"stats.avg_distance\"],\"fieldAliases\":{}},{\"streamId\":\"camera_status\",\"streamEvent\":\"camera_status\",\"subscribeEvent\":\"subscribe_camera\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"connected\"],\"fieldAliases\":{}},{\"streamId\":\"telemetry\",\"streamEvent\":\"telemetry\",\"subscribeEvent\":\"subscribe\",\"subscribeParam\":\"drone_id\",\"selectedFields\":[\"telemetry.battery_fc.voltage_v\",\"telemetry.battery_fc.remaining_percent\",\"telemetry.in_air\",\"telemetry.position.relative_altitude_m\"],\"fieldAliases\":{}}],\"fieldMappings\":{\"drone_id\":\"pointcloud:drone_id\",\"timestamp\":\"pointcloud:timestamp\",\"avg_distance\":\"pointcloud:stats.avg_distance\",\"connected\":\"camera_status:connected\",\"voltage_v\":\"telemetry:telemetry.battery_fc.voltage_v\",\"remaining_percent\":\"telemetry:telemetry.battery_fc.remaining_percent\",\"in_air\":\"telemetry:telemetry.in_air\",\"relative_altitude_m\":\"telemetry:telemetry.position.relative_altitude_m\"}}\tpublished\tNULL\t1\n",
+  "stderr": "",
+  "execution_time_ms": 360
+}

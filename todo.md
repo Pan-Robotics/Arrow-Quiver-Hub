@@ -784,3 +784,12 @@
 ## Bug Fix: tRPC Failed to fetch error
 
 - [x] Fix tRPC "Failed to fetch" error on main page (added retry logic for transient network errors, silent warnings instead of error popups)
+
+## App Management Improvements
+
+- [x] Remove Edit button from built-in apps (telemetry, camera) in App Management
+- [x] Remove Edit button from core apps (lidar) in App Management view
+- [x] Improve View modal to show appropriate information for all app types
+- [x] Built-in apps view: show app name, description, type, data streams info
+- [x] Custom apps view: show full details like rplidar-pointcloud-viewer (parser code, data schema, UI schema, data source config)
+- [x] Add proper metadata display for built-in apps (Flight Telemetry, Camera Feed, RPLidar)

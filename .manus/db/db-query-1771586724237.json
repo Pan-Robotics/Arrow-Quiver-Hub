@@ -1,0 +1,73 @@
+{
+  "query": "SELECT appId, name, description, version, dataSource, published, icon FROM customApps;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT appId, name, description, version, dataSource, published, icon FROM customApps;",
+  "rows": [
+    {
+      "appId": "test",
+      "name": "test",
+      "description": "test",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "test-sensor-app",
+      "name": "Test Sensor App",
+      "description": "Displays temperature and humidity sensor data",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "test1",
+      "name": "Test1",
+      "description": "Test",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "all-widgets-test-app",
+      "name": "All Widgets Test App",
+      "description": "Comprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "rplidar-pointcloud-viewer",
+      "name": "RPLidar Point Cloud Viewer",
+      "description": "Live RPLidar point cloud visualization via UI Builder canvas widget. Taps into the existing RPLidar data stream.",
+      "version": "1.0.0",
+      "dataSource": "custom_endpoint",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "lidar-stats-monitor",
+      "name": "LiDAR Stats Monitor",
+      "description": "Real-time LiDAR scan statistics dashboard - subscribes to the RPLidar point cloud stream",
+      "version": "1.0.0",
+      "dataSource": "stream_subscription",
+      "published": "published",
+      "icon": "NULL"
+    },
+    {
+      "appId": "test5",
+      "name": "test5",
+      "description": "multi test",
+      "version": "1.0.0",
+      "dataSource": "stream_subscription",
+      "published": "published",
+      "icon": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "appId\tname\tdescription\tversion\tdataSource\tpublished\ticon\ntest\ttest\ttest\t1.0.0\tcustom_endpoint\tpublished\tNULL\ntest-sensor-app\tTest Sensor App\tDisplays temperature and humidity sensor data\t1.0.0\tcustom_endpoint\tpublished\tNULL\ntest1\tTest1\tTest\t1.0.0\tcustom_endpoint\tpublished\tNULL\nall-widgets-test-app\tAll Widgets Test App\tComprehensive test app demonstrating all 8 widget types including Text Display, Gauge, LED Indicator, Line Chart, Bar Chart, Map (GPS), Video Player, and Canvas renderer\t1.0.0\tcustom_endpoint\tpublished\tNULL\nrplidar-pointcloud-viewer\tRPLidar Point Cloud Viewer\tLive RPLidar point cloud visualization via UI Builder canvas widget. Taps into the existing RPLidar data stream.\t1.0.0\tcustom_endpoint\tpublished\tNULL\nlidar-stats-monitor\tLiDAR Stats Monitor\tReal-time LiDAR scan statistics dashboard - subscribes to the RPLidar point cloud stream\t1.0.0\tstream_subscription\tpublished\tNULL\ntest5\ttest5\tmulti test\t1.0.0\tstream_subscription\tpublished\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 396
+}
