@@ -18,6 +18,8 @@ import {
   revokeApiKey,
   deleteApiKey,
   reactivateApiKey,
+  updateDroneByDroneId,
+  updateApiKeyDescription,
 } from "./db";
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
@@ -718,6 +720,45 @@ export const appRouter = router({
           isActive: true,
         });
         return { drone };
+      }),
+
+    // Update drone info (name, droneId)
+    update: protectedProcedure
+      .input(z.object({
+        currentDroneId: z.string(),
+        droneId: z.string().optional(),
+        name: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const updates: { name?: string | null; droneId?: string } = {};
+        if (input.name !== undefined) updates.name = input.name;
+        if (input.droneId !== undefined && input.droneId !== input.currentDroneId) {
+          // Check if the new droneId is already taken
+          const existing = await getDroneByDroneId(input.droneId);
+          if (existing) {
+            throw new Error(`Drone ID "${input.droneId}" is already in use`);
+          }
+          updates.droneId = input.droneId;
+        }
+        const drone = await updateDroneByDroneId(input.currentDroneId, updates);
+        if (!drone) {
+          throw new Error("Failed to update drone");
+        }
+        return { drone };
+      }),
+
+    // Update API key description
+    updateApiKeyDescription: protectedProcedure
+      .input(z.object({
+        keyId: z.number(),
+        description: z.string().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const success = await updateApiKeyDescription(input.keyId, input.description);
+        if (!success) {
+          throw new Error("Failed to update API key description");
+        }
+        return { success: true };
       }),
   }),
 

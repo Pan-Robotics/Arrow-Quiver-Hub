@@ -230,6 +230,62 @@ export async function reactivateApiKey(keyId: number) {
   return true;
 }
 
+// Update drone info (name, droneId)
+export async function updateDrone(id: number, updates: { name?: string | null; droneId?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const updateSet: Record<string, unknown> = {};
+  if (updates.name !== undefined) updateSet.name = updates.name;
+  if (updates.droneId !== undefined) updateSet.droneId = updates.droneId;
+
+  if (Object.keys(updateSet).length === 0) return null;
+
+  await db.update(drones).set(updateSet).where(eq(drones.id, id));
+
+  // If droneId changed, also update all API keys referencing the old droneId
+  if (updates.droneId) {
+    // Fetch the old drone to get old droneId
+    const result = await db.select().from(drones).where(eq(drones.id, id)).limit(1);
+    return result.length > 0 ? result[0] : null;
+  }
+
+  const result = await db.select().from(drones).where(eq(drones.id, id)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+// Update drone by droneId (name and optionally new droneId)
+export async function updateDroneByDroneId(currentDroneId: string, updates: { name?: string | null; droneId?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const updateSet: Record<string, unknown> = {};
+  if (updates.name !== undefined) updateSet.name = updates.name;
+  if (updates.droneId !== undefined) updateSet.droneId = updates.droneId;
+
+  if (Object.keys(updateSet).length === 0) return null;
+
+  await db.update(drones).set(updateSet).where(eq(drones.droneId, currentDroneId));
+
+  // If droneId changed, also update all API keys referencing the old droneId
+  const newDroneId = updates.droneId || currentDroneId;
+  if (updates.droneId && updates.droneId !== currentDroneId) {
+    await db.update(apiKeys).set({ droneId: updates.droneId }).where(eq(apiKeys.droneId, currentDroneId));
+  }
+
+  const result = await db.select().from(drones).where(eq(drones.droneId, newDroneId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+// Update API key description
+export async function updateApiKeyDescription(keyId: number, description: string | null) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.update(apiKeys).set({ description }).where(eq(apiKeys.id, keyId));
+  return true;
+}
+
 // Telemetry management
 export async function insertTelemetry(telem: InsertTelemetry) {
   const db = await getDb();

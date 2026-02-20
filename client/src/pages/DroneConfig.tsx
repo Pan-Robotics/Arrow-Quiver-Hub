@@ -44,6 +44,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 
 export default function DroneConfig() {
@@ -65,6 +68,16 @@ export default function DroneConfig() {
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
   const [newDroneId, setNewDroneId] = useState("");
   const [newDroneName, setNewDroneName] = useState("");
+
+  // Edit drone state
+  const [showEditDroneDialog, setShowEditDroneDialog] = useState(false);
+  const [editDroneId, setEditDroneId] = useState("");
+  const [editDroneName, setEditDroneName] = useState("");
+  const [editDroneOriginalId, setEditDroneOriginalId] = useState("");
+
+  // Inline edit API key description
+  const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
+  const [editKeyDescription, setEditKeyDescription] = useState("");
 
   const utils = trpc.useUtils();
 
@@ -145,6 +158,34 @@ export default function DroneConfig() {
     },
     onError: (error) => {
       toast.error(`Failed to register drone: ${error.message}`);
+    },
+  });
+
+  const updateDroneMutation = trpc.drones.update.useMutation({
+    onSuccess: (data) => {
+      toast.success("Drone updated successfully!");
+      setShowEditDroneDialog(false);
+      // If droneId changed, update the selected drone
+      if (data.drone && data.drone.droneId !== editDroneOriginalId) {
+        setSelectedDrone(data.drone.droneId);
+      }
+      utils.drones.list.invalidate();
+      utils.drones.getApiKeys.invalidate();
+    },
+    onError: (error) => {
+      toast.error(`Failed to update drone: ${error.message}`);
+    },
+  });
+
+  const updateApiKeyDescMutation = trpc.drones.updateApiKeyDescription.useMutation({
+    onSuccess: () => {
+      toast.success("API key description updated");
+      setEditingKeyId(null);
+      setEditKeyDescription("");
+      utils.drones.getApiKeys.invalidate({ droneId: selectedDrone });
+    },
+    onError: (error) => {
+      toast.error(`Failed to update description: ${error.message}`);
     },
   });
 
@@ -347,6 +388,21 @@ export default function DroneConfig() {
               <Plus className="w-4 h-4 mr-1" />
               Register Drone
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const drone = drones.find((d: any) => d.droneId === selectedDrone);
+                setEditDroneOriginalId(selectedDrone);
+                setEditDroneId(selectedDrone);
+                setEditDroneName(drone?.name || "");
+                setShowEditDroneDialog(true);
+              }}
+              disabled={!isAuthenticated || !selectedDrone}
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              Edit Drone
+            </Button>
             <Select value={selectedDrone} onValueChange={setSelectedDrone}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select drone" />
@@ -419,24 +475,85 @@ export default function DroneConfig() {
                           : "border-red-500/30 bg-red-500/5 opacity-60"
                       }`}
                     >
+                      {/* Description row - inline editable */}
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
                           {apiKey.isActive ? (
-                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
                           ) : (
-                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                           )}
-                          <span className="text-sm font-medium">
-                            {apiKey.description || "API Key"}
-                          </span>
+                          {editingKeyId === apiKey.id ? (
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <Input
+                                value={editKeyDescription}
+                                onChange={(e) => setEditKeyDescription(e.target.value)}
+                                placeholder="Key description"
+                                className="h-7 text-sm"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    updateApiKeyDescMutation.mutate({
+                                      keyId: apiKey.id,
+                                      description: editKeyDescription || null,
+                                    });
+                                  } else if (e.key === "Escape") {
+                                    setEditingKeyId(null);
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-green-500 hover:text-green-600 shrink-0"
+                                onClick={() => {
+                                  updateApiKeyDescMutation.mutate({
+                                    keyId: apiKey.id,
+                                    description: editKeyDescription || null,
+                                  });
+                                }}
+                                disabled={updateApiKeyDescMutation.isPending}
+                                title="Save"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0"
+                                onClick={() => setEditingKeyId(null)}
+                                title="Cancel"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-sm font-medium truncate">
+                                {apiKey.description || "API Key"}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => {
+                                  setEditingKeyId(apiKey.id);
+                                  setEditKeyDescription(apiKey.description || "");
+                                }}
+                                title="Edit description"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </Button>
+                            </>
+                          )}
                           <Badge
                             variant={apiKey.isActive ? "default" : "destructive"}
-                            className="text-xs"
+                            className="text-xs shrink-0"
                           >
                             {apiKey.isActive ? "Active" : "Revoked"}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -941,6 +1058,67 @@ export default function DroneConfig() {
                   disabled={!newDroneId || registerDroneMutation.isPending}
                 >
                   {registerDroneMutation.isPending ? "Registering..." : "Register"}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Drone Dialog */}
+        <Dialog open={showEditDroneDialog} onOpenChange={setShowEditDroneDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="w-5 h-5" />
+                Edit Drone
+              </DialogTitle>
+              <DialogDescription>
+                Update the drone ID or display name for <span className="font-mono font-semibold">{editDroneOriginalId}</span>.
+                Changing the Drone ID will also update all associated API keys.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Drone ID</Label>
+                <Input
+                  value={editDroneId}
+                  onChange={(e) => setEditDroneId(e.target.value)}
+                  placeholder="e.g., quiver_002"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Unique identifier used in API calls (lowercase, no spaces).
+                  Changing this will update the .env configuration.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Display Name</Label>
+                <Input
+                  value={editDroneName}
+                  onChange={(e) => setEditDroneName(e.target.value)}
+                  placeholder="e.g., Field Survey Drone"
+                />
+                <p className="text-xs text-muted-foreground">
+                  A friendly name shown in the drone selector. Leave blank to use the Drone ID.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEditDroneDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    updateDroneMutation.mutate({
+                      currentDroneId: editDroneOriginalId,
+                      droneId: editDroneId !== editDroneOriginalId ? editDroneId : undefined,
+                      name: editDroneName || null,
+                    });
+                  }}
+                  disabled={!editDroneId || updateDroneMutation.isPending}
+                >
+                  {updateDroneMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </DialogFooter>
             </div>

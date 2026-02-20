@@ -803,3 +803,13 @@
 - [x] Show copyable .env snippet with all required connection variables
 - [x] Prominently feature API key section at top of drone config page
 - [x] Add copy-to-clipboard for API keys and connection URLs
+
+## Drone & API Key Edit Features
+
+- [x] Add updateDrone db function (update name, droneId)
+- [x] Add updateApiKeyDescription db function (update description)
+- [x] Add drones.update tRPC procedure for editing drone info
+- [x] Add drones.updateApiKeyDescription tRPC procedure for editing API key description
+- [x] Add Edit Drone dialog in DroneConfig UI (edit name, droneId with validation)
+- [x] Add Edit button on each API key row to modify description inline or via dialog
+- [x] Write vitest tests for new update functions and procedures
