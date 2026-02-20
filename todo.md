@@ -867,3 +867,13 @@
 - [x] Add placeholder component that shows "Coming Soon" message
 - [x] Add appropriate icon and sidebar entry
 - [x] Write vitest tests
+
+## Mission Planner & Flight Analytics Coming Soon Placeholders
+
+- [x] Add Mission Planner to BUILT_IN_APP_INFO in AppManagement.tsx (features, data streams, icon)
+- [x] Add Flight Analytics to BUILT_IN_APP_INFO in AppManagement.tsx (features, data streams, icon)
+- [x] Add both to builtInAppMetadata in Home.tsx with proper icons
+- [x] Add Coming Soon placeholder views in Home.tsx renderApp switch
+- [x] Add both to builtInApps list in routers.ts for install/uninstall support
+- [x] Update AppStore.tsx to use proper icons (replace Package placeholders)
+- [x] Write vitest tests for both apps across all integration points
