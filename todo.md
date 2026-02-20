@@ -830,3 +830,11 @@
 - [x] Integrate hook into CameraFeedApp (replace inline state + useEffect)
 - [x] Ensure selection persists across app switches and page reloads
 - [x] Write vitest tests for the shared hook and localStorage behavior
+
+## Per-App Drone Selection Persistence
+
+- [x] Update useDroneSelection hook to accept an appId parameter for per-app localStorage keys
+- [x] Update LidarApp to pass its own appId (e.g. "lidar")
+- [x] Update TelemetryApp to pass its own appId (e.g. "telemetry")
+- [x] Update CameraFeedApp to pass its own appId (e.g. "camera")
+- [x] Update tests to reflect per-app key behavior

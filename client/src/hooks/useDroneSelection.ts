@@ -1,21 +1,34 @@
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 
-const STORAGE_KEY = "quiver-hub-selected-drone";
+const STORAGE_PREFIX = "quiver-hub-selected-drone";
 
 /**
- * Shared hook for drone selection with localStorage persistence.
+ * Build the localStorage key for a given app.
+ * Each app gets its own key so drone selections are independent.
+ */
+function storageKey(appId: string): string {
+  return `${STORAGE_PREFIX}:${appId}`;
+}
+
+/**
+ * Shared hook for drone selection with per-app localStorage persistence.
+ *
+ * @param appId - Unique identifier for the calling app (e.g. "lidar", "telemetry", "camera").
+ *                Each app stores its own selected drone independently.
  *
  * - Fetches the drone list via tRPC
  * - Restores the last-selected drone from localStorage on mount
  * - Falls back to the first available drone if the stored value is stale
- * - Persists every selection change to localStorage
+ * - Persists every selection change to localStorage under an app-specific key
  * - Provides a stable setter that also writes to storage
  */
-export function useDroneSelection() {
+export function useDroneSelection(appId: string) {
+  const key = storageKey(appId);
+
   const [selectedDrone, setSelectedDroneState] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY);
+      return localStorage.getItem(key);
     } catch {
       return null;
     }
@@ -29,14 +42,14 @@ export function useDroneSelection() {
     setSelectedDroneState(droneId);
     try {
       if (droneId) {
-        localStorage.setItem(STORAGE_KEY, droneId);
+        localStorage.setItem(key, droneId);
       } else {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(key);
       }
     } catch {
       // localStorage may be unavailable (private browsing, quota exceeded)
     }
-  }, []);
+  }, [key]);
 
   // Auto-select logic: restore from storage or fall back to first drone
   useEffect(() => {

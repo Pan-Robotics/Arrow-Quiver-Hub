@@ -4,7 +4,7 @@ import * as path from "path";
 
 /**
  * Tests to verify that all built-in apps have drone selector dropdowns
- * via the shared useDroneSelection hook.
+ * via the shared useDroneSelection hook with per-app persistence.
  */
 
 const clientDir = path.resolve(__dirname, "../client/src/components/apps");
@@ -25,6 +25,10 @@ describe("Drone selector in built-in apps", () => {
     it("hook auto-selects first drone", () => {
       expect(hookSource).toContain("drones[0].droneId");
     });
+
+    it("hook accepts appId for per-app persistence", () => {
+      expect(hookSource).toMatch(/function useDroneSelection\(appId:\s*string\)/);
+    });
   });
 
   describe("LidarApp", () => {
@@ -38,8 +42,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses the shared useDroneSelection hook", () => {
-      expect(source).toContain("useDroneSelection()");
+    it("uses the shared useDroneSelection hook with appId", () => {
+      expect(source).toContain('useDroneSelection("lidar")');
     });
 
     it("has selectedDrone state", () => {
@@ -64,8 +68,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses the shared useDroneSelection hook", () => {
-      expect(source).toContain("useDroneSelection()");
+    it("uses the shared useDroneSelection hook with appId", () => {
+      expect(source).toContain('useDroneSelection("telemetry")');
     });
 
     it("has selectedDrone state", () => {
@@ -104,8 +108,8 @@ describe("Drone selector in built-in apps", () => {
       expect(source).toContain("SelectValue");
     });
 
-    it("uses the shared useDroneSelection hook", () => {
-      expect(source).toContain("useDroneSelection()");
+    it("uses the shared useDroneSelection hook with appId", () => {
+      expect(source).toContain('useDroneSelection("camera")');
     });
 
     it("has selectedDrone state", () => {

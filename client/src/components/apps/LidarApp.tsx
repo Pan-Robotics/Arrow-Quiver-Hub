@@ -138,7 +138,7 @@ function convertTo3D(points: Point[]): Point3D[] {
 }
 
 export default function LidarApp() {
-  const { selectedDrone, setSelectedDrone, drones, isLoading } = useDroneSelection();
+  const { selectedDrone, setSelectedDrone, drones, isLoading } = useDroneSelection("lidar");
   const [connected, setConnected] = useState(false);
   const [latestData, setLatestData] = useState<PointCloudData | null>(null);
   const [points3D, setPoints3D] = useState<Point3D[]>([]);

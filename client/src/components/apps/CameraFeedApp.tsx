@@ -48,7 +48,7 @@ type GimbalCommand =
 
 export default function CameraFeedApp() {
   // Drone selection via shared hook
-  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection();
+  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection("camera");
 
   // Camera state
   const [status, setStatus] = useState<CameraStatus>({

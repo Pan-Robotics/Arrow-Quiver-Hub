@@ -55,7 +55,7 @@ interface TelemetryData {
 }
 
 export default function TelemetryApp() {
-  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection();
+  const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection("telemetry");
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);

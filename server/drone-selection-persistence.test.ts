@@ -7,34 +7,43 @@ const lidarPath = path.resolve(__dirname, "../client/src/components/apps/LidarAp
 const telemetryPath = path.resolve(__dirname, "../client/src/components/apps/TelemetryApp.tsx");
 const cameraPath = path.resolve(__dirname, "../client/src/components/apps/CameraFeedApp.tsx");
 
-describe("useDroneSelection hook", () => {
+describe("useDroneSelection hook (per-app persistence)", () => {
   const hookSource = fs.readFileSync(hookPath, "utf-8");
 
   it("exists as a standalone hook file", () => {
     expect(fs.existsSync(hookPath)).toBe(true);
   });
 
-  it("defines the STORAGE_KEY constant", () => {
-    expect(hookSource).toContain("STORAGE_KEY");
+  it("defines a STORAGE_PREFIX constant", () => {
+    expect(hookSource).toContain("STORAGE_PREFIX");
     expect(hookSource).toContain("quiver-hub-selected-drone");
   });
 
-  it("reads from localStorage on initialization", () => {
-    expect(hookSource).toContain("localStorage.getItem(STORAGE_KEY)");
+  it("builds per-app keys using a storageKey helper", () => {
+    expect(hookSource).toContain("storageKey");
+    expect(hookSource).toContain("STORAGE_PREFIX");
+    expect(hookSource).toContain("appId");
   });
 
-  it("writes to localStorage when selection changes", () => {
-    expect(hookSource).toContain("localStorage.setItem(STORAGE_KEY, droneId)");
+  it("accepts an appId parameter", () => {
+    expect(hookSource).toMatch(/function useDroneSelection\(appId:\s*string\)/);
   });
 
-  it("removes from localStorage when cleared", () => {
-    expect(hookSource).toContain("localStorage.removeItem(STORAGE_KEY)");
+  it("reads from localStorage using the per-app key", () => {
+    expect(hookSource).toContain("localStorage.getItem(key)");
+  });
+
+  it("writes to localStorage using the per-app key", () => {
+    expect(hookSource).toContain("localStorage.setItem(key, droneId)");
+  });
+
+  it("removes from localStorage using the per-app key", () => {
+    expect(hookSource).toContain("localStorage.removeItem(key)");
   });
 
   it("handles localStorage errors gracefully", () => {
-    // Should have try-catch around localStorage operations
     const tryCatchCount = (hookSource.match(/try\s*\{/g) || []).length;
-    expect(tryCatchCount).toBeGreaterThanOrEqual(2); // at least read + write
+    expect(tryCatchCount).toBeGreaterThanOrEqual(2);
   });
 
   it("fetches drones via trpc", () => {
@@ -42,7 +51,6 @@ describe("useDroneSelection hook", () => {
   });
 
   it("validates stored drone against available drones", () => {
-    // Should check if stored drone is still in the drone list
     expect(hookSource).toContain("droneIds.includes(selectedDrone)");
   });
 
@@ -62,6 +70,38 @@ describe("useDroneSelection hook", () => {
   });
 });
 
+describe("Each app passes a unique appId", () => {
+  const lidar = fs.readFileSync(lidarPath, "utf-8");
+  const telemetry = fs.readFileSync(telemetryPath, "utf-8");
+  const camera = fs.readFileSync(cameraPath, "utf-8");
+
+  it("LidarApp passes 'lidar' as appId", () => {
+    expect(lidar).toContain('useDroneSelection("lidar")');
+  });
+
+  it("TelemetryApp passes 'telemetry' as appId", () => {
+    expect(telemetry).toContain('useDroneSelection("telemetry")');
+  });
+
+  it("CameraFeedApp passes 'camera' as appId", () => {
+    expect(camera).toContain('useDroneSelection("camera")');
+  });
+
+  it("all three appIds are distinct", () => {
+    const lidarMatch = lidar.match(/useDroneSelection\("([^"]+)"\)/);
+    const telemetryMatch = telemetry.match(/useDroneSelection\("([^"]+)"\)/);
+    const cameraMatch = camera.match(/useDroneSelection\("([^"]+)"\)/);
+
+    expect(lidarMatch).not.toBeNull();
+    expect(telemetryMatch).not.toBeNull();
+    expect(cameraMatch).not.toBeNull();
+
+    const ids = [lidarMatch![1], telemetryMatch![1], cameraMatch![1]];
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(3);
+  });
+});
+
 describe("LidarApp uses shared hook", () => {
   const source = fs.readFileSync(lidarPath, "utf-8");
 
@@ -70,22 +110,12 @@ describe("LidarApp uses shared hook", () => {
     expect(source).toContain("@/hooks/useDroneSelection");
   });
 
-  it("calls useDroneSelection hook", () => {
-    expect(source).toContain("useDroneSelection()");
-  });
-
   it("does NOT import trpc directly for drone fetching", () => {
-    // trpc import should be removed since the hook handles it
     expect(source).not.toContain("import { trpc }");
   });
 
   it("does NOT have inline drone auto-select useEffect", () => {
-    // Should not contain the old pattern of auto-selecting first drone
     expect(source).not.toContain("if (drones && drones.length > 0 && !selectedDrone)");
-  });
-
-  it("does NOT call trpc.pointcloud.getDrones.useQuery directly", () => {
-    expect(source).not.toContain("trpc.pointcloud.getDrones.useQuery");
   });
 });
 
@@ -97,20 +127,12 @@ describe("TelemetryApp uses shared hook", () => {
     expect(source).toContain("@/hooks/useDroneSelection");
   });
 
-  it("calls useDroneSelection hook", () => {
-    expect(source).toContain("useDroneSelection()");
-  });
-
   it("does NOT import trpc directly for drone fetching", () => {
     expect(source).not.toContain("import { trpc }");
   });
 
   it("does NOT have inline drone auto-select useEffect", () => {
     expect(source).not.toContain("if (drones && drones.length > 0 && !selectedDrone)");
-  });
-
-  it("does NOT call trpc.pointcloud.getDrones.useQuery directly", () => {
-    expect(source).not.toContain("trpc.pointcloud.getDrones.useQuery");
   });
 });
 
@@ -122,10 +144,6 @@ describe("CameraFeedApp uses shared hook", () => {
     expect(source).toContain("@/hooks/useDroneSelection");
   });
 
-  it("calls useDroneSelection hook", () => {
-    expect(source).toContain("useDroneSelection()");
-  });
-
   it("does NOT import trpc directly for drone fetching", () => {
     expect(source).not.toContain("import { trpc }");
   });
@@ -133,30 +151,21 @@ describe("CameraFeedApp uses shared hook", () => {
   it("does NOT have inline drone auto-select useEffect", () => {
     expect(source).not.toContain("if (drones && drones.length > 0 && !selectedDrone)");
   });
-
-  it("does NOT call trpc.pointcloud.getDrones.useQuery directly", () => {
-    expect(source).not.toContain("trpc.pointcloud.getDrones.useQuery");
-  });
 });
 
-describe("All apps share the same localStorage key", () => {
-  const hookSource = fs.readFileSync(hookPath, "utf-8");
-
-  it("uses a single shared key for all apps", () => {
-    // The key is defined once in the hook, not in individual apps
-    const keyMatch = hookSource.match(/STORAGE_KEY\s*=\s*["']([^"']+)["']/);
-    expect(keyMatch).not.toBeNull();
-    expect(keyMatch![1]).toBe("quiver-hub-selected-drone");
+describe("No app references localStorage directly", () => {
+  it("LidarApp does not use localStorage", () => {
+    const source = fs.readFileSync(lidarPath, "utf-8");
+    expect(source).not.toContain("localStorage");
   });
 
-  it("no app defines its own localStorage key", () => {
-    const lidar = fs.readFileSync(lidarPath, "utf-8");
-    const telemetry = fs.readFileSync(telemetryPath, "utf-8");
-    const camera = fs.readFileSync(cameraPath, "utf-8");
+  it("TelemetryApp does not use localStorage", () => {
+    const source = fs.readFileSync(telemetryPath, "utf-8");
+    expect(source).not.toContain("localStorage");
+  });
 
-    // None of the apps should reference localStorage directly
-    expect(lidar).not.toContain("localStorage");
-    expect(telemetry).not.toContain("localStorage");
-    expect(camera).not.toContain("localStorage");
+  it("CameraFeedApp does not use localStorage", () => {
+    const source = fs.readFileSync(cameraPath, "utf-8");
+    expect(source).not.toContain("localStorage");
   });
 });
