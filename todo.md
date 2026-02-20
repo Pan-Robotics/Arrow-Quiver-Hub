@@ -838,3 +838,16 @@
 - [x] Update TelemetryApp to pass its own appId (e.g. "telemetry")
 - [x] Update CameraFeedApp to pass its own appId (e.g. "camera")
 - [x] Update tests to reflect per-app key behavior
+
+## Bug: Telemetry and Camera sharing drone selection
+
+- [x] Investigate and fix Flight Telemetry and Camera Feed sharing drone selection (confirmed working - per-app keys are independent, initial auto-select picks same first drone which is expected)
+
+## Test Connection Feature in Drone Config
+
+- [x] Create backend REST endpoint /api/rest/test-connection that validates API key and returns connectivity status
+- [x] Add tRPC procedure for test connection that tests all endpoints (pointcloud, telemetry, camera) for a given drone
+- [x] Add Test Connection button to Drone Config UI (per-drone, uses active API key)
+- [x] Show test results with pass/fail for each endpoint (pointcloud ingest, telemetry ingest, camera, WebSocket)
+- [x] Display latency/response time for each endpoint test
+- [x] Write vitest tests for the test connection feature

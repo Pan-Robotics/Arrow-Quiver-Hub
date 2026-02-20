@@ -760,6 +760,222 @@ export const appRouter = router({
         }
         return { success: true };
       }),
+
+    // Test connection: validates API key and tests all endpoints
+    testConnection: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        apiKey: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const results: {
+          name: string;
+          endpoint: string;
+          status: "pass" | "fail" | "skip";
+          latency_ms: number;
+          message: string;
+        }[] = [];
+
+        // Get the base URL from the request
+        const protocol = ctx.req.headers["x-forwarded-proto"] || ctx.req.protocol || "https";
+        const host = ctx.req.headers["x-forwarded-host"] || ctx.req.headers.host || "localhost";
+        const baseUrl = `${protocol}://${host}`;
+
+        // Test 1: Health endpoint
+        const healthStart = Date.now();
+        try {
+          const healthRes = await fetch(`${baseUrl}/api/rest/health`);
+          const healthData = await healthRes.json();
+          results.push({
+            name: "Health Check",
+            endpoint: "/api/rest/health",
+            status: healthData.success ? "pass" : "fail",
+            latency_ms: Date.now() - healthStart,
+            message: healthData.success ? "Hub is healthy" : "Hub health check failed",
+          });
+        } catch (e) {
+          results.push({
+            name: "Health Check",
+            endpoint: "/api/rest/health",
+            status: "fail",
+            latency_ms: Date.now() - healthStart,
+            message: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+
+        // Test 2: API Key Validation via test-connection endpoint
+        const authStart = Date.now();
+        try {
+          const authRes = await fetch(`${baseUrl}/api/rest/test-connection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: input.apiKey, drone_id: input.droneId }),
+          });
+          const authData = await authRes.json();
+          results.push({
+            name: "API Key Authentication",
+            endpoint: "/api/rest/test-connection",
+            status: authData.success ? "pass" : "fail",
+            latency_ms: Date.now() - authStart,
+            message: authData.success
+              ? `Key verified (${authData.api_key_description || "no description"})`
+              : authData.error || "Authentication failed",
+          });
+        } catch (e) {
+          results.push({
+            name: "API Key Authentication",
+            endpoint: "/api/rest/test-connection",
+            status: "fail",
+            latency_ms: Date.now() - authStart,
+            message: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+
+        // Test 3: Point Cloud endpoint (dry-run validation only)
+        const pcStart = Date.now();
+        try {
+          // Send a minimal request that will fail validation but prove the endpoint is reachable
+          const pcRes = await fetch(`${baseUrl}/api/rest/pointcloud/ingest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: input.apiKey, drone_id: input.droneId }),
+          });
+          const pcData = await pcRes.json();
+          // A 400 with "Missing required fields" means the endpoint is reachable and auth passed
+          if (pcRes.status === 400 && pcData.error?.includes("Missing required fields")) {
+            results.push({
+              name: "Point Cloud Ingest",
+              endpoint: "/api/rest/pointcloud/ingest",
+              status: "pass",
+              latency_ms: Date.now() - pcStart,
+              message: "Endpoint reachable, auth valid (dry-run)",
+            });
+          } else if (pcRes.status === 401 || pcRes.status === 403) {
+            results.push({
+              name: "Point Cloud Ingest",
+              endpoint: "/api/rest/pointcloud/ingest",
+              status: "fail",
+              latency_ms: Date.now() - pcStart,
+              message: pcData.error || "Authentication failed",
+            });
+          } else {
+            results.push({
+              name: "Point Cloud Ingest",
+              endpoint: "/api/rest/pointcloud/ingest",
+              status: "pass",
+              latency_ms: Date.now() - pcStart,
+              message: "Endpoint reachable",
+            });
+          }
+        } catch (e) {
+          results.push({
+            name: "Point Cloud Ingest",
+            endpoint: "/api/rest/pointcloud/ingest",
+            status: "fail",
+            latency_ms: Date.now() - pcStart,
+            message: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+
+        // Test 4: Telemetry endpoint (dry-run)
+        const telStart = Date.now();
+        try {
+          const telRes = await fetch(`${baseUrl}/api/rest/telemetry/ingest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: input.apiKey, drone_id: input.droneId }),
+          });
+          const telData = await telRes.json();
+          if (telRes.status === 400 && telData.error?.includes("Missing required fields")) {
+            results.push({
+              name: "Telemetry Ingest",
+              endpoint: "/api/rest/telemetry/ingest",
+              status: "pass",
+              latency_ms: Date.now() - telStart,
+              message: "Endpoint reachable, auth valid (dry-run)",
+            });
+          } else if (telRes.status === 401 || telRes.status === 403) {
+            results.push({
+              name: "Telemetry Ingest",
+              endpoint: "/api/rest/telemetry/ingest",
+              status: "fail",
+              latency_ms: Date.now() - telStart,
+              message: telData.error || "Authentication failed",
+            });
+          } else {
+            results.push({
+              name: "Telemetry Ingest",
+              endpoint: "/api/rest/telemetry/ingest",
+              status: "pass",
+              latency_ms: Date.now() - telStart,
+              message: "Endpoint reachable",
+            });
+          }
+        } catch (e) {
+          results.push({
+            name: "Telemetry Ingest",
+            endpoint: "/api/rest/telemetry/ingest",
+            status: "fail",
+            latency_ms: Date.now() - telStart,
+            message: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+
+        // Test 5: Camera endpoint (dry-run)
+        const camStart = Date.now();
+        try {
+          const camRes = await fetch(`${baseUrl}/api/rest/camera/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: input.apiKey, drone_id: input.droneId }),
+          });
+          const camData = await camRes.json();
+          if (camRes.status === 400 && camData.error?.includes("Missing required fields")) {
+            results.push({
+              name: "Camera Status",
+              endpoint: "/api/rest/camera/status",
+              status: "pass",
+              latency_ms: Date.now() - camStart,
+              message: "Endpoint reachable, auth valid (dry-run)",
+            });
+          } else if (camRes.status === 401 || camRes.status === 403) {
+            results.push({
+              name: "Camera Status",
+              endpoint: "/api/rest/camera/status",
+              status: "fail",
+              latency_ms: Date.now() - camStart,
+              message: camData.error || "Authentication failed",
+            });
+          } else {
+            results.push({
+              name: "Camera Status",
+              endpoint: "/api/rest/camera/status",
+              status: "pass",
+              latency_ms: Date.now() - camStart,
+              message: "Endpoint reachable",
+            });
+          }
+        } catch (e) {
+          results.push({
+            name: "Camera Status",
+            endpoint: "/api/rest/camera/status",
+            status: "fail",
+            latency_ms: Date.now() - camStart,
+            message: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+
+        const allPassed = results.every((r) => r.status === "pass");
+        const totalLatency = results.reduce((sum, r) => sum + r.latency_ms, 0);
+
+        return {
+          success: allPassed,
+          drone_id: input.droneId,
+          total_latency_ms: totalLatency,
+          tests: results,
+          tested_at: new Date().toISOString(),
+        };
+      }),
   }),
 
   // Drone job management for two-way communication

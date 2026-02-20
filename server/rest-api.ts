@@ -404,4 +404,68 @@ router.post("/camera/status", async (req: Request, res: Response) => {
  */
 router.post("/payload/:appId/ingest", handlePayloadIngest);
 
+/**
+ * POST /api/rest/test-connection
+ * Test connectivity using an API key
+ * Used by the Drone Config page to verify endpoints before deploying
+ * 
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string
+ * }
+ * 
+ * Response: { success: true, drone_id, endpoints: { health, pointcloud, telemetry, camera, websocket } }
+ */
+router.post("/test-connection", async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const { api_key, drone_id } = req.body;
+
+    if (!api_key || !drone_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id",
+      });
+    }
+
+    // Validate API key
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid API key",
+        latency_ms: Date.now() - startTime,
+      });
+    }
+
+    // Verify drone ID matches API key
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({
+        success: false,
+        error: "API key does not match drone_id",
+        latency_ms: Date.now() - startTime,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Connection verified",
+      drone_id,
+      api_key_id: apiKeyRecord.id,
+      api_key_description: apiKeyRecord.description,
+      latency_ms: Date.now() - startTime,
+      server_time: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/test-connection:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+      latency_ms: Date.now() - startTime,
+    });
+  }
+});
+
 export default router;
