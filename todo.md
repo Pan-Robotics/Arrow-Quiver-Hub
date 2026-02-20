@@ -793,3 +793,13 @@
 - [x] Built-in apps view: show app name, description, type, data streams info
 - [x] Custom apps view: show full details like rplidar-pointcloud-viewer (parser code, data schema, UI schema, data source config)
 - [x] Add proper metadata display for built-in apps (Flight Telemetry, Camera Feed, RPLidar)
+
+## Drone Configuration - API Keys & Connection Info
+
+- [x] Add API key management to DroneConfig (generate, view, revoke keys per drone)
+- [x] Add backend tRPC procedures for API key CRUD (create, list, revoke)
+- [x] Add db.ts helper functions for API key operations (createApiKey, getApiKeysForDrone, revokeApiKey)
+- [x] Display connection info per drone (.env format): base URL, REST endpoints, WebSocket URL, drone_id
+- [x] Show copyable .env snippet with all required connection variables
+- [x] Prominently feature API key section at top of drone config page
+- [x] Add copy-to-clipboard for API keys and connection URLs

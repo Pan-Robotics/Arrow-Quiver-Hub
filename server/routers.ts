@@ -13,6 +13,11 @@ import {
   validateApiKey,
   insertTelemetry,
   getRecentTelemetry,
+  createApiKey,
+  getApiKeysForDrone,
+  revokeApiKey,
+  deleteApiKey,
+  reactivateApiKey,
 } from "./db";
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
@@ -645,6 +650,75 @@ export const appRouter = router({
       const drones = await getAllDrones();
       return { drones };
     }),
+
+    // Get API keys for a drone
+    getApiKeys: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .query(async ({ input }) => {
+        const keys = await getApiKeysForDrone(input.droneId);
+        return { keys };
+      }),
+
+    // Generate a new API key for a drone
+    generateApiKey: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        // Ensure the drone exists (upsert it)
+        await upsertDrone({
+          droneId: input.droneId,
+          lastSeen: new Date(),
+          isActive: true,
+        });
+
+        const apiKey = await createApiKey(input.droneId, input.description);
+        if (!apiKey) {
+          throw new Error("Failed to create API key");
+        }
+        return { apiKey };
+      }),
+
+    // Revoke (deactivate) an API key
+    revokeApiKey: protectedProcedure
+      .input(z.object({ keyId: z.number() }))
+      .mutation(async ({ input }) => {
+        await revokeApiKey(input.keyId);
+        return { success: true };
+      }),
+
+    // Reactivate a revoked API key
+    reactivateApiKey: protectedProcedure
+      .input(z.object({ keyId: z.number() }))
+      .mutation(async ({ input }) => {
+        await reactivateApiKey(input.keyId);
+        return { success: true };
+      }),
+
+    // Delete an API key permanently
+    deleteApiKey: protectedProcedure
+      .input(z.object({ keyId: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteApiKey(input.keyId);
+        return { success: true };
+      }),
+
+    // Register a new drone
+    register: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        name: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const drone = await upsertDrone({
+          droneId: input.droneId,
+          name: input.name || null,
+          lastSeen: new Date(),
+          isActive: true,
+        });
+        return { drone };
+      }),
   }),
 
   // Drone job management for two-way communication

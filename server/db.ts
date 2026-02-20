@@ -1,6 +1,7 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, telemetry, InsertTelemetry } from "../drizzle/schema";
+import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, InsertApiKey, telemetry, InsertTelemetry } from "../drizzle/schema";
+import { nanoid } from "nanoid";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -172,6 +173,61 @@ export async function validateApiKey(key: string) {
   }
 
   return result[0];
+}
+
+// API key management
+export async function createApiKey(droneId: string, description?: string): Promise<{ id: number; key: string; droneId: string; description: string | null; isActive: boolean; createdAt: Date } | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Generate a secure random API key
+  const key = nanoid(43); // ~256 bits of entropy
+
+  await db.insert(apiKeys).values({
+    key,
+    droneId,
+    description: description || null,
+    isActive: true,
+  });
+
+  // Fetch the newly created key
+  const result = await db.select().from(apiKeys).where(eq(apiKeys.key, key)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getApiKeysForDrone(droneId: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(apiKeys)
+    .where(eq(apiKeys.droneId, droneId))
+    .orderBy(desc(apiKeys.createdAt));
+}
+
+export async function revokeApiKey(keyId: number) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.update(apiKeys).set({ isActive: false }).where(eq(apiKeys.id, keyId));
+  return true;
+}
+
+export async function deleteApiKey(keyId: number) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.delete(apiKeys).where(eq(apiKeys.id, keyId));
+  return true;
+}
+
+export async function reactivateApiKey(keyId: number) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.update(apiKeys).set({ isActive: true }).where(eq(apiKeys.id, keyId));
+  return true;
 }
 
 // Telemetry management
