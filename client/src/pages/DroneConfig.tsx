@@ -84,6 +84,10 @@ export default function DroneConfig() {
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
   const [editKeyDescription, setEditKeyDescription] = useState("");
 
+  // Delete drone state
+  const [showDeleteDroneDialog, setShowDeleteDroneDialog] = useState(false);
+  const [confirmDeleteDroneId, setConfirmDeleteDroneId] = useState("");
+
   // Test connection state
   const [testResults, setTestResults] = useState<{
     success: boolean;
@@ -201,6 +205,28 @@ export default function DroneConfig() {
     },
     onError: (error) => {
       toast.error(`Failed to update description: ${error.message}`);
+    },
+  });
+
+  const deleteDroneMutation = trpc.drones.delete.useMutation({
+    onSuccess: (data) => {
+      const counts = data.deletedCounts;
+      toast.success(
+        `Drone "${data.droneId}" deleted along with ${counts.apiKeys} API keys, ${counts.scans} scans, ${counts.telemetry} telemetry records, ${counts.jobs} jobs, and ${counts.files} files.`
+      );
+      setShowDeleteDroneDialog(false);
+      setConfirmDeleteDroneId("");
+      utils.drones.list.invalidate();
+      // Auto-select another drone or clear
+      const remaining = drones.filter((d: any) => d.droneId !== data.droneId);
+      if (remaining.length > 0) {
+        setSelectedDrone(remaining[0].droneId);
+      } else {
+        setSelectedDrone("");
+      }
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete drone: ${error.message}`);
     },
   });
 
@@ -446,6 +472,19 @@ export default function DroneConfig() {
             >
               <Pencil className="w-4 h-4 mr-1" />
               Edit Drone
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setConfirmDeleteDroneId("");
+                setShowDeleteDroneDialog(true);
+              }}
+              disabled={!isAuthenticated || !selectedDrone}
+              className="text-destructive border-destructive/50 hover:bg-destructive/10"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Delete Drone
             </Button>
             <Select value={selectedDrone} onValueChange={setSelectedDrone}>
               <SelectTrigger className="w-[200px]">
@@ -1187,6 +1226,83 @@ export default function DroneConfig() {
                   disabled={!newDroneId || registerDroneMutation.isPending}
                 >
                   {registerDroneMutation.isPending ? "Registering..." : "Register"}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Drone Confirmation Dialog */}
+        <Dialog open={showDeleteDroneDialog} onOpenChange={setShowDeleteDroneDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <Trash2 className="w-5 h-5" />
+                Delete Drone
+              </DialogTitle>
+              <DialogDescription>
+                This action is <span className="font-semibold text-destructive">permanent and irreversible</span>.
+                Deleting <span className="font-mono font-semibold">{selectedDrone}</span> will also remove:
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Key className="w-4 h-4 text-muted-foreground" />
+                  <span>All API keys for this drone</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Globe className="w-4 h-4 text-muted-foreground" />
+                  <span>All point cloud scan records</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Wifi className="w-4 h-4 text-muted-foreground" />
+                  <span>All telemetry data</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <History className="w-4 h-4 text-muted-foreground" />
+                  <span>All job history</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                  <span>All uploaded files</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Type <span className="font-mono font-semibold text-foreground">{selectedDrone}</span> to confirm</Label>
+                <Input
+                  value={confirmDeleteDroneId}
+                  onChange={(e) => setConfirmDeleteDroneId(e.target.value)}
+                  placeholder={selectedDrone}
+                  className="font-mono"
+                />
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDeleteDroneDialog(false);
+                    setConfirmDeleteDroneId("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    deleteDroneMutation.mutate({
+                      droneId: selectedDrone,
+                      confirmDroneId: confirmDeleteDroneId,
+                    });
+                  }}
+                  disabled={
+                    confirmDeleteDroneId !== selectedDrone ||
+                    deleteDroneMutation.isPending
+                  }
+                >
+                  {deleteDroneMutation.isPending ? "Deleting..." : "Delete Permanently"}
                 </Button>
               </DialogFooter>
             </div>

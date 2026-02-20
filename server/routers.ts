@@ -20,6 +20,7 @@ import {
   reactivateApiKey,
   updateDroneByDroneId,
   updateApiKeyDescription,
+  deleteDrone,
 } from "./db";
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
@@ -759,6 +760,35 @@ export const appRouter = router({
           throw new Error("Failed to update API key description");
         }
         return { success: true };
+      }),
+
+    // Delete a drone and all associated data (cascading)
+    delete: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        confirmDroneId: z.string(), // Must match droneId as confirmation safeguard
+      }))
+      .mutation(async ({ input }) => {
+        if (input.droneId !== input.confirmDroneId) {
+          throw new Error("Drone ID confirmation does not match. Deletion aborted.");
+        }
+
+        // Verify the drone exists
+        const drone = await getDroneByDroneId(input.droneId);
+        if (!drone) {
+          throw new Error(`Drone "${input.droneId}" not found`);
+        }
+
+        const result = await deleteDrone(input.droneId);
+        if (!result.deleted) {
+          throw new Error("Failed to delete drone");
+        }
+
+        return {
+          success: true,
+          droneId: input.droneId,
+          deletedCounts: result.counts,
+        };
       }),
 
     // Test connection: validates API key and tests all endpoints

@@ -286,6 +286,43 @@ export async function updateApiKeyDescription(keyId: number, description: string
   return true;
 }
 
+// Delete drone with cascading deletes (API keys, scans, telemetry, jobs, files)
+export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; counts: { apiKeys: number; scans: number; telemetry: number; jobs: number; files: number } }> {
+  const db = await getDb();
+  if (!db) return { deleted: false, counts: { apiKeys: 0, scans: 0, telemetry: 0, jobs: 0, files: 0 } };
+
+  // Count records before deletion for reporting
+  const apiKeyCount = (await db.select().from(apiKeys).where(eq(apiKeys.droneId, droneId))).length;
+  const scanCount = (await db.select().from(scans).where(eq(scans.droneId, droneId))).length;
+  const telemetryCount = (await db.select().from(telemetry).where(eq(telemetry.droneId, droneId))).length;
+
+  // Import droneJobs and droneFiles from schema for deletion
+  const { droneJobs, droneFiles } = await import("../drizzle/schema");
+  const jobCount = (await db.select().from(droneJobs).where(eq(droneJobs.droneId, droneId))).length;
+  const fileCount = (await db.select().from(droneFiles).where(eq(droneFiles.droneId, droneId))).length;
+
+  // Cascade delete in order (children first)
+  await db.delete(apiKeys).where(eq(apiKeys.droneId, droneId));
+  await db.delete(scans).where(eq(scans.droneId, droneId));
+  await db.delete(telemetry).where(eq(telemetry.droneId, droneId));
+  await db.delete(droneJobs).where(eq(droneJobs.droneId, droneId));
+  await db.delete(droneFiles).where(eq(droneFiles.droneId, droneId));
+
+  // Finally delete the drone itself
+  await db.delete(drones).where(eq(drones.droneId, droneId));
+
+  return {
+    deleted: true,
+    counts: {
+      apiKeys: apiKeyCount,
+      scans: scanCount,
+      telemetry: telemetryCount,
+      jobs: jobCount,
+      files: fileCount,
+    },
+  };
+}
+
 // Telemetry management
 export async function insertTelemetry(telem: InsertTelemetry) {
   const db = await getDb();

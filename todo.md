@@ -851,3 +851,11 @@
 - [x] Show test results with pass/fail for each endpoint (pointcloud ingest, telemetry ingest, camera, WebSocket)
 - [x] Display latency/response time for each endpoint test
 - [x] Write vitest tests for the test connection feature
+
+## Delete Drone Feature
+
+- [x] Add deleteDrone db function with cascading deletes (API keys, scans, telemetry, jobs, files)
+- [x] Add drones.delete tRPC procedure with confirmation safeguard
+- [x] Add Delete Drone button to DroneConfig header with confirmation dialog
+- [x] After deletion, auto-select another drone or show empty state
+- [x] Write vitest tests for cascading delete
