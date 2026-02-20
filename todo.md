@@ -859,3 +859,11 @@
 - [x] Add Delete Drone button to DroneConfig header with confirmation dialog
 - [x] After deletion, auto-select another drone or show empty state
 - [x] Write vitest tests for cascading delete
+
+## Logs and OTA Updates Placeholder App
+
+- [x] Add "Logs and OTA Updates" as a coming soon built-in app placeholder
+- [x] Add app definition to builtInApps list in routers.ts
+- [x] Add placeholder component that shows "Coming Soon" message
+- [x] Add appropriate icon and sidebar entry
+- [x] Write vitest tests

@@ -443,7 +443,7 @@ export const appRouter = router({
       .input(z.object({ appId: z.string() }))
       .mutation(async ({ input, ctx }) => {
         // List of built-in apps that don't exist in customApps table
-        const builtInApps = ["telemetry", "camera"];
+        const builtInApps = ["telemetry", "camera", "logs-ota"];
         
         // For custom apps, verify they exist and are published
         if (!builtInApps.includes(input.appId)) {

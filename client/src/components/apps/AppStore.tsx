@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Package, Download, Star, TrendingUp, Plus, Sparkles, Camera } from "lucide-react";
+import { Package, Download, Star, TrendingUp, Plus, Sparkles, Camera, ScrollText } from "lucide-react";
 import AppBuilder from "./AppBuilder";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -98,6 +98,14 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
       description: "Historical flight data analysis and performance metrics",
       category: "Analytics",
       icon: Package,
+      installed: false,
+    },
+    {
+      id: "logs-ota",
+      name: "Logs & OTA Updates",
+      description: "Remote log streaming, system diagnostics, and over-the-air firmware updates for companion computers",
+      category: "Maintenance",
+      icon: ScrollText,
       installed: false,
     },
   ];
