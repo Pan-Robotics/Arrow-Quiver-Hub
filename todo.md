@@ -1039,3 +1039,7 @@
 - [x] Verify mode-based filtering still works correctly
 - [x] Verify cache persistence works with brush zoom
 - [x] Write vitest tests for brush-select feature (29 new tests, 553 total passing)
+
+## Bug Fixes
+
+- [x] Fix: Flight mode filtered charts show "No data available" when mode filter is applied (toChartData used absolute time, now uses relative time matching extractFlightModes)

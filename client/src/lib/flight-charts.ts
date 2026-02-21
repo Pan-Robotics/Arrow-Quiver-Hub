@@ -399,6 +399,18 @@ export function toChartData(
   const timeArray = msgData.time_boot_ms;
   const totalPoints = timeArray.length;
 
+  // Find global min time across all messages for relative timestamps
+  // This matches extractFlightModes() and extractGpsTrack() so time filters work correctly
+  let globalMinTime = Infinity;
+  for (const key of Object.keys(parsedMessages)) {
+    const msg = parsedMessages[key];
+    if (msg?.time_boot_ms && msg.time_boot_ms.length > 0) {
+      const first = msg.time_boot_ms[0];
+      if (Number.isFinite(first) && first < globalMinTime) globalMinTime = first;
+    }
+  }
+  if (globalMinTime === Infinity) globalMinTime = timeArray[0];
+
   // Determine downsample step
   const step = Math.max(1, Math.floor(totalPoints / maxPoints));
 
@@ -406,7 +418,7 @@ export function toChartData(
 
   for (let i = 0; i < totalPoints; i += step) {
     const point: Record<string, number> = {
-      time: timeArray[i] / 1000, // Convert ms to seconds
+      time: (timeArray[i] - globalMinTime) / 1000, // Relative seconds from log start
     };
 
     for (const field of chart.fields) {

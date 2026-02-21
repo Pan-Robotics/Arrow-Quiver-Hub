@@ -64,7 +64,34 @@ describe("toChartData", () => {
     expect(data[0]).toHaveProperty("time");
     expect(data[0]).toHaveProperty("DesRoll");
     expect(data[0]).toHaveProperty("Roll");
-    expect(data[0].time).toBe(1); // 1000ms / 1000 = 1s
+    // Time is relative: (1000 - globalMin(1000)) / 1000 = 0s
+    expect(data[0].time).toBe(0);
+    expect(data[1].time).toBe(1); // (2000 - 1000) / 1000 = 1s
+    expect(data[2].time).toBe(2); // (3000 - 1000) / 1000 = 2s
+  });
+
+  it("uses relative time matching extractFlightModes", () => {
+    // Simulate a log where time_boot_ms starts at a large offset (e.g. 50000ms)
+    const messages = {
+      ATT: {
+        time_boot_ms: [50000, 51000, 52000],
+        DesRoll: [1, 2, 3],
+        Roll: [1, 2, 3],
+        DesPitch: [0, 0, 0],
+        Pitch: [0, 0, 0],
+      },
+      MODE: {
+        time_boot_ms: [50000, 51500],
+        Mode: ["Stabilize", "Loiter"],
+        ModeNum: [0, 5],
+      },
+    };
+    const types = { ATT: {}, MODE: {} };
+    const data = toChartData(messages, attChart, types);
+    // globalMinTime = 50000, so times should be 0, 1, 2
+    expect(data[0].time).toBe(0);
+    expect(data[1].time).toBe(1);
+    expect(data[2].time).toBe(2);
   });
 
   it("resolves instance key BARO[0] for BARO chart", () => {
