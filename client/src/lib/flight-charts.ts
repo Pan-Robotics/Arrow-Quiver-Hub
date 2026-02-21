@@ -826,3 +826,119 @@ export function formatTime(seconds: number): string {
   }
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+// ─── Gradient Polyline Color Utilities ──────────────────────────
+
+export type TrackColorMode = "plain" | "altitude" | "speed";
+
+/**
+ * Gradient stop definition for color interpolation.
+ * position is 0..1, color is [r, g, b] each 0..255.
+ */
+interface GradientStop {
+  position: number;
+  color: [number, number, number];
+}
+
+// Altitude gradient: blue (low) → green (mid) → yellow → red (high)
+const ALTITUDE_GRADIENT: GradientStop[] = [
+  { position: 0.0, color: [59, 130, 246] },   // blue-500
+  { position: 0.33, color: [34, 197, 94] },    // green-500
+  { position: 0.66, color: [234, 179, 8] },    // yellow-500
+  { position: 1.0, color: [239, 68, 68] },     // red-500
+];
+
+// Speed gradient: green (slow) → yellow (mid) → orange → red (fast)
+const SPEED_GRADIENT: GradientStop[] = [
+  { position: 0.0, color: [34, 197, 94] },     // green-500
+  { position: 0.33, color: [234, 179, 8] },     // yellow-500
+  { position: 0.66, color: [249, 115, 22] },    // orange-500
+  { position: 1.0, color: [239, 68, 68] },      // red-500
+];
+
+/**
+ * Interpolate a color from a gradient based on a normalized value (0..1).
+ * Returns a hex color string.
+ */
+export function interpolateGradientColor(
+  value: number,
+  gradient: GradientStop[]
+): string {
+  // Clamp to 0..1
+  const t = Math.max(0, Math.min(1, value));
+
+  // Find the two stops to interpolate between
+  let lower = gradient[0];
+  let upper = gradient[gradient.length - 1];
+
+  for (let i = 0; i < gradient.length - 1; i++) {
+    if (t >= gradient[i].position && t <= gradient[i + 1].position) {
+      lower = gradient[i];
+      upper = gradient[i + 1];
+      break;
+    }
+  }
+
+  // Calculate local interpolation factor
+  const range = upper.position - lower.position;
+  const localT = range === 0 ? 0 : (t - lower.position) / range;
+
+  // Interpolate RGB
+  const r = Math.round(lower.color[0] + (upper.color[0] - lower.color[0]) * localT);
+  const g = Math.round(lower.color[1] + (upper.color[1] - lower.color[1]) * localT);
+  const b = Math.round(lower.color[2] + (upper.color[2] - lower.color[2]) * localT);
+
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+/**
+ * Get the color for a GPS track segment based on the color mode.
+ * Returns a hex color string for the segment between point[i] and point[i+1].
+ * Uses the average of the two points' values for smoother transitions.
+ */
+export function getTrackSegmentColor(
+  track: GpsTrackPoint[],
+  index: number,
+  mode: TrackColorMode,
+  minAlt: number,
+  maxAlt: number,
+  maxSpeed: number
+): string {
+  if (mode === "plain") return "#3b82f6";
+
+  const p1 = track[index];
+  const p2 = index + 1 < track.length ? track[index + 1] : p1;
+
+  if (mode === "altitude") {
+    const avgAlt = (p1.alt + p2.alt) / 2;
+    const range = maxAlt - minAlt;
+    const normalized = range === 0 ? 0.5 : (avgAlt - minAlt) / range;
+    return interpolateGradientColor(normalized, ALTITUDE_GRADIENT);
+  }
+
+  if (mode === "speed") {
+    const avgSpeed = (p1.speed + p2.speed) / 2;
+    const normalized = maxSpeed === 0 ? 0 : avgSpeed / maxSpeed;
+    return interpolateGradientColor(normalized, SPEED_GRADIENT);
+  }
+
+  return "#3b82f6";
+}
+
+/**
+ * Generate an array of CSS gradient stops for a legend bar.
+ * Returns a CSS linear-gradient string.
+ */
+export function getGradientLegendCss(mode: TrackColorMode): string {
+  if (mode === "plain") return "linear-gradient(to right, #3b82f6, #3b82f6)";
+
+  const gradient = mode === "altitude" ? ALTITUDE_GRADIENT : SPEED_GRADIENT;
+  const stops = gradient
+    .map((s) => {
+      const hex = `#${s.color[0].toString(16).padStart(2, "0")}${s.color[1].toString(16).padStart(2, "0")}${s.color[2].toString(16).padStart(2, "0")}`;
+      return `${hex} ${(s.position * 100).toFixed(0)}%`;
+    })
+    .join(", ");
+
+  return `linear-gradient(to right, ${stops})`;
+}

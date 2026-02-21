@@ -14,10 +14,13 @@ import {
   getModeColor,
   chartDataToCsv,
   downloadCsv,
+  getTrackSegmentColor,
+  getGradientLegendCss,
   type ChartDefinition,
   type FlightSummary,
   type FlightModeSegment,
   type GpsTrackPoint,
+  type TrackColorMode,
 } from "@/lib/flight-charts";
 import { MapView } from "@/components/Map";
 import {
@@ -82,6 +85,7 @@ import {
   MapPin,
   GitCompare,
   Plane,
+  Palette,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1065,8 +1069,9 @@ function GpsGroundTrack({
   flightModes?: FlightModeSegment[];
 }) {
   const mapRef = useRef<any>(null);
-  const polylineRef = useRef<any>(null);
+  const polylinesRef = useRef<any[]>([]);
   const markersRef = useRef<any[]>([]);
+  const [colorMode, setColorMode] = useState<TrackColorMode>("altitude");
 
   if (track.length === 0) {
     return (
@@ -1106,26 +1111,68 @@ function GpsGroundTrack({
     };
   }, [track]);
 
+  // Draw or redraw polylines when color mode changes
+  const drawPolylines = useCallback((map: any, mode: TrackColorMode) => {
+    if (!window.google?.maps || !map) return;
+
+    // Clear existing polylines
+    for (const pl of polylinesRef.current) {
+      pl.setMap(null);
+    }
+    polylinesRef.current = [];
+
+    const { minAlt, maxAlt, maxSpeed } = trackStats;
+
+    if (mode === "plain") {
+      // Single blue polyline for plain mode
+      const path = track.map((p) => ({ lat: p.lat, lng: p.lng }));
+      const polyline = new window.google.maps.Polyline({
+        path,
+        geodesic: true,
+        strokeColor: "#3b82f6",
+        strokeOpacity: 0.9,
+        strokeWeight: 3,
+        map,
+      });
+      polylinesRef.current.push(polyline);
+    } else {
+      // Segmented gradient polylines — one per pair of consecutive points
+      for (let i = 0; i < track.length - 1; i++) {
+        const color = getTrackSegmentColor(track, i, mode, minAlt, maxAlt, maxSpeed);
+        const segment = new window.google.maps.Polyline({
+          path: [
+            { lat: track[i].lat, lng: track[i].lng },
+            { lat: track[i + 1].lat, lng: track[i + 1].lng },
+          ],
+          geodesic: true,
+          strokeColor: color,
+          strokeOpacity: 0.9,
+          strokeWeight: 3.5,
+          map,
+        });
+        polylinesRef.current.push(segment);
+      }
+    }
+  }, [track, trackStats]);
+
+  // Redraw polylines when color mode changes
+  useEffect(() => {
+    if (mapRef.current) {
+      drawPolylines(mapRef.current, colorMode);
+    }
+  }, [colorMode, drawPolylines]);
+
   const handleMapReady = useCallback((map: any) => {
     mapRef.current = map;
 
     if (!window.google?.maps) return;
 
-    // Create the flight path polyline
-    const path = track.map((p) => ({ lat: p.lat, lng: p.lng }));
-
-    polylineRef.current = new window.google.maps.Polyline({
-      path,
-      geodesic: true,
-      strokeColor: "#3b82f6",
-      strokeOpacity: 0.9,
-      strokeWeight: 3,
-      map,
-    });
+    // Draw initial polylines
+    drawPolylines(map, colorMode);
 
     // Add start marker (green)
     const startMarker = new window.google.maps.Marker({
-      position: path[0],
+      position: { lat: track[0].lat, lng: track[0].lng },
       map,
       title: "Start",
       icon: {
@@ -1140,8 +1187,9 @@ function GpsGroundTrack({
     markersRef.current.push(startMarker);
 
     // Add end marker (red)
+    const lastPt = track[track.length - 1];
     const endMarker = new window.google.maps.Marker({
-      position: path[path.length - 1],
+      position: { lat: lastPt.lat, lng: lastPt.lng },
       map,
       title: "End",
       icon: {
@@ -1157,8 +1205,8 @@ function GpsGroundTrack({
 
     // Fit bounds to show entire track
     const bounds = new window.google.maps.LatLngBounds();
-    for (const p of path) {
-      bounds.extend(p);
+    for (const p of track) {
+      bounds.extend({ lat: p.lat, lng: p.lng });
     }
     map.fitBounds(bounds, 50);
 
@@ -1194,12 +1242,19 @@ function GpsGroundTrack({
         markersRef.current.push(marker);
       }
     }
-  }, [track, flightModes]);
+  }, [track, flightModes, drawPolylines, colorMode]);
+
+  // Legend label for gradient
+  const legendLabel = colorMode === "altitude"
+    ? `${trackStats.minAlt.toFixed(0)}m — ${trackStats.maxAlt.toFixed(0)}m`
+    : colorMode === "speed"
+    ? `0 — ${trackStats.maxSpeed.toFixed(1)} m/s`
+    : "";
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
               <MapPin className="h-4 w-4 text-primary" />
@@ -1222,6 +1277,27 @@ function GpsGroundTrack({
         </div>
       </CardHeader>
       <CardContent className="pb-3">
+        {/* Color mode toggle */}
+        <div className="flex items-center gap-2 mb-3">
+          <Palette className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground font-medium">Color by:</span>
+          <div className="flex rounded-md border overflow-hidden">
+            {(["plain", "altitude", "speed"] as TrackColorMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setColorMode(mode)}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  colorMode === mode
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {mode === "plain" ? "Plain" : mode === "altitude" ? "Altitude" : "Speed"}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="rounded-lg overflow-hidden border">
           <MapView
             center={center}
@@ -1230,7 +1306,29 @@ function GpsGroundTrack({
             onMapReady={handleMapReady}
           />
         </div>
-        {/* Legend */}
+
+        {/* Gradient legend bar */}
+        {colorMode !== "plain" && (
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+              {colorMode === "altitude" ? "Altitude" : "Speed"}:
+            </span>
+            <div className="flex-1 flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">
+                {colorMode === "altitude" ? `${trackStats.minAlt.toFixed(0)}m` : "0"}
+              </span>
+              <div
+                className="flex-1 h-3 rounded-full"
+                style={{ background: getGradientLegendCss(colorMode) }}
+              />
+              <span className="text-xs text-muted-foreground">
+                {colorMode === "altitude" ? `${trackStats.maxAlt.toFixed(0)}m` : `${trackStats.maxSpeed.toFixed(1)} m/s`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Marker legend */}
         <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 rounded-full bg-green-500 border border-white" />
@@ -1246,10 +1344,12 @@ function GpsGroundTrack({
               <span>Mode Changes</span>
             </div>
           )}
-          <div className="flex items-center gap-1">
-            <div className="w-6 h-0.5 bg-blue-500 rounded" />
-            <span>Flight Path</span>
-          </div>
+          {colorMode === "plain" && (
+            <div className="flex items-center gap-1">
+              <div className="w-6 h-0.5 bg-blue-500 rounded" />
+              <span>Flight Path</span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

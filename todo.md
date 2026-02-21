@@ -983,3 +983,14 @@
 - [x] Chart selector dropdown to compare any available chart type
 - [x] CompareSummaryTable showing 10 metrics side-by-side
 - [x] Write vitest tests for all three features (20 new tests, 458 total passing)
+
+## GPS Track Gradient Polyline
+
+- [x] Add color interpolation utility for altitude/speed gradient mapping (interpolateGradientColor)
+- [x] Replace single polyline with segmented gradient polyline (one segment per GPS point pair)
+- [x] Add altitude color mode (blue→green→yellow→red gradient)
+- [x] Add speed color mode (green→yellow→orange→red gradient)
+- [x] Add toggle UI with Plain/Altitude/Speed buttons
+- [x] Add color legend bar with gradient scale and min/max labels
+- [x] Write vitest tests for gradient color interpolation (21 tests)
+- [x] Verify all 479 tests pass across 21 test files
