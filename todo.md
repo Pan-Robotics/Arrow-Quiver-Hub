@@ -1043,3 +1043,4 @@
 ## Bug Fixes
 
 - [x] Fix: Flight mode filtered charts show "No data available" when mode filter is applied (toChartData used absolute time, now uses relative time matching extractFlightModes)
+- [x] Replace Quiver Hub icon with user's arrow logomark image (sidebar, header, APP_LOGO, favicon)

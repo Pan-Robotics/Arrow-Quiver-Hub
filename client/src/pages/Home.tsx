@@ -2,6 +2,7 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
+const QUIVER_LOGO = "https://files.manuscdn.com/user_upload_by_module/session_file/104102086/pvNNZkXlGeFWOKMU.png";
 import { Radio, Gauge, Package, Sparkles, Settings, Camera, ScrollText, Map, BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import AppSidebar, { App } from "@/components/AppSidebar";
@@ -183,7 +184,7 @@ export default function Home() {
         <header className="border-b border-border bg-card">
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
-              <Radio className="text-primary" size={28} />
+              <img src={QUIVER_LOGO} alt="Quiver Hub" className="h-8 w-8 object-contain" />
               <div>
                 <h1 className="text-xl font-bold">{HUB_TITLE}</h1>
                 <p className="text-xs text-muted-foreground">{HUB_SUBTITLE}</p>

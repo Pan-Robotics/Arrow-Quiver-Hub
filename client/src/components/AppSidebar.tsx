@@ -57,7 +57,7 @@ export default function AppSidebar({ apps, bottomApps = [], activeAppId, onAppCh
       <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50 overflow-x-hidden">
         {/* Logo/Home */}
         <div className="mb-4">
-          <Radio className="text-primary" size={28} />
+          <img src="https://files.manuscdn.com/user_upload_by_module/session_file/104102086/pvNNZkXlGeFWOKMU.png" alt="Quiver Hub" className="h-7 w-7 object-contain" />
         </div>
 
         {/* Main App Icons */}
