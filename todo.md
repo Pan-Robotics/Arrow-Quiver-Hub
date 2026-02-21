@@ -1006,3 +1006,7 @@
 - [x] Show filtered time range info (mode badge, time range, duration) in a banner
 - [x] Write vitest tests for filterChartDataByTimeRange (11 tests)
 - [x] Verify all 490 tests pass across 22 test files
+
+## Bug Fixes
+
+- [x] Remove horizontal scrollbar from sidebar app bar (added overflow-x-hidden to sidebar container and scrollable div)

@@ -40,7 +40,7 @@ function SidebarAppButton({ app, isActive, onClick }: { app: App; isActive: bool
         >
           <Icon size={20} />
           {isActive && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+            <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
           )}
         </Button>
       </TooltipTrigger>
@@ -54,14 +54,14 @@ function SidebarAppButton({ app, isActive, onClick }: { app: App; isActive: bool
 export default function AppSidebar({ apps, bottomApps = [], activeAppId, onAppChange, onAddApp }: AppSidebarProps) {
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50">
+      <div className="fixed left-0 top-0 h-screen w-16 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-50 overflow-x-hidden">
         {/* Logo/Home */}
         <div className="mb-4">
           <Radio className="text-primary" size={28} />
         </div>
 
         {/* Main App Icons */}
-        <div className="flex-1 flex flex-col gap-2 w-full px-2 overflow-y-auto scrollbar-none min-h-0">
+        <div className="flex-1 flex flex-col gap-2 w-full px-2 overflow-y-auto overflow-x-hidden scrollbar-none min-h-0">
           {apps.filter(app => app.enabled).map((app) => (
             <SidebarAppButton
               key={app.id}
