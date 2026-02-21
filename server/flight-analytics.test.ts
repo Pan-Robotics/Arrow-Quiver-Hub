@@ -186,8 +186,8 @@ describe("Flight Analytics - Frontend Component", () => {
     expect(componentSrc).toContain("getAvailableCharts(result.types)");
   });
 
-  it("uses toChartData to generate chart data", () => {
-    expect(componentSrc).toContain("toChartData(result.messages, chart)");
+  it("uses toChartData to generate chart data with types", () => {
+    expect(componentSrc).toContain("toChartData(result.messages, chart, result.types)");
   });
 
   it("renders charts using Recharts LineChart", () => {

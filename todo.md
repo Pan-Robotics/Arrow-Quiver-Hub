@@ -914,3 +914,15 @@
 - [x] Write vitest tests for chart configuration module
 - [x] Write vitest tests for tRPC procedures
 - [x] Write vitest tests for REST endpoint
+
+## Flight Analytics Parser Fix (Sample .BIN File Testing)
+
+- [x] Debug DataflashParser with sample 00000092.BIN file
+- [x] Fix S3 download proxy issue (browser fetch returning compressed bytes via Manus proxy)
+- [x] Add server-side download proxy (flightLogs.getDownloadData tRPC endpoint)
+- [x] Fix instance-based message type resolution (BARO[0], GPS[0], ESC[0], etc.)
+- [x] Fix toChartData to resolve against parsedMessages instead of types (types has both BARO and BARO[0] but messages only has BARO[0])
+- [x] Verify all 17 charts render with data from sample .BIN file
+- [x] Remove debug info display from production UI
+- [x] Write 30 unit tests for flight-charts functions (resolveMessageKey, toChartData, getAvailableCharts, formatTime, etc.)
+- [x] All 397 tests passing across 17 test files

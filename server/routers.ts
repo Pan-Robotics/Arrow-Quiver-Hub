@@ -1313,6 +1313,27 @@ export const appRouter = router({
         return { success: true, url };
       }),
 
+    // Download flight log binary data (proxy to avoid compression issues)
+    downloadBinary: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const log = await getFlightLogById(input.id);
+        if (!log) throw new Error("Flight log not found");
+        if (!log.url) throw new Error("Flight log has no file URL");
+
+        // Fetch the file from S3
+        const response = await fetch(log.url);
+        if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        // Return as base64 to avoid proxy compression mangling the binary data
+        return {
+          data: buffer.toString("base64"),
+          size: buffer.length,
+          filename: log.filename,
+        };
+      }),
+
     // Upload media files for a flight log
     uploadMedia: protectedProcedure
       .input(z.object({

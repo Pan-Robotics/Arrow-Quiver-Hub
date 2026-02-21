@@ -1,0 +1,17 @@
+{
+  "query": "SELECT id, filename, url, fileSize, format FROM flightLogs LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3HixaTvZ1BE3FFg.root --database cJLhozXEame73NuZqMLXuR --execute SELECT id, filename, url, fileSize, format FROM flightLogs LIMIT 5;",
+  "rows": [
+    {
+      "id": "2",
+      "filename": "00000092.BIN",
+      "url": "https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/flight-logs/quiver_001/Uj8k0J7LZp7ciQFyuPraU-00000092.BIN",
+      "fileSize": "1597440",
+      "format": "bin"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfilename\turl\tfileSize\tformat\n2\t00000092.BIN\thttps://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/flight-logs/quiver_001/Uj8k0J7LZp7ciQFyuPraU-00000092.BIN\t1597440\tbin\n",
+  "stderr": "",
+  "execution_time_ms": 375
+}

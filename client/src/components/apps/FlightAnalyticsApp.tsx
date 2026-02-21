@@ -135,6 +135,7 @@ export default function FlightAnalyticsApp() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+
   // Handle file selection
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -166,8 +167,8 @@ export default function FlightAnalyticsApp() {
     reader.readAsDataURL(uploadFile);
   }, [uploadFile, selectedDrone, uploadNotes, uploadMutation]);
 
-  // Parse a flight log from S3
-  const handleAnalyze = useCallback(async (logId: number, fileUrl: string) => {
+  // Parse a flight log - downloads via server proxy to avoid compression issues
+  const handleAnalyze = useCallback(async (logId: number, _fileUrl: string) => {
     setSelectedLogId(logId);
     setParseState({
       status: "downloading",
@@ -177,11 +178,25 @@ export default function FlightAnalyticsApp() {
     });
 
     try {
-      // Download the binary file from S3
+      // Download the binary file via server proxy (avoids proxy compression mangling binary data)
       setParseState((prev) => ({ ...prev, status: "downloading", progress: 10 }));
-      const response = await fetch(fileUrl);
-      if (!response.ok) throw new Error(`Failed to download log: ${response.statusText}`);
-      const arrayBuffer = await response.arrayBuffer();
+      
+      // Call the tRPC endpoint directly via fetch to get base64-encoded binary
+      const downloadResponse = await fetch(`/api/trpc/flightLogs.downloadBinary?input=${encodeURIComponent(JSON.stringify({ json: { id: logId } }))}`, {
+        credentials: "include",
+      });
+      if (!downloadResponse.ok) throw new Error(`Failed to download log: ${downloadResponse.statusText}`);
+      const downloadJson = await downloadResponse.json();
+      const base64Data = downloadJson.result?.data?.json?.data;
+      if (!base64Data) throw new Error("No binary data received from server");
+      
+      // Convert base64 back to ArrayBuffer
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const arrayBuffer = bytes.buffer;
 
       setParseState((prev) => ({ ...prev, status: "parsing", progress: 30 }));
 
@@ -195,10 +210,14 @@ export default function FlightAnalyticsApp() {
       const defaultMsgs = ["CMD", "MSG", "FILE", "MODE", "AHR2", "GPS", "POS", "PARM", "STAT", "EV"];
       const allMsgs = Array.from(new Set(requiredMsgs.concat(defaultMsgs)));
 
+      console.log('[FlightAnalytics] Parsing with msgs:', allMsgs);
+
       setParseState((prev) => ({ ...prev, progress: 40 }));
 
       // Parse the binary data
       const result = parser.processData(arrayBuffer, allMsgs);
+
+
 
       setParseState((prev) => ({ ...prev, progress: 70 }));
 
@@ -208,7 +227,8 @@ export default function FlightAnalyticsApp() {
       // Generate chart data for each available chart
       const chartData: Record<string, Array<Record<string, number>>> = {};
       for (const chart of available) {
-        chartData[chart.id] = toChartData(result.messages, chart);
+        const cd = toChartData(result.messages, chart, result.types);
+        chartData[chart.id] = cd;
       }
 
       setParseState((prev) => ({ ...prev, progress: 90 }));
@@ -528,6 +548,7 @@ export default function FlightAnalyticsApp() {
                   </div>
                 );
               })}
+
 
               {parseState.availableCharts.length === 0 && (
                 <Card>

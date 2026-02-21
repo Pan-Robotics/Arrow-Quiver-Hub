@@ -2,6 +2,10 @@
  * Flight log chart definitions.
  * Maps ArduPilot DataFlash message types to Recharts chart configurations.
  * Ported from the Python Flight-Log-Analyser plot definitions.
+ *
+ * The DataflashParser returns instance-based message types for sensors with
+ * multiple instances (e.g. BARO[0], ESC[0], BAT[0], VIBE[0], GPA[0], XKF4[0]).
+ * This module handles resolving both bare names and instance variants.
  */
 
 export interface ChartField {
@@ -15,7 +19,7 @@ export interface ChartDefinition {
   id: string;
   title: string;
   description: string;
-  messageType: string; // primary message type to parse
+  messageType: string; // primary message type to parse (e.g. "ATT", "BARO")
   additionalMessages?: string[]; // extra messages needed
   fields: ChartField[];
   xKey: string; // typically "time_boot_ms"
@@ -151,9 +155,8 @@ export const CHART_DEFINITIONS: ChartDefinition[] = [
   {
     id: "gps-quality",
     title: "GPS: Quality",
-    description: "Number of satellites and HDOP",
+    description: "Horizontal, vertical, and speed accuracy",
     messageType: "GPA",
-    additionalMessages: ["GPS"],
     fields: [
       { key: "HAcc", label: "Horizontal Accuracy", color: COLORS.blue, yAxisId: "left" },
       { key: "VAcc", label: "Vertical Accuracy", color: COLORS.red, yAxisId: "left" },
@@ -206,6 +209,20 @@ export const CHART_DEFINITIONS: ChartDefinition[] = [
     yAxisLabel: "RPM",
     category: "power",
   },
+  {
+    id: "esc-current",
+    title: "ESC: Voltage & Current",
+    description: "ESC voltage and current draw",
+    messageType: "ESC",
+    fields: [
+      { key: "Volt", label: "Voltage", color: COLORS.green, yAxisId: "left" },
+      { key: "Curr", label: "Current", color: COLORS.red, yAxisId: "right" },
+    ],
+    xKey: "time_boot_ms",
+    yAxisLabel: "Volts",
+    yAxisRight: "Amps",
+    category: "power",
+  },
 
   // ─── Vibration ──────────────────────────────────────────────
   {
@@ -225,12 +242,10 @@ export const CHART_DEFINITIONS: ChartDefinition[] = [
   {
     id: "vibe-clip",
     title: "Vibration: Clipping",
-    description: "Accelerometer clipping events",
+    description: "Accelerometer clipping count",
     messageType: "VIBE",
     fields: [
-      { key: "Clip0", label: "Clip Count 0", color: COLORS.red },
-      { key: "Clip1", label: "Clip Count 1", color: COLORS.green },
-      { key: "Clip2", label: "Clip Count 2", color: COLORS.blue },
+      { key: "Clip", label: "Clip Count", color: COLORS.red },
     ],
     xKey: "time_boot_ms",
     yAxisLabel: "Count",
@@ -297,6 +312,29 @@ export const CHART_CATEGORIES = [
 ] as const;
 
 /**
+ * Resolve a message type name to the actual key in the parsed data.
+ * The DataflashParser returns instance-based names for multi-instance sensors:
+ *   BARO → BARO[0], ESC → ESC[0], BAT → BAT[0], VIBE → VIBE[0], etc.
+ * This function checks for the bare name first, then falls back to [0] instance.
+ */
+export function resolveMessageKey(
+  name: string,
+  availableTypes: Record<string, unknown>
+): string | null {
+  // Direct match
+  if (availableTypes[name]) return name;
+  // Instance [0] fallback
+  const inst0 = `${name}[0]`;
+  if (availableTypes[inst0]) return inst0;
+  // Check any instance
+  const prefix = `${name}[`;
+  for (const key of Object.keys(availableTypes)) {
+    if (key.startsWith(prefix)) return key;
+  }
+  return null;
+}
+
+/**
  * Get which message types need to be parsed for a set of chart definitions.
  */
 export function getRequiredMessageTypes(charts: ChartDefinition[]): string[] {
@@ -321,16 +359,19 @@ export function getAllRequiredMessageTypes(): string[] {
 
 /**
  * Filter chart definitions to only those whose data is available in the parsed log.
+ * Handles instance-based message types (e.g. BARO[0] matches BARO).
  */
 export function getAvailableCharts(
   availableMessageTypes: Record<string, unknown>
 ): ChartDefinition[] {
   return CHART_DEFINITIONS.filter((chart) => {
-    // Primary message type must exist
-    if (!availableMessageTypes[chart.messageType]) return false;
+    // Primary message type must exist (direct or instance)
+    if (!resolveMessageKey(chart.messageType, availableMessageTypes)) return false;
     // Additional messages must also exist if specified
     if (chart.additionalMessages) {
-      return chart.additionalMessages.every((msg) => availableMessageTypes[msg]);
+      return chart.additionalMessages.every(
+        (msg) => resolveMessageKey(msg, availableMessageTypes) !== null
+      );
     }
     return true;
   });
@@ -338,14 +379,21 @@ export function getAvailableCharts(
 
 /**
  * Convert parsed DataFlash data to Recharts-compatible array format.
+ * Handles instance-based message keys (e.g. BARO[0] for BARO charts).
  * Downsamples large datasets to maxPoints for performance.
  */
 export function toChartData(
   parsedMessages: Record<string, any>,
   chart: ChartDefinition,
+  availableTypes: Record<string, unknown>,
   maxPoints: number = 2000
 ): Array<Record<string, number>> {
-  const msgData = parsedMessages[chart.messageType];
+  // Resolve against parsedMessages (not types) since messages use instance keys
+  // e.g. types has both "BARO" and "BARO[0]" but messages only has "BARO[0]"
+  const resolvedKey = resolveMessageKey(chart.messageType, parsedMessages);
+  if (!resolvedKey) return [];
+
+  const msgData = parsedMessages[resolvedKey];
   if (!msgData || !msgData.time_boot_ms) return [];
 
   const timeArray = msgData.time_boot_ms;
