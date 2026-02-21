@@ -464,7 +464,32 @@ class DataflashParser {
 
     // Log name, optional instance name, optional field
     get_instance(name, instance, field) {
-        // Read and return array for given log field, this will not be stored locally
+        // For text format, use already-parsed messages instead of binary offsets
+        if (this.isTextFormat) {
+            let key = name
+            if (instance != null) {
+                key = name + '[' + instance + ']'
+            }
+            const msgData = this.messages[key]
+            if (!msgData) return undefined
+            if (field) {
+                // Return the specific field array, converting TimeUS to time_boot_ms
+                if (field === 'TimeUS') {
+                    // Text format stores time_boot_ms (ms), convert back to TimeUS (us)
+                    const tms = msgData.time_boot_ms
+                    if (!tms) return undefined
+                    const result = new Float64Array(tms.length)
+                    for (let i = 0; i < tms.length; i++) {
+                        result[i] = tms[i] * 1000.0
+                    }
+                    return result
+                }
+                return msgData[field]
+            }
+            return msgData
+        }
+
+        // Binary format: read and return array for given log field, this will not be stored locally
         const msg_FMT = this.getFMT(name)
         if (msg_FMT == null) {
             // no such message
@@ -852,52 +877,70 @@ class DataflashParser {
             // No GPS time, can't get timestamp
             return
         }
-        // Find the fist log message with timestamp
-        let first_time_offset
-        for (const msg of this.FMT) {
-            if (msg == null) {
-                // Invalid message type
-                continue
-            }
 
-            // Look for timestamp
-            const time_index = msg.Columns.indexOf("TimeUS")
-            if ((time_index == -1) || (msg.Format.charAt(time_index) != "Q")) {
-                // No timestamp, or unexpected format
-                continue
-            }
+        let start_time_us
 
-            // Offset of timestamp within message
-            const TimeUS_offset = msg.FormatOffset[time_index]
-
-            // Helper to record first offset of time stamp
-            function update_first_offset(new_msg_offset) {
-                const time_offset = new_msg_offset + TimeUS_offset
-                if ((first_time_offset == null) || (time_offset < first_time_offset)) {
-                    first_time_offset = time_offset
+        if (this.isTextFormat) {
+            // Text format: find the earliest time_boot_ms across all parsed messages
+            let earliest_ms = Infinity
+            for (const [key, msgData] of Object.entries(this.messages)) {
+                if (msgData && msgData.time_boot_ms && msgData.time_boot_ms.length > 0) {
+                    const first = msgData.time_boot_ms[0]
+                    if (first < earliest_ms) {
+                        earliest_ms = first
+                    }
                 }
             }
+            if (earliest_ms < Infinity) {
+                start_time_us = earliest_ms * 1000.0 // convert ms back to us
+            }
+        } else {
+            // Binary format: find the first log message with timestamp via offsets
+            let first_time_offset
+            for (const msg of this.FMT) {
+                if (msg == null) {
+                    // Invalid message type
+                    continue
+                }
 
-            // Offset of message, only check first, assume time never goes backwards
-            if ("InstancesOffsetArray" in msg) {
-                // Multiple instances
-                for (const inst of Object.values(msg.InstancesOffsetArray)) {
-                    if (inst.length > 0) {
-                        update_first_offset(inst[0])
+                // Look for timestamp
+                const time_index = msg.Columns.indexOf("TimeUS")
+                if ((time_index == -1) || (msg.Format.charAt(time_index) != "Q")) {
+                    // No timestamp, or unexpected format
+                    continue
+                }
+
+                // Offset of timestamp within message
+                const TimeUS_offset = msg.FormatOffset[time_index]
+
+                // Helper to record first offset of time stamp
+                function update_first_offset(new_msg_offset) {
+                    const time_offset = new_msg_offset + TimeUS_offset
+                    if ((first_time_offset == null) || (time_offset < first_time_offset)) {
+                        first_time_offset = time_offset
                     }
                 }
 
-            } else {
-                // Single instance
-                if (msg.OffsetArray.length > 0) {
-                    update_first_offset(msg.OffsetArray[0])
+                // Offset of message, only check first, assume time never goes backwards
+                if ("InstancesOffsetArray" in msg) {
+                    // Multiple instances
+                    for (const inst of Object.values(msg.InstancesOffsetArray)) {
+                        if (inst.length > 0) {
+                            update_first_offset(inst[0])
+                        }
+                    }
+
+                } else {
+                    // Single instance
+                    if (msg.OffsetArray.length > 0) {
+                        update_first_offset(msg.OffsetArray[0])
+                    }
                 }
             }
-        }
-        let start_time_us
-        if (first_time_offset != null) {
-            this.offset = first_time_offset
-            start_time_us = this.parse_type("Q")
+            if (first_time_offset != null) {
+                this.offset = first_time_offset
+                start_time_us = this.parse_type("Q")
+            }
         }
 
         // Helper to get the first week and ms time from GPS message
@@ -995,16 +1038,287 @@ class DataflashParser {
         return 0
     }
 
+    // Parse a text value according to the binary format character
+    // Text logs store values as strings; this converts them to the correct JS type
+    parseTextValue (formatChar, strValue) {
+        strValue = strValue.trim()
+        switch (formatChar) {
+            case 'n': // char[4]
+            case 'N': // char[16]
+            case 'Z': // char[64]
+                return strValue
+            case 'b': // Int8
+            case 'B': // Uint8
+            case 'h': // Int16
+            case 'H': // Uint16
+            case 'i': // Int32
+            case 'I': // Uint32
+            case 'M': // Uint8 flight mode
+            case 'L': // Int32 lat/lon
+                return parseInt(strValue, 10) || 0
+            case 'c': // Int16 / 100
+            case 'C': // Uint16 / 100
+            case 'e': // Int32 / 100
+            case 'E': // Uint32 / 100
+                // Text logs already have the divided value, return as-is
+                return parseFloat(strValue) || 0
+            case 'f': // Float32
+            case 'd': // Float64
+                return parseFloat(strValue) || 0
+            case 'Q': // Uint64
+            case 'q': // Int64
+                return parseFloat(strValue) || 0
+            case 'a': // int16_t[32] - array type, keep as string
+                return strValue
+            default:
+                return parseFloat(strValue) || strValue || 0
+        }
+    }
+
+    // Read a text-format ArduPilot log file
+    DfReaderText (text, msgs) {
+        const lines = text.split('\n')
+        const fmtByName = {} // name -> FMT entry
+        const rawData = {} // msgName -> { field: [values] }
+        const instanceData = {} // msgName -> { instanceId -> { field: [values] } }
+        const instanceField = {} // msgName -> index of instance column (or -1)
+        const msgCounts = {} // msgName -> count
+
+        // First pass: parse FMT lines to build format definitions
+        for (const line of lines) {
+            if (!line.startsWith('FMT,') && !line.startsWith('FMT, ')) continue
+            const parts = line.split(',')
+            if (parts.length < 6) continue
+            const type = parseInt(parts[1].trim(), 10)
+            const length = parseInt(parts[2].trim(), 10)
+            const name = parts[3].trim()
+            const format = parts[4].trim()
+            // Columns is everything after the 5th comma, split by comma
+            const columns = parts.slice(5).map(c => c.trim()).filter(c => c.length > 0)
+
+            // Calculate size and offsets (same as binary reader)
+            let Size = 0
+            const FormatOffset = new Array(format.length)
+            for (let i = 0; i < format.length; i++) {
+                FormatOffset[i] = Size
+                Size += this.get_size_of(format.charAt(i)) || 0
+            }
+
+            const fmtEntry = {
+                Type: type,
+                length: length,
+                Name: name,
+                Format: format,
+                Columns: columns,
+                FormatOffset,
+                Size,
+                Total_Length: 0,
+                OffsetArray: [] // empty - text format doesn't use offsets
+            }
+            this.FMT[type] = fmtEntry
+            fmtByName[name] = fmtEntry
+        }
+
+        // Parse UNIT lines
+        const unitMap = {} // id -> label
+        for (const line of lines) {
+            if (!line.startsWith('UNIT,') && !line.startsWith('UNIT, ')) continue
+            const parts = line.split(',')
+            if (parts.length < 4) continue
+            const id = parts[2].trim()
+            const label = parts[3].trim()
+            unitMap[id] = label
+        }
+
+        // Parse MULT lines
+        const multMap = {} // id -> multiplier
+        for (const line of lines) {
+            if (!line.startsWith('MULT,') && !line.startsWith('MULT, ')) continue
+            const parts = line.split(',')
+            if (parts.length < 4) continue
+            const id = parts[2].trim()
+            const mult = parseFloat(parts[3].trim())
+            multMap[id] = mult
+        }
+
+        // Parse FMTU lines to populate units on FMT entries
+        for (const line of lines) {
+            if (!line.startsWith('FMTU,') && !line.startsWith('FMTU, ')) continue
+            const parts = line.split(',')
+            if (parts.length < 5) continue
+            const fmtType = parseInt(parts[2].trim(), 10)
+            const unitIds = parts[3].trim()
+            const multIds = parts[4].trim()
+
+            if (this.FMT[fmtType]) {
+                this.FMT[fmtType].units = []
+                for (const u of unitIds) {
+                    this.FMT[fmtType].units.push(units[u] || '')
+                }
+                this.FMT[fmtType].multipliers = []
+                for (const m of multIds) {
+                    this.FMT[fmtType].multipliers.push(multipliers[m] || 1.0)
+                }
+            }
+        }
+
+        // Determine which messages have instance fields
+        for (const [name, fmt] of Object.entries(fmtByName)) {
+            if (fmt.units) {
+                const idx = fmt.units.indexOf('instance')
+                instanceField[name] = idx
+            } else {
+                instanceField[name] = -1
+            }
+        }
+
+        // Determine which message types to parse
+        const msgsSet = new Set(msgs || [
+            'CMD','MSG','FILE','MODE','AHR2','ATT','GPS','POS',
+            'XKQ1','XKQ','NKQ1','NKQ2','XKQ2','PARM','STAT','EV'
+        ])
+
+        // Second pass: parse data lines
+        for (const line of lines) {
+            const commaIdx = line.indexOf(',')
+            if (commaIdx === -1) continue
+            const msgName = line.substring(0, commaIdx).trim()
+
+            // Skip format/metadata lines
+            if (msgName === 'FMT' || msgName === 'FMTU' || msgName === 'UNIT' || msgName === 'MULT') continue
+
+            const fmt = fmtByName[msgName]
+            if (!fmt) continue
+
+            // Only parse requested message types
+            if (!msgsSet.has(msgName)) continue
+
+            const parts = line.split(',')
+            const values = parts.slice(1) // skip message name
+
+            // Check if this message type has instances
+            const instIdx = instanceField[msgName] !== undefined ? instanceField[msgName] : -1
+
+            if (instIdx >= 0 && instIdx < values.length) {
+                // Instance-based message
+                const instanceId = parseInt(values[instIdx].trim(), 10) || 0
+                const instKey = msgName + '[' + instanceId + ']'
+
+                if (!instanceData[msgName]) {
+                    instanceData[msgName] = {}
+                }
+                if (!instanceData[msgName][instanceId]) {
+                    instanceData[msgName][instanceId] = {}
+                    // Initialize arrays for each column
+                    for (let i = 0; i < fmt.Columns.length; i++) {
+                        const col = fmt.Columns[i]
+                        if (col === 'TimeUS') {
+                            instanceData[msgName][instanceId].time_boot_ms = []
+                        } else {
+                            instanceData[msgName][instanceId][col] = []
+                        }
+                    }
+                }
+
+                // Parse and store values
+                for (let i = 0; i < fmt.Columns.length && i < values.length; i++) {
+                    const col = fmt.Columns[i]
+                    const val = this.parseTextValue(fmt.Format.charAt(i), values[i])
+                    if (col === 'TimeUS') {
+                        instanceData[msgName][instanceId].time_boot_ms.push(val / 1000.0)
+                    } else {
+                        instanceData[msgName][instanceId][col].push(val)
+                    }
+                }
+
+                // Track count
+                if (!msgCounts[msgName]) msgCounts[msgName] = 0
+                msgCounts[msgName]++
+            } else {
+                // Non-instance message
+                if (!rawData[msgName]) {
+                    rawData[msgName] = {}
+                    for (let i = 0; i < fmt.Columns.length; i++) {
+                        const col = fmt.Columns[i]
+                        if (col === 'TimeUS') {
+                            rawData[msgName].time_boot_ms = []
+                        } else {
+                            rawData[msgName][col] = []
+                        }
+                    }
+                }
+
+                for (let i = 0; i < fmt.Columns.length && i < values.length; i++) {
+                    const col = fmt.Columns[i]
+                    const val = this.parseTextValue(fmt.Format.charAt(i), values[i])
+                    if (col === 'TimeUS') {
+                        rawData[msgName].time_boot_ms.push(val / 1000.0)
+                    } else {
+                        rawData[msgName][col].push(val)
+                    }
+                }
+
+                if (!msgCounts[msgName]) msgCounts[msgName] = 0
+                msgCounts[msgName]++
+            }
+        }
+
+        // Store non-instance messages
+        for (const [name, data] of Object.entries(rawData)) {
+            this.messages[name] = data
+            if (fmtByName[name]) {
+                fmtByName[name].Total_Length = msgCounts[name] || 0
+            }
+        }
+
+        // Store instance messages
+        for (const [name, instances] of Object.entries(instanceData)) {
+            for (const [instId, data] of Object.entries(instances)) {
+                const instKey = name + '[' + instId + ']'
+                this.messages[instKey] = data
+            }
+            if (fmtByName[name]) {
+                fmtByName[name].Total_Length = msgCounts[name] || 0
+            }
+        }
+
+        // Mark all FMT entries that have data with Total_Length
+        for (const fmt of this.FMT) {
+            if (fmt && fmt.Name && !msgCounts[fmt.Name]) {
+                // Check if we have FMT lines for this type
+                if (fmtByName[fmt.Name]) {
+                    fmt.Total_Length = fmt.Total_Length || 0
+                }
+            }
+        }
+    }
+
     processData (data, msgs) {
         this.buffer = data
         this.data = new DataView(this.buffer)
-        this.DfReader()
+
+        // Detect text vs binary format
+        const firstByte = this.data.getUint8(0)
+        this.isTextFormat = (firstByte !== HEAD1)
+
+        if (this.isTextFormat) {
+            // Text log format - decode and parse
+            const decoder = new TextDecoder('utf-8')
+            const text = decoder.decode(this.buffer)
+            this.DfReaderText(text, msgs)
+        } else {
+            // Binary log format
+            this.DfReader()
+        }
+
         const messageTypes = {}
-        try{
-            this.populateUnits()
-        } catch (e) {
-            console.log('error populating units')
-            console.log(e)
+        if (!this.isTextFormat) {
+            try{
+                this.populateUnits()
+            } catch (e) {
+                console.log('error populating units')
+                console.log(e)
+            }
         }
         for (const msg of this.FMT) {
             if (msg && (msg.Total_Length != 0)) {
@@ -1023,17 +1337,38 @@ class DataflashParser {
                     multipliers: msg.multipliers,
                     complexFields: complexFields
                 }
-                const availableInstances = this.checkNumberOfInstances(msg)
-                if (availableInstances != null) {
-                    messageTypes[msg.Name].instances = {} 
-                    for (const instance of availableInstances) {
-                        const inst_name = msg.Name + '[' + instance + ']'
-                        messageTypes[msg.Name].instances[instance] = inst_name
-                        messageTypes[inst_name] = {
-                            expressions: fields,
-                            units: msg.units,
-                            multipliers: msg.multipliers,
-                            complexFields: complexFields
+                if (this.isTextFormat) {
+                    // For text format, check instances from already-parsed messages
+                    const instanceKeys = Object.keys(this.messages).filter(k => k.startsWith(msg.Name + '['))
+                    if (instanceKeys.length > 0) {
+                        messageTypes[msg.Name].instances = {}
+                        for (const instKey of instanceKeys) {
+                            const match = instKey.match(/\[(\d+)\]$/)
+                            if (match) {
+                                const instance = parseInt(match[1], 10)
+                                messageTypes[msg.Name].instances[instance] = instKey
+                                messageTypes[instKey] = {
+                                    expressions: fields,
+                                    units: msg.units,
+                                    multipliers: msg.multipliers,
+                                    complexFields: complexFields
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    const availableInstances = this.checkNumberOfInstances(msg)
+                    if (availableInstances != null) {
+                        messageTypes[msg.Name].instances = {} 
+                        for (const instance of availableInstances) {
+                            const inst_name = msg.Name + '[' + instance + ']'
+                            messageTypes[msg.Name].instances[instance] = inst_name
+                            messageTypes[inst_name] = {
+                                expressions: fields,
+                                units: msg.units,
+                                multipliers: msg.multipliers,
+                                complexFields: complexFields
+                            }
                         }
                     }
                 }
@@ -1044,17 +1379,21 @@ class DataflashParser {
         }
         this.messageTypes = messageTypes
 
-        if (msgs === undefined) {
-            // Default messages
-            msgs = ['CMD','MSG','FILE','MODE','AHR2','ATT','GPS','POS',
-                    'XKQ1','XKQ','NKQ1','NKQ2','XKQ2','PARM','MSG','STAT','EV']
-        }
-        for (const msg of msgs) {
-            this.parseAtOffset(msg)
-            if (msg === 'FILE') {
-                this.processFiles()
+        if (!this.isTextFormat) {
+            // Binary format: parse at offsets
+            if (msgs === undefined) {
+                // Default messages
+                msgs = ['CMD','MSG','FILE','MODE','AHR2','ATT','GPS','POS',
+                        'XKQ1','XKQ','NKQ1','NKQ2','XKQ2','PARM','MSG','STAT','EV']
+            }
+            for (const msg of msgs) {
+                this.parseAtOffset(msg)
+                if (msg === 'FILE') {
+                    this.processFiles()
+                }
             }
         }
+        // Text format: messages already populated by DfReaderText
 
         if (this.send_postMessage) {
             const metadata = {

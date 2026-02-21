@@ -926,3 +926,10 @@
 - [x] Remove debug info display from production UI
 - [x] Write 30 unit tests for flight-charts functions (resolveMessageKey, toChartData, getAvailableCharts, formatTime, etc.)
 - [x] All 397 tests passing across 17 test files
+
+## Flight Analytics .LOG File Support
+
+- [x] Fix DataflashParser text log (.log) format parsing - added DfReaderText method
+- [x] Verify all chart types render from .log file data (Node.js test: 35 message types, 25 message keys)
+- [x] Test .log file parsing end-to-end (extractStartTime: 2025-02-25T22:30:08.701Z, stats: 5971 ESC messages)
+- [x] Update tests for .log format support (24 new text-log-parser tests, 421 total tests passing)
