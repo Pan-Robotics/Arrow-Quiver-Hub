@@ -1,6 +1,6 @@
 import { eq, desc, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, InsertApiKey, telemetry, InsertTelemetry } from "../drizzle/schema";
+import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, InsertApiKey, telemetry, InsertTelemetry, flightLogs, InsertFlightLog } from "../drizzle/schema";
 import { nanoid } from "nanoid";
 import { ENV } from './_core/env';
 
@@ -287,9 +287,9 @@ export async function updateApiKeyDescription(keyId: number, description: string
 }
 
 // Delete drone with cascading deletes (API keys, scans, telemetry, jobs, files)
-export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; counts: { apiKeys: number; scans: number; telemetry: number; jobs: number; files: number } }> {
+export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; counts: { apiKeys: number; scans: number; telemetry: number; jobs: number; files: number; flightLogs: number } }> {
   const db = await getDb();
-  if (!db) return { deleted: false, counts: { apiKeys: 0, scans: 0, telemetry: 0, jobs: 0, files: 0 } };
+  if (!db) return { deleted: false, counts: { apiKeys: 0, scans: 0, telemetry: 0, jobs: 0, files: 0, flightLogs: 0 } };
 
   // Count records before deletion for reporting
   const apiKeyCount = (await db.select().from(apiKeys).where(eq(apiKeys.droneId, droneId))).length;
@@ -300,6 +300,7 @@ export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; 
   const { droneJobs, droneFiles } = await import("../drizzle/schema");
   const jobCount = (await db.select().from(droneJobs).where(eq(droneJobs.droneId, droneId))).length;
   const fileCount = (await db.select().from(droneFiles).where(eq(droneFiles.droneId, droneId))).length;
+  const flightLogCount = (await db.select().from(flightLogs).where(eq(flightLogs.droneId, droneId))).length;
 
   // Cascade delete in order (children first)
   await db.delete(apiKeys).where(eq(apiKeys.droneId, droneId));
@@ -307,6 +308,7 @@ export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; 
   await db.delete(telemetry).where(eq(telemetry.droneId, droneId));
   await db.delete(droneJobs).where(eq(droneJobs.droneId, droneId));
   await db.delete(droneFiles).where(eq(droneFiles.droneId, droneId));
+  await db.delete(flightLogs).where(eq(flightLogs.droneId, droneId));
 
   // Finally delete the drone itself
   await db.delete(drones).where(eq(drones.droneId, droneId));
@@ -319,6 +321,7 @@ export async function deleteDrone(droneId: string): Promise<{ deleted: boolean; 
       telemetry: telemetryCount,
       jobs: jobCount,
       files: fileCount,
+      flightLogs: flightLogCount,
     },
   };
 }
@@ -342,4 +345,73 @@ export async function getRecentTelemetry(droneId: string, limit: number = 100) {
     .where(eq(telemetry.droneId, droneId))
     .orderBy(desc(telemetry.timestamp))
     .limit(limit);
+}
+
+// ─── Flight Log Management ───────────────────────────────────────────
+
+export async function createFlightLog(log: InsertFlightLog) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(flightLogs).values(log);
+  return result;
+}
+
+export async function getFlightLogsForDrone(droneId: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(flightLogs)
+    .where(eq(flightLogs.droneId, droneId))
+    .orderBy(desc(flightLogs.createdAt));
+}
+
+export async function getAllFlightLogs() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(flightLogs)
+    .orderBy(desc(flightLogs.createdAt));
+}
+
+export async function getFlightLogById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(flightLogs)
+    .where(eq(flightLogs.id, id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function updateFlightLog(id: number, updates: { description?: string | null; notesUrl?: string | null; mediaUrls?: string[] | null }) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.update(flightLogs).set(updates).where(eq(flightLogs.id, id));
+  return true;
+}
+
+export async function deleteFlightLog(id: number) {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.delete(flightLogs).where(eq(flightLogs.id, id));
+  return true;
+}
+
+export async function deleteFlightLogsForDrone(droneId: string) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const logs = await db.select().from(flightLogs).where(eq(flightLogs.droneId, droneId));
+  await db.delete(flightLogs).where(eq(flightLogs.droneId, droneId));
+  return logs.length;
 }

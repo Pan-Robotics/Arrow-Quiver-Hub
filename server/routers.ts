@@ -21,6 +21,12 @@ import {
   updateDroneByDroneId,
   updateApiKeyDescription,
   deleteDrone,
+  createFlightLog,
+  getFlightLogsForDrone,
+  getAllFlightLogs,
+  getFlightLogById,
+  updateFlightLog,
+  deleteFlightLog,
 } from "./db";
 import { broadcastPointCloud, broadcastTelemetry } from "./websocket";
 import type { PointCloudMessage, TelemetryMessage } from "./websocket";
@@ -1201,6 +1207,133 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await deleteDroneFile(input.fileId);
         return { success: true };
+      }),
+  }),
+
+  // ─── Flight Analytics ────────────────────────────────────────────────
+  flightLogs: router({
+    // List all flight logs (optionally filtered by drone)
+    list: protectedProcedure
+      .input(z.object({ droneId: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        if (input?.droneId) {
+          return await getFlightLogsForDrone(input.droneId);
+        }
+        return await getAllFlightLogs();
+      }),
+
+    // Get a single flight log by ID
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const log = await getFlightLogById(input.id);
+        if (!log) throw new Error("Flight log not found");
+        return log;
+      }),
+
+    // Upload a flight log (manual upload from UI)
+    upload: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        filename: z.string(),
+        content: z.string(), // base64 encoded
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const buffer = Buffer.from(input.content, "base64");
+        const fileSize = buffer.length;
+
+        // Determine format from extension
+        const ext = input.filename.toLowerCase().split(".").pop();
+        const format = ext === "log" ? "log" as const : "bin" as const;
+
+        // Upload to S3
+        const fileKey = `flight-logs/${input.droneId}/${nanoid()}-${input.filename}`;
+        const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
+
+        // Store metadata in DB
+        await createFlightLog({
+          droneId: input.droneId,
+          filename: input.filename,
+          fileSize,
+          storageKey: fileKey,
+          url,
+          format,
+          description: input.description || null,
+          uploadSource: "manual",
+          uploadedBy: ctx.user.id,
+        });
+
+        return { success: true, url, filename: input.filename };
+      }),
+
+    // Update flight log metadata (description, notes, media)
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        description: z.string().nullable().optional(),
+        notesUrl: z.string().nullable().optional(),
+        mediaUrls: z.array(z.string()).nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const updates: { description?: string | null; notesUrl?: string | null; mediaUrls?: string[] | null } = {};
+        if (input.description !== undefined) updates.description = input.description;
+        if (input.notesUrl !== undefined) updates.notesUrl = input.notesUrl;
+        if (input.mediaUrls !== undefined) updates.mediaUrls = input.mediaUrls;
+
+        const success = await updateFlightLog(input.id, updates);
+        if (!success) throw new Error("Failed to update flight log");
+        return { success: true };
+      }),
+
+    // Delete a flight log
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const success = await deleteFlightLog(input.id);
+        if (!success) throw new Error("Failed to delete flight log");
+        return { success: true };
+      }),
+
+    // Upload notes markdown file for a flight log
+    uploadNotes: protectedProcedure
+      .input(z.object({
+        logId: z.number(),
+        content: z.string(), // raw markdown text
+        filename: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const log = await getFlightLogById(input.logId);
+        if (!log) throw new Error("Flight log not found");
+
+        const noteKey = `flight-logs/${log.droneId}/notes/${nanoid()}-${input.filename || "notes.md"}`;
+        const { url } = await storagePut(noteKey, Buffer.from(input.content, "utf-8"), "text/markdown");
+
+        await updateFlightLog(input.logId, { notesUrl: url });
+        return { success: true, url };
+      }),
+
+    // Upload media files for a flight log
+    uploadMedia: protectedProcedure
+      .input(z.object({
+        logId: z.number(),
+        filename: z.string(),
+        content: z.string(), // base64 encoded
+        mimeType: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const log = await getFlightLogById(input.logId);
+        if (!log) throw new Error("Flight log not found");
+
+        const buffer = Buffer.from(input.content, "base64");
+        const mediaKey = `flight-logs/${log.droneId}/media/${nanoid()}-${input.filename}`;
+        const { url } = await storagePut(mediaKey, buffer, input.mimeType || "application/octet-stream");
+
+        // Append to existing media URLs
+        const existingMedia = (log.mediaUrls as string[] | null) || [];
+        await updateFlightLog(input.logId, { mediaUrls: [...existingMedia, url] });
+
+        return { success: true, url };
       }),
   }),
 });

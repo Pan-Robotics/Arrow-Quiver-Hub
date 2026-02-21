@@ -9,7 +9,10 @@ import {
   upsertDrone,
   insertScan,
   insertTelemetry,
+  createFlightLog,
 } from "./db";
+import { storagePut } from "./storage";
+import { nanoid } from "nanoid";
 import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./restApi";
@@ -459,6 +462,117 @@ router.post("/test-connection", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error in /api/rest/test-connection:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+      latency_ms: Date.now() - startTime,
+    });
+  }
+});
+
+/**
+ * POST /api/rest/flightlog/upload
+ * Upload a flight log file (.BIN or .log) from the companion computer.
+ * Authenticated via API key. Stores file in S3 and metadata in DB.
+ *
+ * Request: multipart/form-data or JSON with base64 content
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   filename: string,
+ *   content: string (base64 encoded file),
+ *   description?: string
+ * }
+ */
+router.post("/flightlog/upload", async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const { api_key, drone_id, filename, content, description } = req.body;
+
+    // Validate required fields
+    if (!api_key || !drone_id || !filename || !content) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, filename, content (base64)",
+      });
+    }
+
+    // Validate API key
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid API key",
+      });
+    }
+
+    // Verify drone ID matches API key
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Drone ID mismatch",
+      });
+    }
+
+    // Validate file extension
+    const ext = filename.toLowerCase().split(".").pop();
+    if (ext !== "bin" && ext !== "log") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file format. Only .BIN and .log files are accepted.",
+      });
+    }
+
+    // Decode base64 content
+    const buffer = Buffer.from(content, "base64");
+    const fileSize = buffer.length;
+
+    // Enforce 100MB limit
+    if (fileSize > 100 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: "File too large. Maximum size is 100MB.",
+      });
+    }
+
+    const format = ext === "log" ? "log" as const : "bin" as const;
+
+    // Upload to S3
+    const fileKey = `flight-logs/${drone_id}/${nanoid()}-${filename}`;
+    const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
+
+    // Store metadata in DB
+    await createFlightLog({
+      droneId: drone_id,
+      filename,
+      fileSize,
+      storageKey: fileKey,
+      url,
+      format,
+      description: description || null,
+      uploadSource: "api",
+      uploadedBy: null,
+    });
+
+    // Update drone last seen
+    await upsertDrone({
+      droneId: drone_id,
+      lastSeen: new Date(),
+      isActive: true,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Flight log uploaded successfully",
+      filename,
+      file_size: fileSize,
+      format,
+      url,
+      latency_ms: Date.now() - startTime,
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/flightlog/upload:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",

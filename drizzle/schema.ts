@@ -236,3 +236,38 @@ export const droneFiles = mysqlTable("droneFiles", {
 
 export type DroneFile = typeof droneFiles.$inferSelect;
 export type InsertDroneFile = typeof droneFiles.$inferInsert;
+
+/**
+ * Flight logs table - stores ArduPilot .BIN/.log file metadata for the Flight Analytics app.
+ * Actual file bytes live in S3; this table holds only references and summary info.
+ */
+export const flightLogs = mysqlTable("flightLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Drone this log belongs to */
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  /** Original filename as uploaded */
+  filename: varchar("filename", { length: 255 }).notNull(),
+  /** File size in bytes */
+  fileSize: int("fileSize").notNull(),
+  /** S3 storage key */
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  /** Public S3 URL for download / client-side parsing */
+  url: varchar("url", { length: 1024 }).notNull(),
+  /** File format: bin or log */
+  format: mysqlEnum("format", ["bin", "log"]).notNull(),
+  /** Optional user-provided description or notes */
+  description: text("description"),
+  /** Optional associated markdown notes file URL (S3) */
+  notesUrl: varchar("notesUrl", { length: 1024 }),
+  /** Optional associated media URLs (JSON array of S3 URLs) */
+  mediaUrls: json("mediaUrls"),
+  /** Upload source: manual (UI) or api (REST endpoint from Pi) */
+  uploadSource: mysqlEnum("uploadSource", ["manual", "api"]).default("manual").notNull(),
+  /** User ID who uploaded (null if uploaded via API) */
+  uploadedBy: int("uploadedBy"),
+  /** When the log was uploaded */
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FlightLog = typeof flightLogs.$inferSelect;
+export type InsertFlightLog = typeof flightLogs.$inferInsert;

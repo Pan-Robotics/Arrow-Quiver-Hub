@@ -105,8 +105,8 @@ describe("Flight Analytics - App Store", () => {
     const fs = await import("fs");
     const source = fs.readFileSync("./client/src/components/apps/AppStore.tsx", "utf-8");
     expect(source).toContain("Analytics");
-    expect(source).toContain("performance metrics");
-    expect(source).toContain("flight reports");
+    expect(source).toContain("ArduPilot");
+    expect(source).toContain("interactive charts");
   });
 
   it("uses BarChart3 icon instead of Package placeholder", async () => {
@@ -153,16 +153,12 @@ describe("Flight Analytics - Home.tsx Integration", () => {
     expect(source).toContain("icon: BarChart3");
   });
 
-  it("has a Coming Soon placeholder in renderApp switch", async () => {
+  it("renders FlightAnalyticsApp component in renderApp switch", async () => {
     const fs = await import("fs");
     const source = fs.readFileSync("./client/src/pages/Home.tsx", "utf-8");
     expect(source).toContain('case "analytics"');
-    const analyticsBlock = source.substring(
-      source.indexOf('case "analytics"'),
-      source.indexOf("default:")
-    );
-    expect(analyticsBlock).toContain("Coming Soon");
-    expect(analyticsBlock).toContain("Flight Analytics");
+    expect(source).toContain("<FlightAnalyticsApp />");
+    expect(source).toContain("import FlightAnalyticsApp");
   });
 });
 

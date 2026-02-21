@@ -877,3 +877,40 @@
 - [x] Add both to builtInApps list in routers.ts for install/uninstall support
 - [x] Update AppStore.tsx to use proper icons (replace Package placeholders)
 - [x] Write vitest tests for both apps across all integration points
+
+## Flight Analytics App Implementation
+
+### Phase 1: Research & Setup
+- [x] Research JS/TS MAVLink .BIN parser libraries (JsDataflashParser)
+- [x] Install chosen parser library (copied JsDataflashParser + recharts)
+
+### Phase 2: Schema & Parser
+- [x] Create flightLogs table in drizzle schema
+- [x] Create flightAnalysisMedia table in drizzle schema (deferred - not needed for MVP)
+- [x] Run db:push for new tables
+- [x] Port parse_log function - using JsDataflashParser client-side for .BIN files
+- [x] Implement .BIN binary log parser using JsDataflashParser (client-side)
+- [ ] Implement GPS anonymization function (deferred for later)
+- [x] Add db helper functions for flight logs CRUD (createFlightLog, getFlightLogsForDrone, getFlightLogById, deleteFlightLog)
+- [x] Add tRPC procedures: flightLogs.upload, list, get, delete, getDownloadUrl
+
+### Phase 3: REST API & Storage
+- [x] Add REST endpoint POST /api/rest/flight-log/upload for Pi auto-upload
+- [x] Implement S3 storage flow for log files
+- [x] Re-parse from S3 on each view (no cached parsedData in DB)
+
+### Phase 4: Frontend
+- [x] Replace Coming Soon placeholder with full Flight Analytics app
+- [x] Build upload view (file picker for .BIN/.log files)
+- [x] Build analysis list view (sidebar list of past logs per drone)
+- [x] Build analysis detail view with categorized interactive charts
+- [x] Implement chart types using Recharts (ATT, RATE, BARO, ESC, BAT, GPA, VIBE, RCIN, RCOU, XKF4)
+- [x] Add drone selector using useDroneSelection("analytics")
+- [ ] Add markdown rendering for flight notes (deferred)
+- [ ] Add video gallery for attached media (deferred)
+
+### Phase 5: Tests
+- [x] Write vitest tests for flight analytics backend
+- [x] Write vitest tests for chart configuration module
+- [x] Write vitest tests for tRPC procedures
+- [x] Write vitest tests for REST endpoint
