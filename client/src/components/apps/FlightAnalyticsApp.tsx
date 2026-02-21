@@ -103,6 +103,41 @@ const categoryIcons: Record<string, React.ReactNode> = {
   ekf: <Brain className="h-4 w-4" />,
 };
 
+// LocalStorage persistence for active log
+const ANALYTICS_STORAGE_KEY = "flight-analytics-state";
+
+interface PersistedAnalyticsState {
+  selectedLogId: number;
+  droneId: string;
+  activeTab: string;
+}
+
+function saveAnalyticsState(state: PersistedAnalyticsState) {
+  try {
+    localStorage.setItem(ANALYTICS_STORAGE_KEY, JSON.stringify(state));
+  } catch { /* localStorage may be unavailable */ }
+}
+
+function loadAnalyticsState(): PersistedAnalyticsState | null {
+  try {
+    const raw = localStorage.getItem(ANALYTICS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.selectedLogId === "number" && typeof parsed.droneId === "string") {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function clearAnalyticsState() {
+  try {
+    localStorage.removeItem(ANALYTICS_STORAGE_KEY);
+  } catch { /* localStorage may be unavailable */ }
+}
+
 interface ParseState {
   status: "idle" | "downloading" | "parsing" | "complete" | "error";
   progress: number;
@@ -153,6 +188,7 @@ export default function FlightAnalyticsApp() {
         setSelectedLogId(null);
         setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
         setTimeFilter(null);
+        clearAnalyticsState();
       }
       setDeleteTargetId(null);
     },
@@ -165,7 +201,11 @@ export default function FlightAnalyticsApp() {
   const [uploadNotes, setUploadNotes] = useState("");
   const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("charts");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const persisted = loadAnalyticsState();
+    return persisted?.activeTab || "charts";
+  });
+  const restoredRef = useRef(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(
     Object.fromEntries(CHART_CATEGORIES.map((c) => [c.id, true]))
   );
@@ -184,6 +224,49 @@ export default function FlightAnalyticsApp() {
   const [compareTarget, setCompareTarget] = useState<"A" | "B">("A");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Persist activeTab changes to localStorage
+  useEffect(() => {
+    if (selectedLogId && selectedDrone && parseState.status === "complete") {
+      saveAnalyticsState({ selectedLogId, droneId: selectedDrone, activeTab });
+    }
+  }, [activeTab, selectedLogId, selectedDrone, parseState.status]);
+
+  // Pending restore state - set by the early useEffect, consumed by the later one
+  const [pendingRestore, setPendingRestore] = useState<{ logId: number; url: string } | null>(null);
+
+  // Detect if we should restore persisted log (runs before handleAnalyze is defined)
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (!logsQuery.data || logsQuery.data.length === 0) return;
+    if (parseState.status !== "idle") return;
+
+    const persisted = loadAnalyticsState();
+    if (!persisted) return;
+
+    // Check if the persisted drone matches the current selection
+    if (selectedDrone && persisted.droneId !== selectedDrone) return;
+
+    // Check if the persisted log still exists in the list
+    const logExists = logsQuery.data.some((l: any) => l.id === persisted.selectedLogId);
+    if (!logExists) {
+      clearAnalyticsState();
+      return;
+    }
+
+    // If drone doesn't match current selection, switch to the persisted drone
+    if (!selectedDrone && persisted.droneId) {
+      setSelectedDrone(persisted.droneId);
+    }
+
+    restoredRef.current = true;
+
+    // Queue the restore - will be consumed after handleAnalyze is defined
+    const log = logsQuery.data.find((l: any) => l.id === persisted.selectedLogId);
+    if (log) {
+      setPendingRestore({ logId: persisted.selectedLogId, url: log.url || "" });
+    }
+  }, [logsQuery.data, selectedDrone, parseState.status, setSelectedDrone]);
 
   // Handle file selection
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -404,6 +487,11 @@ export default function FlightAnalyticsApp() {
         parsedMessages: result.messages,
       });
 
+      // Persist active log to localStorage
+      if (selectedDrone) {
+        saveAnalyticsState({ selectedLogId: logId, droneId: selectedDrone, activeTab });
+      }
+
       toast.success(`Parsed ${available.length} chart(s) from log`);
     } catch (err: any) {
       setParseState({
@@ -413,9 +501,18 @@ export default function FlightAnalyticsApp() {
         availableCharts: [],
         chartData: {},
       });
+      clearAnalyticsState();
       toast.error(`Parse failed: ${err.message}`);
     }
-  }, [compareMode, compareTarget, logsQuery.data, parseFlightLog]);
+  }, [compareMode, compareTarget, logsQuery.data, parseFlightLog, selectedDrone, activeTab]);
+
+  // Consume pending restore after handleAnalyze is available
+  useEffect(() => {
+    if (pendingRestore) {
+      handleAnalyze(pendingRestore.logId, pendingRestore.url);
+      setPendingRestore(null);
+    }
+  }, [pendingRestore, handleAnalyze]);
 
   // Toggle category expansion
   const toggleCategory = useCallback((categoryId: string) => {
@@ -650,6 +747,7 @@ export default function FlightAnalyticsApp() {
                       onClick={() => {
                         setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
                         setTimeFilter(null);
+                        clearAnalyticsState();
                       }}
                     >
                       Try Again

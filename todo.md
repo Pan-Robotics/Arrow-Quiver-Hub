@@ -1010,3 +1010,12 @@
 ## Bug Fixes
 
 - [x] Remove horizontal scrollbar from sidebar app bar (added overflow-x-hidden to sidebar container and scrollable div)
+
+## Flight Analytics Persistence
+
+- [x] Persist selected log ID, droneId, and activeTab to localStorage on parse complete
+- [x] Auto-re-parse the persisted log when the Flight Analytics app is re-opened (two-phase useEffect)
+- [x] Persist active tab selection (charts/timeline/gps/compare)
+- [x] Clear persisted state on delete, error, or Try Again
+- [x] Handle edge cases: deleted log, different drone, invalid JSON, missing fields
+- [x] Write vitest tests for persistence helpers (16 tests, 506 total passing)
