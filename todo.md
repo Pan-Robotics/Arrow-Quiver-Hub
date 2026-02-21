@@ -957,3 +957,29 @@
 - [x] Write vitest tests for extractFlightSummary function (10 tests)
 - [x] Write vitest tests for CSV export utility (7 tests)
 - [x] Verify all 438 tests pass across 19 test files
+
+## Flight Mode Timeline
+
+- [x] Parse MODE messages from DataFlash log (mode name, time) - handles both text and binary formats
+- [x] Extract flight mode changes into structured FlightModeSegment array with extractFlightModes()
+- [x] Build FlightModeTimeline UI component (compact bar above charts + full detail view in tab)
+- [x] Show mode labels, time ranges, durations, and color-coded segments
+- [x] Integrate timeline above charts and as dedicated Flight Modes tab
+
+## GPS Ground Track Map
+
+- [x] Parse GPS Lat/Lng data from parsed messages with extractGpsTrack() (handles degrees + 1e-7 format)
+- [x] Build GpsGroundTrack component using MapView (Google Maps proxy)
+- [x] Plot flight path as polyline with auto-fit bounds
+- [x] Show start (green), end (red), and mode change markers on map
+- [x] Display track stats (points, duration, altitude range, max speed)
+- [x] Integrate map as GPS Track tab in analysis view
+
+## Compare Flights
+
+- [x] Add Compare mode toggle with Slot A/B selection UI
+- [x] Parse both logs independently with reusable parseFlightLog function
+- [x] Build CompareView with side-by-side charts and slot cards
+- [x] Chart selector dropdown to compare any available chart type
+- [x] CompareSummaryTable showing 10 metrics side-by-side
+- [x] Write vitest tests for all three features (20 new tests, 458 total passing)

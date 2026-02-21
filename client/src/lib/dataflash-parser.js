@@ -795,6 +795,10 @@ class DataflashParser {
     getModeString (cmode) {
         let mavtype
         const msgs = this.messages.MSG
+        if (!msgs || !msgs.Message) {
+            // MSG messages not available, default to quadcopter mode map
+            return getModeMap(MAV_TYPE_QUADROTOR)[cmode]
+        }
         for (const i in msgs.Message) {
             if (msgs.Message.hasOwnProperty(i)) {
                 if (msgs.Message[i].toLowerCase().includes('arduplane')) {
@@ -1053,9 +1057,10 @@ class DataflashParser {
             case 'H': // Uint16
             case 'i': // Int32
             case 'I': // Uint32
-            case 'M': // Uint8 flight mode
-            case 'L': // Int32 lat/lon
-                return parseInt(strValue, 10) || 0
+            case 'M': // Uint8 flight mode - in text logs this is already a string name
+                return isNaN(parseInt(strValue, 10)) ? strValue : parseInt(strValue, 10)
+            case 'L': // Int32 lat/lon - in text logs these are already float degrees
+                return parseFloat(strValue) || 0
             case 'c': // Int16 / 100
             case 'C': // Uint16 / 100
             case 'e': // Int32 / 100

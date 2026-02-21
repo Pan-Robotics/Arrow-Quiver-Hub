@@ -648,6 +648,171 @@ export function downloadCsv(filename: string, csvContent: string): void {
   URL.revokeObjectURL(url);
 }
 
+// ─── Flight Mode Timeline Extraction ──────────────────────
+
+export interface FlightModeSegment {
+  mode: string;
+  modeNum: number;
+  startTime: number; // seconds from log start
+  endTime: number; // seconds from log start
+  duration: number; // seconds
+}
+
+// ArduCopter mode mapping (fallback for binary logs)
+const COPTER_MODES: Record<number, string> = {
+  0: "Stabilize", 1: "Acro", 2: "AltHold", 3: "Auto",
+  4: "Guided", 5: "Loiter", 6: "RTL", 7: "Circle",
+  9: "Land", 11: "Drift", 13: "Sport", 14: "Flip",
+  15: "AutoTune", 16: "PosHold", 17: "Brake", 18: "Throw",
+  19: "Avoid_ADSB", 20: "Guided_NoGPS", 21: "SmartRTL",
+  22: "FlowHold", 23: "Follow", 24: "ZigZag", 25: "SystemId",
+  26: "Heli_Autorotate", 27: "Auto RTL",
+};
+
+// Mode color palette for timeline visualization
+const MODE_COLORS: Record<string, string> = {
+  Stabilize: "#3b82f6", Acro: "#f97316", AltHold: "#22c55e",
+  Auto: "#a855f7", Guided: "#ec4899", Loiter: "#06b6d4",
+  RTL: "#ef4444", Circle: "#eab308", Land: "#f43f5e",
+  Drift: "#84cc16", Sport: "#14b8a6", Flip: "#f59e0b",
+  AutoTune: "#6366f1", PosHold: "#8b5cf6", Brake: "#dc2626",
+  Throw: "#d946ef", SmartRTL: "#fb923c", Follow: "#2dd4bf",
+  ZigZag: "#a3e635",
+};
+
+export function getModeColor(mode: string): string {
+  return MODE_COLORS[mode] || "#6b7280";
+}
+
+/**
+ * Extract flight mode timeline segments from parsed messages.
+ * Handles both text format (Mode is string) and binary format (Mode is number + asText).
+ */
+export function extractFlightModes(
+  parsedMessages: Record<string, any>
+): FlightModeSegment[] {
+  const modeMsg = parsedMessages.MODE;
+  if (!modeMsg || !modeMsg.time_boot_ms || modeMsg.time_boot_ms.length === 0) return [];
+
+  const times = modeMsg.time_boot_ms;
+  const modes = modeMsg.Mode;
+  const modeNums = modeMsg.ModeNum;
+  const asText = modeMsg.asText; // binary format provides this
+
+  if (!modes || modes.length === 0) return [];
+
+  // Find the global time range from all messages
+  let globalMinTime = Infinity;
+  let globalMaxTime = -Infinity;
+  for (const key of Object.keys(parsedMessages)) {
+    const msg = parsedMessages[key];
+    if (msg?.time_boot_ms && msg.time_boot_ms.length > 0) {
+      const first = msg.time_boot_ms[0];
+      const last = msg.time_boot_ms[msg.time_boot_ms.length - 1];
+      if (Number.isFinite(first) && first < globalMinTime) globalMinTime = first;
+      if (Number.isFinite(last) && last > globalMaxTime) globalMaxTime = last;
+    }
+  }
+  if (globalMinTime === Infinity) globalMinTime = times[0];
+  if (globalMaxTime === -Infinity) globalMaxTime = times[times.length - 1];
+
+  const segments: FlightModeSegment[] = [];
+
+  for (let i = 0; i < modes.length; i++) {
+    let modeName: string;
+    let modeNum: number;
+
+    if (typeof modes[i] === "string") {
+      // Text format: Mode is already a string
+      modeName = modes[i];
+      modeNum = modeNums?.[i] ?? 0;
+    } else {
+      // Binary format: Mode is a number, use asText or COPTER_MODES lookup
+      modeNum = modes[i];
+      modeName = asText?.[i] || COPTER_MODES[modeNum] || `Mode ${modeNum}`;
+    }
+
+    const startMs = times[i];
+    const endMs = i < modes.length - 1 ? times[i + 1] : globalMaxTime;
+
+    segments.push({
+      mode: modeName,
+      modeNum,
+      startTime: (startMs - globalMinTime) / 1000, // relative seconds
+      endTime: (endMs - globalMinTime) / 1000,
+      duration: (endMs - startMs) / 1000,
+    });
+  }
+
+  return segments;
+}
+
+// ─── GPS Ground Track Extraction ─────────────────────────
+
+export interface GpsTrackPoint {
+  lat: number;
+  lng: number;
+  alt: number;
+  speed: number;
+  time: number; // seconds from log start
+}
+
+/**
+ * Extract GPS ground track from parsed messages.
+ * Handles both text format (degrees) and binary format (1e-7 degrees).
+ */
+export function extractGpsTrack(
+  parsedMessages: Record<string, any>
+): GpsTrackPoint[] {
+  // Find GPS message (may be GPS or GPS[0])
+  const gpsKey = resolveMessageKey("GPS", parsedMessages);
+  if (!gpsKey) return [];
+
+  const gps = parsedMessages[gpsKey];
+  if (!gps || !gps.Lat || !gps.Lng || !gps.time_boot_ms) return [];
+
+  const points: GpsTrackPoint[] = [];
+  const len = Math.min(gps.Lat.length, gps.Lng.length, gps.time_boot_ms.length);
+
+  // Detect if coordinates are in 1e-7 degrees (binary format) or degrees (text format)
+  // Binary format values are typically > 1e6 for lat/lng
+  const firstLat = gps.Lat[0];
+  const isRawInt = Math.abs(firstLat) > 1e6;
+  const scale = isRawInt ? 1e-7 : 1;
+
+  // Find global min time for relative timestamps
+  let globalMinTime = Infinity;
+  for (const key of Object.keys(parsedMessages)) {
+    const msg = parsedMessages[key];
+    if (msg?.time_boot_ms && msg.time_boot_ms.length > 0) {
+      const first = msg.time_boot_ms[0];
+      if (Number.isFinite(first) && first < globalMinTime) globalMinTime = first;
+    }
+  }
+  if (globalMinTime === Infinity) globalMinTime = gps.time_boot_ms[0];
+
+  // Downsample for large datasets (max 5000 points for map performance)
+  const step = Math.max(1, Math.floor(len / 5000));
+
+  for (let i = 0; i < len; i += step) {
+    const lat = gps.Lat[i] * scale;
+    const lng = gps.Lng[i] * scale;
+
+    // Skip invalid coordinates
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) continue;
+
+    points.push({
+      lat,
+      lng,
+      alt: gps.Alt?.[i] ?? 0,
+      speed: gps.Spd?.[i] ?? 0,
+      time: (gps.time_boot_ms[i] - globalMinTime) / 1000,
+    });
+  }
+
+  return points;
+}
+
 /**
  * Format time in seconds to MM:SS or HH:MM:SS
  */
