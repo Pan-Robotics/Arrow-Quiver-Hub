@@ -1,61 +1,55 @@
 # Quiver Hub
 
-**UAV Data Pipeline Platform**
+**Modular UAV Ground Station & Data Pipeline Platform**
 
-Quiver Hub is a modular web platform for managing and visualizing multiple UAV (drone) data pipelines in a unified interface. Built with a modern tech stack, it provides a flexible app-based architecture where different data sources and visualization tools can be added as independent modules.
-
----
-
-## Overview
-
-Quiver Hub transforms traditional single-purpose drone data viewers into a comprehensive platform where multiple data pipelines coexist. The platform features:
-
-- **Modular App Architecture** - Each data pipeline is an independent app module
-- **Unified Interface** - Single hub for all UAV data sources
-- **Real-time Updates** - WebSocket-based live data streaming
-- **Multi-drone Support** - Handle data from multiple drones simultaneously
-- **Extensible Design** - Easy to add new apps and data pipelines
-
----
-
-## Current Apps
-
-### 1. RPLidar Terrain Mapping
-Real-time LiDAR point cloud visualization with:
-- Live 2D point cloud rendering on HTML5 canvas
-- Heatmap accumulation mode for persistent mapping
-- Distance and quality-based point filtering
-- Zoom, pan, and reset controls
-- Connection status and statistics display
-
-**Data Flow:**
-```
-Raspberry Pi (RPLidar C1) 
-  → TCP Stream → 
-Companion Computer (Forwarder) 
-  → HTTP POST → 
-Quiver Hub (Web Server) 
-  → WebSocket → 
-Browser (Visualization)
-```
+Quiver Hub is a web-based ground station for managing unmanned aerial vehicle data pipelines. It aggregates real-time sensor streams, post-flight analytics, drone configuration, and a developer-extensible app framework into a single-page application. The platform follows a **hub-and-spoke model**: a persistent sidebar provides instant access to any installed application, while a pluggable App Builder allows developers to create new data pipeline apps without modifying the core codebase.
 
 ---
 
 ## Architecture
 
-### Frontend
-- **Framework**: React 19 + TypeScript
-- **Styling**: Tailwind CSS 4
-- **UI Components**: shadcn/ui
-- **State Management**: tRPC React Query
-- **Real-time**: Socket.IO client
+The system consists of three tiers: the browser-based frontend, the Node.js server, and one or more companion computers (typically Raspberry Pi units mounted on drones). The browser communicates with the server via tRPC over HTTP for CRUD operations and Socket.IO over WebSocket for real-time data. Companion computers push sensor data to REST endpoints and poll a job queue for reverse commands.
 
-### Backend
-- **Runtime**: Node.js + Express
-- **API**: tRPC 11 (type-safe RPC)
-- **Database**: MySQL/TiDB (via Drizzle ORM)
-- **Real-time**: Socket.IO server
-- **Auth**: Manus OAuth
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Quiver Hub Web UI                            │
+│  ┌───────────┐  ┌──────────────────────────────────────────────────┐ │
+│  │  Sidebar   │  │  Active App Window                              │ │
+│  │  (AppBar)  │  │   LidarApp · TelemetryApp · CameraFeedApp      │ │
+│  │            │  │   FlightAnalyticsApp · DroneConfig               │ │
+│  │  [+] Store │  │   AppRenderer (custom apps)                     │ │
+│  └───────────┘  └──────────────────────────────────────────────────┘ │
+└─────────────────────────────┬────────────────────────────────────────┘
+                              │  tRPC (HTTP)  +  Socket.IO (WS)
+┌─────────────────────────────┴────────────────────────────────────────┐
+│                        Express Server                                │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌─────────────────┐   │
+│  │  tRPC     │  │  REST API │  │  WebSocket│  │ Parser Executor │   │
+│  │  Router   │  │  /api/rest│  │  Server   │  │ (Python sandbox)│   │
+│  └───────────┘  └───────────┘  └───────────┘  └─────────────────┘   │
+│                         │                                            │
+│  ┌──────────────────────┴───────────────────────────────────────┐    │
+│  │  Drizzle ORM → MySQL / TiDB       S3 Object Storage         │    │
+│  └──────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────▲────────────────────────────────────────┘
+                              │  REST + WebSocket
+┌─────────────────────────────┴────────────────────────────────────────┐
+│                Companion Computer (Raspberry Pi)                     │
+│  relay.py → POST /api/rest/{pointcloud,telemetry,camera}/ingest     │
+│  job_poller.py → GET /api/trpc/droneJobs.getPendingJobs             │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Recharts, Three.js, Leaflet, Socket.IO client |
+| Backend | Express 4, tRPC 11, Socket.IO server, Drizzle ORM |
+| Database | MySQL / TiDB (cloud-hosted, SSL) |
+| File Storage | S3-compatible object storage |
+| Authentication | Manus OAuth + JWT (users); per-drone API keys (companion computers) |
+| Parser Runtime | Python 3.11 subprocess sandbox (custom app parsers) |
 
 ### Key Directories
 
@@ -63,204 +57,151 @@ Browser (Visualization)
 client/
   src/
     components/
-      AppSidebar.tsx          ← Sidebar navigation with app icons
+      AppSidebar.tsx              ← Sidebar navigation with app icons
       apps/
-        LidarApp.tsx          ← RPLidar visualization app
-        AppStore.tsx          ← App marketplace UI
-      PointCloudViewer.tsx    ← Canvas-based point cloud renderer
+        LidarApp.tsx              ← RPLidar point cloud visualization
+        TelemetryApp.tsx          ← Flight telemetry dashboard
+        CameraFeedApp.tsx         ← Gimbal camera control & status
+        FlightAnalyticsApp.tsx    ← Post-flight log analysis
+        AppStore.tsx              ← App marketplace
+        AppBuilder.tsx            ← 4-step app creation wizard
+        AppRenderer.tsx           ← Runtime renderer for custom apps
+        UIBuilder.tsx             ← Drag-and-drop widget layout editor
+      widgets/
+        PointCloudCanvas.tsx      ← Three.js 3D point cloud renderer
+        PointCloudCanvas2D.tsx    ← HTML5 Canvas 2D polar renderer
+        LineChartWidget.tsx       ← Rolling time-series chart
+        BarChartWidget.tsx        ← Bar chart widget
     pages/
-      Home.tsx                ← Main hub layout
+      Home.tsx                    ← Hub layout and app routing
+      DroneConfig.tsx             ← Drone management panel
+      AppManagement.tsx           ← Custom app administration
+    hooks/
+      useDroneSelection.ts       ← Per-app drone selection with persistence
+    lib/
+      flight-charts.ts           ← DataFlash parser and chart definitions
 server/
-  routers.ts                  ← tRPC API endpoints
-  db.ts                       ← Database queries
-  _core/
-    websocket.ts              ← Socket.IO server
+  routers.ts                     ← tRPC procedures (auth, drones, apps, logs)
+  rest-api.ts                    ← REST endpoints for companion computers
+  websocket.ts                   ← Socket.IO event handling
+  parserExecutor.ts              ← Python sandbox for custom app parsers
+  db.ts                          ← Database query helpers
+  storage.ts                     ← S3 file storage helpers
 drizzle/
-  schema.ts                   ← Database schema (drones, API keys, etc.)
+  schema.ts                      ← Database schema (12 tables)
+shared/
+  types.ts                       ← Shared TypeScript types
 ```
 
 ---
 
-## Getting Started
+## Applications
 
-### Prerequisites
-- Node.js 22+
-- MySQL/TiDB database
-- pnpm package manager
+### RPLidar Terrain Mapping (Core)
 
-### Installation
+Real-time 2D LiDAR point cloud visualization from an RPLidar sensor. Supports both a 2D polar canvas view with distance-based color gradient and a 3D WebGL view with orbit controls and elevation mapping. Includes a demo mode for testing without hardware.
+
+### Flight Telemetry
+
+Real-time flight controller dashboard displaying attitude (roll, pitch, yaw), position (lat, lon, altitude), GPS status, battery voltage (FC and UAVCAN), and flight status. Data arrives via MAVLink telemetry relay.
+
+### Camera Feed & Gimbal Control
+
+Gimbal camera interface with D-pad rotation controls, zoom slider, photo/record triggers, and live status display (connection, angles, recording, HDR). Commands relay through WebSocket to the companion computer.
+
+### Flight Analytics
+
+Post-flight log analysis with a full ArduPilot DataFlash binary parser running in the browser. Parses `.BIN` and `.log` files into 18 chart types across 6 categories (Attitude, Navigation, Power, Vibration, Radio, EKF). Features include a color-coded flight mode timeline, GPS track map with altitude gradient, mode-based filtering (click a mode segment to zoom all charts), brush-select zoom (click-and-drag on any chart), flight summary with Markdown export, side-by-side log comparison, and instant restore across app switches via module-level cache.
+
+### Drone Configuration
+
+Administration panel for managing drones and connectivity. Register drones, generate and manage API keys, run multi-endpoint connection tests with latency reporting, upload files for drone delivery, view job history, and generate ready-to-use Python relay configuration snippets.
+
+### Logs & OTA Updates (Indicated)
+
+Remote log streaming and over-the-air firmware updates. The backend job system already supports file delivery; the UI shows a placeholder.
+
+### Mission Planner (Indicated)
+
+Autonomous flight mission planning with waypoints. A Google Maps integration component is available in the codebase; the UI shows a placeholder.
+
+---
+
+## App Store & App Builder
+
+The **App Store** provides a discovery and installation interface for built-in and custom apps. Per-user installation state is tracked in the database.
+
+The **App Builder** is a four-step wizard for creating custom data pipeline apps:
+
+1. **Data Source** — Choose `custom_endpoint` (gets its own REST ingest URL), `stream_subscription` (subscribe to existing streams), or `passthrough` (direct WebSocket relay).
+2. **Parser Upload** — Write a Python `parse_payload()` function with a `SCHEMA` dictionary defining output fields. The parser runs in a sandboxed Python 3.11 subprocess. A test runner validates it before proceeding.
+3. **UI Builder** — Drag-and-drop widget layout editor. Widget types: Text, Gauge, Line Chart, Bar Chart, LED Indicator, Map, Video, Canvas (2D/3D point cloud). Each widget binds to a schema field.
+4. **Publish** — Save with versioning and make available in the App Store.
+
+The **App Renderer** instantiates custom apps at runtime, connecting widgets to live data via Socket.IO or REST polling. The **App Management** page provides editing, deletion, version history, and rollback.
+
+---
+
+## Companion Computer Integration
+
+### Data Ingestion (Pi → Hub)
+
+Python relay scripts POST sensor data to REST endpoints, authenticated with `api_key` and `drone_id`.
+
+| Endpoint | Payload |
+|---|---|
+| `/api/rest/pointcloud/ingest` | Polar scan points and statistics |
+| `/api/rest/telemetry/ingest` | MAVLink attitude, position, GPS, battery |
+| `/api/rest/camera/status` | Gimbal angles, recording state, connection |
+| `/api/rest/flightlog/upload` | Base64-encoded `.BIN` files |
+| `/api/rest/payload/{appId}/ingest` | Custom app JSON payloads |
+
+### Job Execution (Hub → Pi)
+
+A polling-based job queue pushes tasks to the companion computer. Jobs follow a `pending → in_progress → completed/failed` lifecycle.
+
+| Job Type | Description |
+|---|---|
+| `upload_file` | Download a file from S3 to a target path on the Pi |
+| `update_config` | Update configuration files |
+| `restart_service` | Restart a service |
+
+### Relay Configuration
+
+The Drone Configuration page generates Python snippets. Example environment:
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Push database schema
-pnpm db:push
-
-# Start development server
-pnpm dev
-```
-
-### Configuration
-
-Environment variables are managed through the Manus platform. Key variables:
-
-- `DATABASE_URL` - MySQL connection string
-- `JWT_SECRET` - Session signing secret
-- `VITE_APP_TITLE` - Browser tab title (set to "Quiver Hub")
-- `VITE_APP_LOGO` - Platform logo URL
-
-Update `VITE_APP_TITLE` via Management Dashboard → Settings → General.
-
----
-
-## Adding New Apps
-
-Quiver Hub is designed for easy extensibility. To add a new data pipeline app:
-
-### 1. Create App Component
-
-```tsx
-// client/src/components/apps/YourApp.tsx
-export default function YourApp() {
-  return (
-    <div className="h-full flex flex-col">
-      {/* App Header */}
-      <div className="border-b border-border bg-card px-6 py-4">
-        <h2 className="text-xl font-semibold">Your App Name</h2>
-        <p className="text-sm text-muted-foreground">App description</p>
-      </div>
-      
-      {/* App Content */}
-      <div className="flex-1 p-6 overflow-auto">
-        {/* Your visualization/UI here */}
-      </div>
-    </div>
-  );
-}
-```
-
-### 2. Register in Home.tsx
-
-```tsx
-import YourApp from "@/components/apps/YourApp";
-
-const apps: App[] = [
-  // ... existing apps
-  {
-    id: "your-app",
-    name: "Your App Name",
-    icon: YourIcon,
-    enabled: true,
-  },
-];
-
-// Add to renderApp() switch
-case "your-app":
-  return <YourApp />;
-```
-
-### 3. Add Backend Endpoints (if needed)
-
-```tsx
-// server/routers.ts
-yourApp: router({
-  getData: publicProcedure.query(async () => {
-    // Your data fetching logic
-  }),
-}),
-```
-
----
-
-## Future Development Direction
-
-### Phase 1: Core Platform Enhancement
-- **App Registry System** - Database-backed app installation/removal
-- **User Preferences** - Per-user app configuration and layout
-- **App Permissions** - Role-based access control for apps
-- **App Marketplace** - Browse and install apps from catalog
-
-### Phase 2: Additional Data Pipelines
-- **Flight Telemetry** - Real-time altitude, speed, battery, GPS tracking
-- **Camera Feeds** - Live video streaming with recording
-- **Mission Planner** - Waypoint-based autonomous flight planning
-- **Flight Analytics** - Historical data analysis and performance metrics
-
-### Phase 3: Advanced Features
-- **Multi-drone Dashboard** - Side-by-side comparison view
-- **Data Export** - CSV, JSON, KML export for all apps
-- **Alert System** - Configurable alerts for critical events
-- **API Gateway** - Unified REST API for external integrations
-
-### Phase 4: Collaboration & Sharing
-- **Team Workspaces** - Shared drone access for teams
-- **Live Sharing** - Share real-time views with stakeholders
-- **Report Generation** - Automated flight reports and summaries
-
----
-
-## RPLidar Integration
-
-### Hardware Setup
-
-**Components:**
-- RPLidar C1 (360° laser scanner)
-- Raspberry Pi (data collection)
-- Companion Computer (data forwarding)
-
-**Software Stack:**
-- `rplidar_c1.py` - Python library for RPLidar C1
-- `pointcloud_streamer.py` - TCP streamer on Raspberry Pi
-- `pointcloud_forwarder_heatmap.py` - HTTP forwarder on companion computer
-
-### Data Pipeline
-
-1. **Raspberry Pi** reads scan data from RPLidar C1 via serial
-2. **Streamer** converts to JSON and sends via TCP to companion computer
-3. **Forwarder** accumulates scans into heatmap and POSTs to Quiver Hub
-4. **Quiver Hub** broadcasts to connected browsers via WebSocket
-5. **Browser** renders point cloud on canvas in real-time
-
-### Configuration
-
-**Forwarder Environment:**
-```bash
-WEB_SERVER_URL=https://your-hub.manus.space/api/rest/pointcloud/ingest
+WEB_SERVER_URL=https://your-hub.manus.space/api/rest
 API_KEY=your_api_key
 DRONE_ID=quiver_001
-UPDATE_INTERVAL=10  # Send every N scans
 ```
-
-**Key Features:**
-- Angle normalization (wraps 360°+)
-- Distance filtering (rejects spurious readings > 8m)
-- Heatmap accumulation (reduces HTTP overhead)
-- Full 360° scan validation
 
 ---
 
-## API Reference
+## REST API Reference
 
-### REST Endpoints
+All ingest endpoints require `api_key` and `drone_id` in the request body.
 
-#### POST /api/rest/pointcloud/ingest
-Ingest point cloud data from external sources.
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/rest/health` | GET | Health check |
+| `/api/rest/test-connection` | POST | Validate API key and drone ID |
+| `/api/rest/pointcloud/ingest` | POST | Receive LiDAR scan data |
+| `/api/rest/pointcloud/latest/:droneId` | GET | Polling fallback for latest scan |
+| `/api/rest/telemetry/ingest` | POST | Receive flight telemetry |
+| `/api/rest/camera/status` | POST | Receive camera and gimbal status |
+| `/api/rest/payload/:appId/ingest` | POST | Receive custom app payload |
+| `/api/rest/flightlog/upload` | POST | Upload flight log from Pi |
 
-**Request Body:**
+### Point Cloud Ingest Example
+
 ```json
 {
   "api_key": "string",
   "drone_id": "string",
   "timestamp": "ISO8601",
   "points": [
-    {
-      "angle": 0.0,
-      "distance": 1000.0,
-      "quality": 63,
-      "x": 1000.0,
-      "y": 0.0
-    }
+    { "angle": 0.0, "distance": 1000.0, "quality": 63, "x": 1000.0, "y": 0.0 }
   ],
   "stats": {
     "point_count": 800,
@@ -273,104 +214,105 @@ Ingest point cloud data from external sources.
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Point cloud data received"
-}
-```
+---
 
-### WebSocket Events
+## WebSocket Events
 
-#### Client → Server
-- `subscribe` - Subscribe to drone updates
-  ```json
-  { "droneId": "quiver_001" }
-  ```
+Socket.IO handles all real-time data distribution using room-based routing.
 
-#### Server → Client
-- `pointcloud` - New point cloud data
-  ```json
-  {
-    "droneId": "quiver_001",
-    "timestamp": "2025-11-18T12:00:00Z",
-    "points": [...],
-    "stats": {...}
-  }
-  ```
-
-### tRPC Procedures
-
-#### `pointcloud.getDrones`
-Get list of connected drones.
-
-**Returns:**
-```typescript
-Array<{
-  id: number;
-  droneId: string;
-  name: string | null;
-  lastSeen: Date;
-}>
-```
+| Event | Direction | Description |
+|---|---|---|
+| `subscribe` / `unsubscribe` | Client → Server | Join or leave a drone's data room |
+| `subscribe_camera` / `unsubscribe_camera` | Client → Server | Join or leave camera status room |
+| `subscribe_app` / `unsubscribe_app` | Client → Server | Join or leave custom app room |
+| `register_companion` | Client → Server | Companion computer self-registration |
+| `camera_command` | Client → Server | Forward gimbal command to companion |
+| `pointcloud` | Server → Client | LiDAR scan data |
+| `telemetry` | Server → Client | Flight telemetry data |
+| `camera_status` | Server → Client | Camera status |
+| `app_data` | Server → Client | Custom app parsed data |
 
 ---
 
-## Deployment
+## Database Schema
 
-### Via Manus Platform
+Twelve tables organized across four domains.
 
-1. Create checkpoint via Management UI
-2. Click "Publish" in dashboard header
-3. Site is live at `https://your-project.manus.space`
+| Table | Purpose |
+|---|---|
+| `users` | OAuth user accounts (openId, name, email, role) |
+| `drones` | Registered drone inventory (droneId, name, lastSeen) |
+| `apiKeys` | Per-drone authentication keys |
+| `scans` | Point cloud scan metadata |
+| `telemetry` | Flight telemetry snapshots (JSON) |
+| `customApps` | App Builder definitions (parser, schema, UI) |
+| `userApps` | Per-user app installations |
+| `appVersions` | App version history for rollback |
+| `appData` | Parsed payload storage for custom apps |
+| `droneJobs` | Hub-to-Pi job queue |
+| `droneFiles` | Uploaded files for drone delivery |
+| `flightLogs` | Flight log metadata and S3 references |
 
-### Custom Deployment
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 22+
+- MySQL or TiDB database
+- pnpm package manager
+
+### Installation
 
 ```bash
-# Build frontend
-cd client && pnpm build
-
-# Start production server
-NODE_ENV=production pnpm start
+pnpm install
+pnpm db:push
+pnpm dev
 ```
 
-**Environment Requirements:**
-- Node.js 22+
-- MySQL/TiDB database
-- SSL certificate (for WebSocket)
+### Environment Variables
+
+Environment variables are managed through the Manus platform. Key variables include `DATABASE_URL`, `JWT_SECRET`, `VITE_APP_TITLE`, and `VITE_APP_LOGO`. Update `VITE_APP_TITLE` via Management Dashboard > Settings > General.
+
+### Deployment
+
+1. Create a checkpoint via the Management UI
+2. Click **Publish** in the dashboard header
+3. The site is live at `https://your-project.manus.space`
+
+Custom domain binding is available through Management Dashboard > Settings > Domains.
 
 ---
 
-## Contributing
+## Feature Status
 
-Quiver Hub is designed for extensibility. Contributions welcome for:
-
-- New app modules (telemetry, cameras, sensors)
-- UI/UX improvements
-- Performance optimizations
-- Documentation enhancements
+| Feature | Status |
+|---|---|
+| RPLidar Terrain Mapping | **Implemented** |
+| Flight Telemetry | **Implemented** |
+| Camera Feed & Gimbal | **Implemented** |
+| Flight Analytics (18 charts, GPS map, brush zoom, compare) | **Implemented** |
+| Drone Configuration & API Keys | **Implemented** |
+| App Store & Installation | **Implemented** |
+| App Builder (parser + UI wizard) | **Implemented** |
+| App Renderer (runtime widget engine) | **Implemented** |
+| App Management & Versioning | **Implemented** |
+| REST API (Pi integration) | **Implemented** |
+| Drone Job Queue (Hub → Pi) | **Implemented** |
+| Logs & OTA Updates | **Indicated** |
+| Mission Planner | **Indicated** |
 
 ---
 
 ## License
 
-MIT License - See LICENSE file for details
-
----
-
-## Support
-
-For issues, questions, or feature requests:
-- GitHub Issues: [your-repo]/issues
-- Documentation: [your-docs-url]
-- Community: [your-community-url]
-
----
+MIT License
 
 ## Acknowledgments
 
 - **RPLidar C1** by SLAMTEC
+- **ArduPilot** DataFlash log format
 - **shadcn/ui** for UI components
 - **tRPC** for type-safe APIs
 - **Manus Platform** for hosting and deployment
