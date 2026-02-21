@@ -1019,3 +1019,11 @@
 - [x] Clear persisted state on delete, error, or Try Again
 - [x] Handle edge cases: deleted log, different drone, invalid JSON, missing fields
 - [x] Write vitest tests for persistence helpers (16 tests, 506 total passing)
+
+## Flight Analytics Instant Restore (No Re-parsing)
+
+- [x] Add module-level cache to store full parsed state (parseResult, chartData, flightModes, gpsTracks, summary, etc.)
+- [x] On app switch, restore cached state instantly without showing download/parse progress
+- [x] Keep localStorage for tab/logId/droneId persistence across full page refreshes (re-parse only on refresh)
+- [x] Clear cache when user deletes the active log or encounters errors
+- [x] Update vitest tests for new caching behavior (18 new cache tests, 524 total passing)

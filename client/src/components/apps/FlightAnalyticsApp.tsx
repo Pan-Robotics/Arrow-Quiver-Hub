@@ -160,6 +160,31 @@ interface CompareSlot {
   parseState: ParseState;
 }
 
+// ─── Module-level cache ──────────────────────────────────────
+// Survives component unmount/remount (app switching) but not full page refresh.
+// On page refresh, we fall back to localStorage logId and re-parse from S3.
+interface AnalyticsCache {
+  selectedLogId: number;
+  droneId: string;
+  activeTab: string;
+  parseState: ParseState;
+  timeFilter: TimeFilter | null;
+}
+
+let _analyticsCache: AnalyticsCache | null = null;
+
+export function getAnalyticsCache(): AnalyticsCache | null {
+  return _analyticsCache;
+}
+
+export function setAnalyticsCache(cache: AnalyticsCache | null) {
+  _analyticsCache = cache;
+}
+
+export function clearAnalyticsCache() {
+  _analyticsCache = null;
+}
+
 export default function FlightAnalyticsApp() {
   const { selectedDrone, drones, setSelectedDrone, isLoading: dronesLoading } = useDroneSelection("analytics");
 
@@ -189,6 +214,7 @@ export default function FlightAnalyticsApp() {
         setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
         setTimeFilter(null);
         clearAnalyticsState();
+        clearAnalyticsCache();
       }
       setDeleteTargetId(null);
     },
@@ -199,23 +225,32 @@ export default function FlightAnalyticsApp() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadNotes, setUploadNotes] = useState("");
-  const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
+
+  // Restore from module-level cache (instant, survives app switch) or start idle.
+  // We read the cache once during initialization via useState lazy initializers.
+  const [selectedLogId, setSelectedLogId] = useState<number | null>(() => {
+    const c = getAnalyticsCache();
+    return c?.selectedLogId ?? null;
+  });
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<string>(() => {
+    const c = getAnalyticsCache();
+    if (c) return c.activeTab;
     const persisted = loadAnalyticsState();
     return persisted?.activeTab || "charts";
   });
-  const restoredRef = useRef(false);
+  const restoredRef = useRef(!!getAnalyticsCache()); // skip localStorage restore if cache hit
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(
     Object.fromEntries(CHART_CATEGORIES.map((c) => [c.id, true]))
   );
-  const [parseState, setParseState] = useState<ParseState>({
-    status: "idle",
-    progress: 0,
-    availableCharts: [],
-    chartData: {},
+  const [parseState, setParseState] = useState<ParseState>(() => {
+    const c = getAnalyticsCache();
+    return c?.parseState ?? { status: "idle", progress: 0, availableCharts: [], chartData: {} };
   });
-  const [timeFilter, setTimeFilter] = useState<TimeFilter | null>(null);
+  const [timeFilter, setTimeFilter] = useState<TimeFilter | null>(() => {
+    const c = getAnalyticsCache();
+    return c?.timeFilter ?? null;
+  });
 
   // Compare flights state
   const [compareMode, setCompareMode] = useState(false);
@@ -225,17 +260,36 @@ export default function FlightAnalyticsApp() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Persist activeTab changes to localStorage
+  // Persist state to both localStorage and module-level cache
   useEffect(() => {
     if (selectedLogId && selectedDrone && parseState.status === "complete") {
       saveAnalyticsState({ selectedLogId, droneId: selectedDrone, activeTab });
+      setAnalyticsCache({
+        selectedLogId,
+        droneId: selectedDrone,
+        activeTab,
+        parseState,
+        timeFilter,
+      });
     }
-  }, [activeTab, selectedLogId, selectedDrone, parseState.status]);
+  }, [activeTab, selectedLogId, selectedDrone, parseState.status, parseState, timeFilter]);
 
   // Pending restore state - set by the early useEffect, consumed by the later one
   const [pendingRestore, setPendingRestore] = useState<{ logId: number; url: string } | null>(null);
 
-  // Detect if we should restore persisted log (runs before handleAnalyze is defined)
+  // On mount: if we restored from module-level cache, ensure the drone selection matches
+  useEffect(() => {
+    const cache = getAnalyticsCache();
+    if (cache && cache.parseState.status === "complete" && cache.droneId) {
+      if (selectedDrone !== cache.droneId) {
+        setSelectedDrone(cache.droneId);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
+  // Detect if we should restore persisted log from localStorage (page refresh fallback)
+  // This only runs when the module-level cache was empty (restoredRef is false)
   useEffect(() => {
     if (restoredRef.current) return;
     if (!logsQuery.data || logsQuery.data.length === 0) return;
@@ -262,6 +316,7 @@ export default function FlightAnalyticsApp() {
     restoredRef.current = true;
 
     // Queue the restore - will be consumed after handleAnalyze is defined
+    // This is the only path that re-parses (page refresh scenario)
     const log = logsQuery.data.find((l: any) => l.id === persisted.selectedLogId);
     if (log) {
       setPendingRestore({ logId: persisted.selectedLogId, url: log.url || "" });
@@ -487,9 +542,28 @@ export default function FlightAnalyticsApp() {
         parsedMessages: result.messages,
       });
 
-      // Persist active log to localStorage
+      // Persist active log to localStorage and module-level cache
       if (selectedDrone) {
         saveAnalyticsState({ selectedLogId: logId, droneId: selectedDrone, activeTab });
+        setAnalyticsCache({
+          selectedLogId: logId,
+          droneId: selectedDrone,
+          activeTab,
+          parseState: {
+            status: "complete",
+            progress: 100,
+            availableCharts: available,
+            chartData,
+            logStartTime,
+            messageTypes: result.types,
+            stats,
+            flightSummary,
+            flightModes,
+            gpsTrack,
+            parsedMessages: result.messages,
+          },
+          timeFilter: null,
+        });
       }
 
       toast.success(`Parsed ${available.length} chart(s) from log`);
@@ -502,6 +576,7 @@ export default function FlightAnalyticsApp() {
         chartData: {},
       });
       clearAnalyticsState();
+      clearAnalyticsCache();
       toast.error(`Parse failed: ${err.message}`);
     }
   }, [compareMode, compareTarget, logsQuery.data, parseFlightLog, selectedDrone, activeTab]);
@@ -748,6 +823,7 @@ export default function FlightAnalyticsApp() {
                         setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
                         setTimeFilter(null);
                         clearAnalyticsState();
+                        clearAnalyticsCache();
                       }}
                     >
                       Try Again
