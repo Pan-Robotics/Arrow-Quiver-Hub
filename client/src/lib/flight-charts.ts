@@ -942,3 +942,43 @@ export function getGradientLegendCss(mode: TrackColorMode): string {
 
   return `linear-gradient(to right, ${stops})`;
 }
+
+// ─── Time Range Filtering ───────────────────────────────────────
+
+/**
+ * Represents a time range filter applied from the flight mode timeline.
+ */
+export interface TimeFilter {
+  /** Start time in seconds (relative to flight start) */
+  startTime: number;
+  /** End time in seconds (relative to flight start) */
+  endTime: number;
+  /** The flight mode name that was clicked */
+  mode: string;
+  /** Index of the segment in the flight modes array */
+  segmentIndex: number;
+}
+
+/**
+ * Filter chart data to only include points within a time range.
+ * Chart data arrays have a `time` field (seconds since flight start).
+ * Returns a new array with only the points within [startTime, endTime].
+ * Includes a small margin (1%) on each side for visual continuity.
+ */
+export function filterChartDataByTimeRange(
+  data: Array<Record<string, number>>,
+  filter: TimeFilter | null
+): Array<Record<string, number>> {
+  if (!filter) return data;
+  if (data.length === 0) return data;
+
+  const duration = filter.endTime - filter.startTime;
+  const margin = duration * 0.01; // 1% margin for visual continuity
+  const start = filter.startTime - margin;
+  const end = filter.endTime + margin;
+
+  return data.filter((point) => {
+    const t = point.time;
+    return t >= start && t <= end;
+  });
+}

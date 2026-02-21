@@ -994,3 +994,15 @@
 - [x] Add color legend bar with gradient scale and min/max labels
 - [x] Write vitest tests for gradient color interpolation (21 tests)
 - [x] Verify all 479 tests pass across 21 test files
+
+## Flight Mode Filtering for Charts
+
+- [x] Add timeRange filter state (startTime, endTime) to analysis detail view
+- [x] Make FlightModeTimeline segments clickable to set time range filter (both compact and full views)
+- [x] Add filterChartDataByTimeRange utility in flight-charts.ts to slice chart data
+- [x] Apply time range filter to all chart data before rendering
+- [x] Add visual indicator on timeline (ring highlight on active, opacity dim on inactive)
+- [x] Add "Clear Filter" button in filter banner + click-to-toggle on segments
+- [x] Show filtered time range info (mode badge, time range, duration) in a banner
+- [x] Write vitest tests for filterChartDataByTimeRange (11 tests)
+- [x] Verify all 490 tests pass across 22 test files

@@ -16,11 +16,13 @@ import {
   downloadCsv,
   getTrackSegmentColor,
   getGradientLegendCss,
+  filterChartDataByTimeRange,
   type ChartDefinition,
   type FlightSummary,
   type FlightModeSegment,
   type GpsTrackPoint,
   type TrackColorMode,
+  type TimeFilter,
 } from "@/lib/flight-charts";
 import { MapView } from "@/components/Map";
 import {
@@ -86,6 +88,8 @@ import {
   GitCompare,
   Plane,
   Palette,
+  Filter,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -148,6 +152,7 @@ export default function FlightAnalyticsApp() {
       if (selectedLogId === deleteTargetId) {
         setSelectedLogId(null);
         setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
+        setTimeFilter(null);
       }
       setDeleteTargetId(null);
     },
@@ -170,6 +175,7 @@ export default function FlightAnalyticsApp() {
     availableCharts: [],
     chartData: {},
   });
+  const [timeFilter, setTimeFilter] = useState<TimeFilter | null>(null);
 
   // Compare flights state
   const [compareMode, setCompareMode] = useState(false);
@@ -324,6 +330,7 @@ export default function FlightAnalyticsApp() {
     }
 
     setSelectedLogId(logId);
+    setTimeFilter(null);
     setParseState({ status: "downloading", progress: 0, availableCharts: [], chartData: {} });
 
     setParseState((prev) => ({ ...prev, status: "downloading", progress: 10 }));
@@ -640,9 +647,10 @@ export default function FlightAnalyticsApp() {
                     <Button
                       variant="outline"
                       className="mt-4"
-                      onClick={() =>
-                        setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} })
-                      }
+                      onClick={() => {
+                        setParseState({ status: "idle", progress: 0, availableCharts: [], chartData: {} });
+                        setTimeFilter(null);
+                      }}
                     >
                       Try Again
                     </Button>
@@ -712,7 +720,54 @@ export default function FlightAnalyticsApp() {
                     <TabsContent value="charts" className="mt-4 space-y-4">
                       {/* Flight Mode Timeline (compact, always visible above charts) */}
                       {parseState.flightModes && parseState.flightModes.length > 0 && (
-                        <FlightModeTimeline segments={parseState.flightModes} compact />
+                        <FlightModeTimeline
+                          segments={parseState.flightModes}
+                          compact
+                          activeSegmentIndex={timeFilter?.segmentIndex ?? null}
+                          onSegmentClick={(seg, idx) => {
+                            if (timeFilter?.segmentIndex === idx) {
+                              setTimeFilter(null);
+                            } else {
+                              setTimeFilter({
+                                startTime: seg.startTime,
+                                endTime: seg.endTime,
+                                mode: seg.mode,
+                                segmentIndex: idx,
+                              });
+                            }
+                          }}
+                        />
+                      )}
+
+                      {/* Active filter banner */}
+                      {timeFilter && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                          <Filter className="h-4 w-4 text-primary shrink-0" />
+                          <div className="flex items-center gap-1.5 text-sm">
+                            <span className="text-muted-foreground">Filtered to</span>
+                            <Badge
+                              className="text-white text-xs"
+                              style={{ backgroundColor: getModeColor(timeFilter.mode) }}
+                            >
+                              {timeFilter.mode}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                              {formatTime(timeFilter.startTime)} – {formatTime(timeFilter.endTime)}
+                              <span className="ml-1 opacity-70">
+                                ({formatTime(timeFilter.endTime - timeFilter.startTime)})
+                              </span>
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto h-7 px-2 text-xs gap-1"
+                            onClick={() => setTimeFilter(null)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Clear
+                          </Button>
+                        </div>
                       )}
 
                       {/* Charts by category */}
@@ -745,7 +800,10 @@ export default function FlightAnalyticsApp() {
                                   <FlightChart
                                     key={chart.id}
                                     chart={chart}
-                                    data={parseState.chartData[chart.id] || []}
+                                    data={filterChartDataByTimeRange(
+                                      parseState.chartData[chart.id] || [],
+                                      timeFilter
+                                    )}
                                     logFilename={selectedLog?.filename}
                                   />
                                 ))}
@@ -770,7 +828,23 @@ export default function FlightAnalyticsApp() {
 
                     {parseState.flightModes && parseState.flightModes.length > 0 && (
                       <TabsContent value="timeline" className="mt-4">
-                        <FlightModeTimeline segments={parseState.flightModes} />
+                        <FlightModeTimeline
+                          segments={parseState.flightModes}
+                          activeSegmentIndex={timeFilter?.segmentIndex ?? null}
+                          onSegmentClick={(seg, idx) => {
+                            if (timeFilter?.segmentIndex === idx) {
+                              setTimeFilter(null);
+                            } else {
+                              setTimeFilter({
+                                startTime: seg.startTime,
+                                endTime: seg.endTime,
+                                mode: seg.mode,
+                                segmentIndex: idx,
+                              });
+                              setActiveTab("charts");
+                            }
+                          }}
+                        />
                       </TabsContent>
                     )}
 
@@ -885,9 +959,13 @@ export default function FlightAnalyticsApp() {
 function FlightModeTimeline({
   segments,
   compact = false,
+  onSegmentClick,
+  activeSegmentIndex,
 }: {
   segments: FlightModeSegment[];
   compact?: boolean;
+  onSegmentClick?: (segment: FlightModeSegment, index: number) => void;
+  activeSegmentIndex?: number | null;
 }) {
   if (segments.length === 0) return null;
 
@@ -922,16 +1000,23 @@ function FlightModeTimeline({
             {segments.map((seg, i) => {
               const widthPct = (seg.duration / totalDuration) * 100;
               if (widthPct < 0.5) return null; // Skip tiny segments
+              const isActive = activeSegmentIndex === i;
+              const isFiltered = activeSegmentIndex != null && activeSegmentIndex !== i;
               return (
                 <div
                   key={i}
-                  className="relative h-full flex items-center justify-center overflow-hidden group cursor-default"
+                  className={`relative h-full flex items-center justify-center overflow-hidden group transition-all ${
+                    onSegmentClick ? "cursor-pointer hover:brightness-110" : "cursor-default"
+                  } ${isActive ? "ring-2 ring-white ring-inset brightness-110 z-10" : ""} ${
+                    isFiltered ? "opacity-40" : ""
+                  }`}
                   style={{
                     width: `${widthPct}%`,
                     backgroundColor: getModeColor(seg.mode),
                     minWidth: widthPct > 3 ? undefined : "2px",
                   }}
-                  title={`${seg.mode}: ${formatTime(seg.startTime)} – ${formatTime(seg.endTime)} (${formatTime(seg.duration)})`}
+                  title={`${onSegmentClick ? "Click to filter: " : ""}${seg.mode}: ${formatTime(seg.startTime)} – ${formatTime(seg.endTime)} (${formatTime(seg.duration)})`}
+                  onClick={() => onSegmentClick?.(seg, i)}
                 >
                   {widthPct > 8 && (
                     <span className="text-[10px] font-medium text-white truncate px-1">
@@ -978,16 +1063,23 @@ function FlightModeTimeline({
           {segments.map((seg, i) => {
             const widthPct = (seg.duration / totalDuration) * 100;
             if (widthPct < 0.3) return null;
+            const isActive = activeSegmentIndex === i;
+            const isFiltered = activeSegmentIndex != null && activeSegmentIndex !== i;
             return (
               <div
                 key={i}
-                className="relative h-full flex flex-col items-center justify-center overflow-hidden border-r border-white/10 last:border-r-0"
+                className={`relative h-full flex flex-col items-center justify-center overflow-hidden border-r border-white/10 last:border-r-0 transition-all ${
+                  onSegmentClick ? "cursor-pointer hover:brightness-110" : ""
+                } ${isActive ? "ring-2 ring-white ring-inset brightness-110 z-10" : ""} ${
+                  isFiltered ? "opacity-40" : ""
+                }`}
                 style={{
                   width: `${widthPct}%`,
                   backgroundColor: getModeColor(seg.mode),
                   minWidth: widthPct > 2 ? undefined : "3px",
                 }}
-                title={`${seg.mode}: ${formatTime(seg.startTime)} – ${formatTime(seg.endTime)} (${formatTime(seg.duration)})`}
+                title={`${onSegmentClick ? "Click to filter: " : ""}${seg.mode}: ${formatTime(seg.startTime)} – ${formatTime(seg.endTime)} (${formatTime(seg.duration)})`}
+                onClick={() => onSegmentClick?.(seg, i)}
               >
                 {widthPct > 6 && (
                   <>
@@ -1039,7 +1131,12 @@ function FlightModeTimeline({
           {segments.map((seg, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 text-sm py-1 px-2 rounded hover:bg-muted/50"
+              className={`flex items-center gap-2 text-sm py-1 px-2 rounded transition-colors ${
+                onSegmentClick ? "cursor-pointer hover:bg-accent" : "hover:bg-muted/50"
+              } ${activeSegmentIndex === i ? "bg-accent ring-1 ring-primary" : ""} ${
+                activeSegmentIndex != null && activeSegmentIndex !== i ? "opacity-50" : ""
+              }`}
+              onClick={() => onSegmentClick?.(seg, i)}
             >
               <div
                 className="w-2.5 h-2.5 rounded-sm shrink-0"
