@@ -34,6 +34,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  ReferenceArea,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -90,6 +91,8 @@ import {
   Palette,
   Filter,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -607,6 +610,17 @@ export default function FlightAnalyticsApp() {
     return groups;
   }, [parseState.availableCharts]);
 
+  // Handle brush selection on any chart - applies a time filter to all charts
+  const handleBrushSelect = useCallback((startTime: number, endTime: number) => {
+    setTimeFilter({
+      startTime,
+      endTime,
+      mode: "",
+      segmentIndex: -1,
+      source: "brush",
+    });
+  }, []);
+
   // Format file size
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -907,6 +921,7 @@ export default function FlightAnalyticsApp() {
                                 endTime: seg.endTime,
                                 mode: seg.mode,
                                 segmentIndex: idx,
+                                source: "mode",
                               });
                             }
                           }}
@@ -916,21 +931,39 @@ export default function FlightAnalyticsApp() {
                       {/* Active filter banner */}
                       {timeFilter && (
                         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-                          <Filter className="h-4 w-4 text-primary shrink-0" />
-                          <div className="flex items-center gap-1.5 text-sm">
-                            <span className="text-muted-foreground">Filtered to</span>
-                            <Badge
-                              className="text-white text-xs"
-                              style={{ backgroundColor: getModeColor(timeFilter.mode) }}
-                            >
-                              {timeFilter.mode}
-                            </Badge>
-                            <span className="text-muted-foreground">
-                              {formatTime(timeFilter.startTime)} – {formatTime(timeFilter.endTime)}
-                              <span className="ml-1 opacity-70">
-                                ({formatTime(timeFilter.endTime - timeFilter.startTime)})
-                              </span>
-                            </span>
+                          {timeFilter.source === "brush" ? (
+                            <ZoomIn className="h-4 w-4 text-primary shrink-0" />
+                          ) : (
+                            <Filter className="h-4 w-4 text-primary shrink-0" />
+                          )}
+                          <div className="flex items-center gap-1.5 text-sm flex-wrap">
+                            {timeFilter.source === "brush" ? (
+                              <>
+                                <span className="text-muted-foreground">Zoomed to</span>
+                                <Badge variant="secondary" className="text-xs">
+                                  {formatTime(timeFilter.startTime)} – {formatTime(timeFilter.endTime)}
+                                </Badge>
+                                <span className="text-muted-foreground opacity-70">
+                                  ({formatTime(timeFilter.endTime - timeFilter.startTime)})
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-muted-foreground">Filtered to</span>
+                                <Badge
+                                  className="text-white text-xs"
+                                  style={{ backgroundColor: getModeColor(timeFilter.mode) }}
+                                >
+                                  {timeFilter.mode}
+                                </Badge>
+                                <span className="text-muted-foreground">
+                                  {formatTime(timeFilter.startTime)} – {formatTime(timeFilter.endTime)}
+                                  <span className="ml-1 opacity-70">
+                                    ({formatTime(timeFilter.endTime - timeFilter.startTime)})
+                                  </span>
+                                </span>
+                              </>
+                            )}
                           </div>
                           <Button
                             variant="ghost"
@@ -938,10 +971,22 @@ export default function FlightAnalyticsApp() {
                             className="ml-auto h-7 px-2 text-xs gap-1"
                             onClick={() => setTimeFilter(null)}
                           >
-                            <X className="h-3.5 w-3.5" />
-                            Clear
+                            {timeFilter.source === "brush" ? (
+                              <ZoomOut className="h-3.5 w-3.5" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" />
+                            )}
+                            {timeFilter.source === "brush" ? "Reset Zoom" : "Clear"}
                           </Button>
                         </div>
+                      )}
+
+                      {/* Brush zoom hint */}
+                      {!timeFilter && parseState.availableCharts.length > 0 && (
+                        <p className="text-xs text-muted-foreground/60 flex items-center gap-1.5 px-1">
+                          <ZoomIn className="h-3 w-3" />
+                          Click and drag on any chart to zoom into a time range
+                        </p>
                       )}
 
                       {/* Charts by category */}
@@ -979,6 +1024,7 @@ export default function FlightAnalyticsApp() {
                                       timeFilter
                                     )}
                                     logFilename={selectedLog?.filename}
+                                    onBrushSelect={handleBrushSelect}
                                   />
                                 ))}
                               </div>
@@ -1014,6 +1060,7 @@ export default function FlightAnalyticsApp() {
                                 endTime: seg.endTime,
                                 mode: seg.mode,
                                 segmentIndex: idx,
+                                source: "mode",
                               });
                               setActiveTab("charts");
                             }
@@ -2075,13 +2122,48 @@ function FlightChart({
   chart,
   data,
   logFilename,
+  onBrushSelect,
 }: {
   chart: ChartDefinition;
   data: Array<Record<string, number>>;
   logFilename?: string;
+  onBrushSelect?: (startTime: number, endTime: number) => void;
 }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+
+  // Brush selection state
+  const [brushStart, setBrushStart] = useState<number | null>(null);
+  const [brushEnd, setBrushEnd] = useState<number | null>(null);
+  const [isBrushing, setIsBrushing] = useState(false);
+
+  const handleMouseDown = useCallback((e: any) => {
+    if (e && e.activeLabel != null) {
+      setBrushStart(e.activeLabel);
+      setBrushEnd(null);
+      setIsBrushing(true);
+    }
+  }, []);
+
+  const handleMouseMove = useCallback((e: any) => {
+    if (isBrushing && e && e.activeLabel != null) {
+      setBrushEnd(e.activeLabel);
+    }
+  }, [isBrushing]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isBrushing && brushStart != null && brushEnd != null) {
+      const start = Math.min(brushStart, brushEnd);
+      const end = Math.max(brushStart, brushEnd);
+      // Only apply if the selection is meaningful (at least 0.5 seconds)
+      if (end - start > 0.5 && onBrushSelect) {
+        onBrushSelect(start, end);
+      }
+    }
+    setBrushStart(null);
+    setBrushEnd(null);
+    setIsBrushing(false);
+  }, [isBrushing, brushStart, brushEnd, onBrushSelect]);
 
   const handleExportCsv = useCallback(() => {
     const csv = chartDataToCsv(chart, data);
@@ -2214,7 +2296,15 @@ function FlightChart({
       <CardContent className="pb-3">
         <div ref={chartRef}>
           <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <LineChart
+              data={data}
+              margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              style={{ cursor: "crosshair", userSelect: "none" }}
+            >
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
               <XAxis
                 dataKey="time"
@@ -2261,6 +2351,19 @@ function FlightChart({
                   isAnimationActive={false}
                 />
               ))}
+              {/* Brush selection overlay */}
+              {isBrushing && brushStart != null && brushEnd != null && (
+                <ReferenceArea
+                  yAxisId="left"
+                  x1={Math.min(brushStart, brushEnd)}
+                  x2={Math.max(brushStart, brushEnd)}
+                  fill="hsl(217, 91%, 60%)"
+                  fillOpacity={0.2}
+                  stroke="hsl(217, 91%, 60%)"
+                  strokeOpacity={0.6}
+                  strokeDasharray="3 3"
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>

@@ -1027,3 +1027,15 @@
 - [x] Keep localStorage for tab/logId/droneId persistence across full page refreshes (re-parse only on refresh)
 - [x] Clear cache when user deletes the active log or encounters errors
 - [x] Update vitest tests for new caching behavior (18 new cache tests, 524 total passing)
+
+## Brush-Select Time Range on Charts
+
+- [x] Add click-and-drag brush selection on all charts (Recharts ReferenceArea zoom)
+- [x] Show visual selection overlay during drag
+- [x] Apply zoom to all charts simultaneously when brush completes
+- [x] Add reset zoom button to return to full time range
+- [x] Integrate with existing mode-based time filter (both should work together)
+- [x] Persist brush zoom state in module-level cache
+- [x] Verify mode-based filtering still works correctly
+- [x] Verify cache persistence works with brush zoom
+- [x] Write vitest tests for brush-select feature (29 new tests, 553 total passing)

@@ -946,17 +946,19 @@ export function getGradientLegendCss(mode: TrackColorMode): string {
 // ─── Time Range Filtering ───────────────────────────────────────
 
 /**
- * Represents a time range filter applied from the flight mode timeline.
+ * Represents a time range filter applied from the flight mode timeline or brush selection.
  */
 export interface TimeFilter {
   /** Start time in seconds (relative to flight start) */
   startTime: number;
   /** End time in seconds (relative to flight start) */
   endTime: number;
-  /** The flight mode name that was clicked */
+  /** The flight mode name that was clicked (empty string for brush selections) */
   mode: string;
-  /** Index of the segment in the flight modes array */
+  /** Index of the segment in the flight modes array (-1 for brush selections) */
   segmentIndex: number;
+  /** Source of the filter: 'mode' for mode-based, 'brush' for chart brush selection */
+  source?: "mode" | "brush";
 }
 
 /**
