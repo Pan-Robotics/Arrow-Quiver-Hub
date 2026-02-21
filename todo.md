@@ -933,3 +933,27 @@
 - [x] Verify all chart types render from .log file data (Node.js test: 35 message types, 25 message keys)
 - [x] Test .log file parsing end-to-end (extractStartTime: 2025-02-25T22:30:08.701Z, stats: 5971 ESC messages)
 - [x] Update tests for .log format support (24 new text-log-parser tests, 421 total tests passing)
+
+## Flight Summary Panel & Chart Export
+
+### Flight Summary Panel
+- [x] Create extractFlightSummary function in flight-charts.ts
+- [x] Extract total flight time from first/last TimeUS
+- [x] Extract max altitude from BARO data
+- [x] Extract max speed from GPS data
+- [x] Extract battery consumed from BAT data (start vs end voltage, mAh consumed)
+- [x] Extract max distance from home from GPS data (replaced with max GPS altitude)
+- [x] Extract vibration magnitude and ESC RPM stats
+- [x] Extract GPS fix quality stats (fix type, satellite count)
+- [x] Build FlightSummaryPanel UI component with stat cards (8 stat categories)
+- [x] Integrate summary panel at top of analysis detail view
+
+### Chart Export Buttons
+- [x] Add PNG export button per chart (SVG serialization to canvas)
+- [x] Add CSV export button per chart (chartDataToCsv + downloadCsv)
+- [x] Style export buttons consistently with app theme (ghost icon buttons in chart header)
+
+### Tests
+- [x] Write vitest tests for extractFlightSummary function (10 tests)
+- [x] Write vitest tests for CSV export utility (7 tests)
+- [x] Verify all 438 tests pass across 19 test files

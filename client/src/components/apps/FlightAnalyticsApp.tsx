@@ -8,7 +8,11 @@ import {
   getAllRequiredMessageTypes,
   toChartData,
   formatTime,
+  extractFlightSummary,
+  chartDataToCsv,
+  downloadCsv,
   type ChartDefinition,
+  type FlightSummary,
 } from "@/lib/flight-charts";
 import {
   LineChart,
@@ -60,6 +64,14 @@ import {
   Brain,
   Download,
   Eye,
+  Image,
+  Timer,
+  Mountain,
+  Gauge,
+  Zap,
+  Satellite,
+  Vibrate,
+  Cog,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -82,6 +94,7 @@ interface ParseState {
   logStartTime?: Date;
   messageTypes?: Record<string, unknown>;
   stats?: Record<string, { count: number; msg_size: number; size: number }>;
+  flightSummary?: FlightSummary;
 }
 
 export default function FlightAnalyticsApp() {
@@ -217,8 +230,6 @@ export default function FlightAnalyticsApp() {
       // Parse the binary data
       const result = parser.processData(arrayBuffer, allMsgs);
 
-
-
       setParseState((prev) => ({ ...prev, progress: 70 }));
 
       // Determine which charts have data
@@ -231,7 +242,7 @@ export default function FlightAnalyticsApp() {
         chartData[chart.id] = cd;
       }
 
-      setParseState((prev) => ({ ...prev, progress: 90 }));
+      setParseState((prev) => ({ ...prev, progress: 85 }));
 
       // Extract start time
       let logStartTime: Date | undefined;
@@ -249,6 +260,9 @@ export default function FlightAnalyticsApp() {
         // Stats may fail on some logs
       }
 
+      // Extract flight summary
+      const flightSummary = extractFlightSummary(result.messages, logStartTime);
+
       setParseState({
         status: "complete",
         progress: 100,
@@ -257,6 +271,7 @@ export default function FlightAnalyticsApp() {
         logStartTime,
         messageTypes: result.types,
         stats,
+        flightSummary,
       });
 
       toast.success(`Parsed ${available.length} chart(s) from log`);
@@ -315,127 +330,113 @@ export default function FlightAnalyticsApp() {
             disabled={dronesLoading}
           >
             <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select drone..." />
+              <SelectValue placeholder="Select drone" />
             </SelectTrigger>
             <SelectContent>
               {drones.map((d: any) => (
                 <SelectItem key={d.droneId} value={d.droneId}>
-                  {d.name || d.droneId}
+                  {d.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-
-          {/* Upload button */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".bin,.BIN,.log,.LOG"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!selectedDrone}
-            size="sm"
-          >
-            <Upload className="h-4 w-4 mr-1" />
-            Upload Log
-          </Button>
         </div>
       </div>
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left panel: Log list */}
-        <div className="w-80 border-r bg-card/50 flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b">
-            <h3 className="font-medium text-sm text-muted-foreground">Flight Logs</h3>
+        {/* Left sidebar - log list */}
+        <div className="w-72 border-r bg-card flex flex-col">
+          <div className="p-3 border-b">
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!selectedDrone}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              Upload Log
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".bin,.BIN,.log,.LOG"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
           </div>
+
           <div className="flex-1 overflow-y-auto">
-            {!selectedDrone ? (
-              <div className="p-4 text-center text-muted-foreground text-sm">
-                Select a drone to view logs
-              </div>
-            ) : logsQuery.isLoading ? (
-              <div className="p-4 flex justify-center">
+            {logsQuery.isLoading && (
+              <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ) : !logsQuery.data?.length ? (
-              <div className="p-4 text-center text-muted-foreground text-sm">
+            )}
+            {logsQuery.data?.length === 0 && (
+              <div className="text-center py-8 px-4 text-muted-foreground text-sm">
                 <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No flight logs yet</p>
                 <p className="text-xs mt-1">Upload a .BIN or .log file to get started</p>
               </div>
-            ) : (
-              <div className="divide-y">
-                {logsQuery.data.map((log: any) => (
+            )}
+            {logsQuery.data?.map((log: any) => (
+              <div
+                key={log.id}
+                className={`p-3 border-b cursor-pointer hover:bg-accent/50 transition-colors ${
+                  selectedLogId === log.id ? "bg-accent" : ""
+                }`}
+              >
+                <div className="flex items-start justify-between">
                   <div
-                    key={log.id}
-                    className={`p-3 cursor-pointer hover:bg-accent/50 transition-colors ${
-                      selectedLogId === log.id ? "bg-accent" : ""
-                    }`}
+                    className="flex-1 min-w-0"
                     onClick={() => handleAnalyze(log.id, log.fileUrl)}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{log.filename}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            <HardDrive className="h-3 w-3 mr-1" />
-                            {formatSize(log.fileSize)}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3 inline mr-1" />
-                            {new Date(log.uploadedAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                        {log.notes && (
-                          <p className="text-xs text-muted-foreground mt-1 truncate">{log.notes}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 ml-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAnalyze(log.id, log.fileUrl);
-                          }}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteTargetId(log.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
+                    <p className="text-sm font-medium truncate">{log.filename}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {new Date(log.createdAt).toLocaleDateString()} · {formatSize(log.fileSize || 0)}
+                    </p>
+                    {log.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{log.description}</p>
+                    )}
                   </div>
-                ))}
+                  <div className="flex items-center gap-1 ml-2 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAnalyze(log.id, log.fileUrl);
+                      }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTargetId(log.id);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
 
-        {/* Right panel: Charts */}
+        {/* Right content - analysis view */}
         <div className="flex-1 overflow-y-auto">
           {parseState.status === "idle" && (
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <div className="text-center">
                 <BarChart3 className="h-16 w-16 mx-auto mb-4 opacity-30" />
                 <p className="text-lg font-medium">Select a flight log to analyze</p>
-                <p className="text-sm mt-1">
-                  Upload a .BIN or .log file, then click to parse and view charts
-                </p>
+                <p className="text-sm mt-1">Choose a log from the sidebar or upload a new one</p>
               </div>
             </div>
           )}
@@ -510,6 +511,11 @@ export default function FlightAnalyticsApp() {
                 </CardHeader>
               </Card>
 
+              {/* Flight Summary Panel */}
+              {parseState.flightSummary && (
+                <FlightSummaryPanel summary={parseState.flightSummary} />
+              )}
+
               {/* Charts by category */}
               {CHART_CATEGORIES.map((category) => {
                 const charts = chartsByCategory[category.id];
@@ -541,6 +547,7 @@ export default function FlightAnalyticsApp() {
                             key={chart.id}
                             chart={chart}
                             data={parseState.chartData[chart.id] || []}
+                            logFilename={selectedLog?.filename}
                           />
                         ))}
                       </div>
@@ -657,14 +664,245 @@ export default function FlightAnalyticsApp() {
   );
 }
 
+// ─── Flight Summary Panel ──────────────────────────────────────
+function FlightSummaryPanel({ summary }: { summary: FlightSummary }) {
+  // Format duration as HH:MM:SS or MM:SS
+  const fmtDuration = (seconds: number | null): string => {
+    if (seconds === null || !Number.isFinite(seconds)) return "—";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const fmtNum = (val: number | null, decimals = 1, suffix = ""): string => {
+    if (val === null || !Number.isFinite(val)) return "—";
+    return `${val.toFixed(decimals)}${suffix}`;
+  };
+
+  const fmtInt = (val: number | null, suffix = ""): string => {
+    if (val === null || !Number.isFinite(val)) return "—";
+    return `${Math.round(val).toLocaleString()}${suffix}`;
+  };
+
+  // GPS fix type label
+  const gpsFixLabel = (fix: number | null): string => {
+    if (fix === null) return "—";
+    const labels: Record<number, string> = {
+      0: "No GPS",
+      1: "No Fix",
+      2: "2D Fix",
+      3: "3D Fix",
+      4: "DGPS",
+      5: "RTK Float",
+      6: "RTK Fixed",
+    };
+    return labels[fix] || `Type ${fix}`;
+  };
+
+  // Build stat cards
+  const statCards: Array<{
+    label: string;
+    value: string;
+    icon: React.ReactNode;
+    color: string;
+    subtext?: string;
+  }> = [
+    {
+      label: "Flight Duration",
+      value: fmtDuration(summary.totalFlightTime),
+      icon: <Timer className="h-4 w-4" />,
+      color: "text-blue-400",
+      subtext: summary.logDuration !== null ? `Log: ${fmtDuration(summary.logDuration)}` : undefined,
+    },
+    {
+      label: "Max Altitude",
+      value: fmtNum(summary.maxAltitude, 1, " m"),
+      icon: <Mountain className="h-4 w-4" />,
+      color: "text-emerald-400",
+      subtext: summary.maxGpsAltitude !== null ? `GPS: ${fmtNum(summary.maxGpsAltitude, 1, " m")}` : undefined,
+    },
+    {
+      label: "Max Speed",
+      value: fmtNum(summary.maxSpeed, 1, " m/s"),
+      icon: <Gauge className="h-4 w-4" />,
+      color: "text-orange-400",
+      subtext: summary.avgSpeed !== null ? `Avg: ${fmtNum(summary.avgSpeed, 1, " m/s")}` : undefined,
+    },
+    {
+      label: "Battery",
+      value: summary.batteryConsumed !== null ? fmtNum(summary.batteryConsumed, 0, " mAh") : fmtNum(summary.batteryStartVoltage, 1, " V"),
+      icon: <Battery className="h-4 w-4" />,
+      color: "text-yellow-400",
+      subtext: summary.batteryStartVoltage !== null && summary.batteryEndVoltage !== null
+        ? `${fmtNum(summary.batteryStartVoltage, 1)}V → ${fmtNum(summary.batteryEndVoltage, 1)}V`
+        : summary.batteryMinVoltage !== null ? `Min: ${fmtNum(summary.batteryMinVoltage, 1)}V` : undefined,
+    },
+    {
+      label: "Max Current",
+      value: fmtNum(summary.maxCurrent, 1, " A"),
+      icon: <Zap className="h-4 w-4" />,
+      color: "text-red-400",
+    },
+    {
+      label: "GPS Fix",
+      value: gpsFixLabel(summary.gpsFixType),
+      icon: <Satellite className="h-4 w-4" />,
+      color: "text-cyan-400",
+      subtext: summary.numSatellites !== null ? `${fmtInt(summary.numSatellites)} sats` : undefined,
+    },
+    {
+      label: "Max Vibration",
+      value: fmtNum(summary.maxVibration, 2, " m/s²"),
+      icon: <Vibrate className="h-4 w-4" />,
+      color: "text-purple-400",
+      subtext: summary.avgVibration !== null ? `Avg: ${fmtNum(summary.avgVibration, 2, " m/s²")}` : undefined,
+    },
+    {
+      label: "Max ESC RPM",
+      value: fmtInt(summary.maxEscRpm),
+      icon: <Cog className="h-4 w-4" />,
+      color: "text-pink-400",
+    },
+  ];
+
+  // Filter out cards where the primary value is "—"
+  const visibleCards = statCards.filter((c) => c.value !== "—");
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary" />
+          Flight Summary
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {visibleCards.map((card) => (
+            <div
+              key={card.label}
+              className="flex flex-col gap-1 p-3 rounded-lg bg-muted/50 border border-border/50"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={card.color}>{card.icon}</span>
+                <span className="text-xs text-muted-foreground font-medium">{card.label}</span>
+              </div>
+              <span className="text-lg font-bold tracking-tight">{card.value}</span>
+              {card.subtext && (
+                <span className="text-xs text-muted-foreground">{card.subtext}</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-xs text-muted-foreground text-right">
+          {summary.totalMessages} message categories parsed
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Individual Chart Component ──────────────────────────────
 function FlightChart({
   chart,
   data,
+  logFilename,
 }: {
   chart: ChartDefinition;
   data: Array<Record<string, number>>;
+  logFilename?: string;
 }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportCsv = useCallback(() => {
+    const csv = chartDataToCsv(chart, data);
+    if (!csv) {
+      toast.error("No data to export");
+      return;
+    }
+    const baseName = logFilename?.replace(/\.(bin|log)$/i, "") || "flight";
+    downloadCsv(`${baseName}_${chart.id}.csv`, csv);
+    toast.success("CSV downloaded");
+  }, [chart, data, logFilename]);
+
+  const handleExportPng = useCallback(async () => {
+    if (!chartRef.current) return;
+    setExporting(true);
+    try {
+      // Use html2canvas-style approach via SVG serialization
+      const svgElement = chartRef.current.querySelector("svg");
+      if (!svgElement) {
+        toast.error("Chart not ready for export");
+        return;
+      }
+
+      // Clone the SVG and set explicit dimensions
+      const clone = svgElement.cloneNode(true) as SVGElement;
+      const bbox = svgElement.getBoundingClientRect();
+      clone.setAttribute("width", String(bbox.width));
+      clone.setAttribute("height", String(bbox.height));
+
+      // Inline computed styles for the clone
+      const allElements = clone.querySelectorAll("*");
+      const origElements = svgElement.querySelectorAll("*");
+      allElements.forEach((el, i) => {
+        const computed = window.getComputedStyle(origElements[i]);
+        const important = ["fill", "stroke", "stroke-width", "stroke-dasharray", "font-size", "font-family", "opacity", "text-anchor", "dominant-baseline"];
+        for (const prop of important) {
+          (el as HTMLElement).style.setProperty(prop, computed.getPropertyValue(prop));
+        }
+      });
+
+      // Serialize to data URL
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(clone);
+      const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+      const svgUrl = URL.createObjectURL(svgBlob);
+
+      // Draw to canvas
+      const canvas = document.createElement("canvas");
+      const scale = 2; // 2x for retina
+      canvas.width = bbox.width * scale;
+      canvas.height = bbox.height * scale;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context unavailable");
+
+      // White background
+      ctx.fillStyle = "#1a1a2e";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(scale, scale);
+
+      const img = new window.Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(svgUrl);
+
+        // Trigger download
+        const pngUrl = canvas.toDataURL("image/png");
+        const link = document.createElement("a");
+        const baseName = logFilename?.replace(/\.(bin|log)$/i, "") || "flight";
+        link.download = `${baseName}_${chart.id}.png`;
+        link.href = pngUrl;
+        link.click();
+        toast.success("PNG downloaded");
+        setExporting(false);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(svgUrl);
+        toast.error("Failed to render chart image");
+        setExporting(false);
+      };
+      img.src = svgUrl;
+    } catch (err) {
+      toast.error("Export failed");
+      setExporting(false);
+    }
+  }, [chart, logFilename]);
+
   if (data.length === 0) {
     return (
       <Card>
@@ -683,60 +921,91 @@ function FlightChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{chart.title}</CardTitle>
-        <CardDescription className="text-xs">{chart.description}</CardDescription>
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-sm">{chart.title}</CardTitle>
+            <CardDescription className="text-xs">{chart.description}</CardDescription>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleExportCsv}
+              title="Export as CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleExportPng}
+              disabled={exporting}
+              title="Export as PNG"
+            >
+              {exporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Image className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="pb-3">
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-            <XAxis
-              dataKey="time"
-              tickFormatter={formatTime}
-              tick={{ fontSize: 10 }}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              yAxisId="left"
-              tick={{ fontSize: 10 }}
-              label={
-                chart.yAxisLabel
-                  ? { value: chart.yAxisLabel, angle: -90, position: "insideLeft", style: { fontSize: 10 } }
-                  : undefined
-              }
-            />
-            {hasDualAxis && (
+        <div ref={chartRef}>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis
+                dataKey="time"
+                tickFormatter={formatTime}
+                tick={{ fontSize: 10 }}
+                interval="preserveStartEnd"
+              />
               <YAxis
-                yAxisId="right"
-                orientation="right"
+                yAxisId="left"
                 tick={{ fontSize: 10 }}
                 label={
-                  chart.yAxisRight
-                    ? { value: chart.yAxisRight, angle: 90, position: "insideRight", style: { fontSize: 10 } }
+                  chart.yAxisLabel
+                    ? { value: chart.yAxisLabel, angle: -90, position: "insideLeft", style: { fontSize: 10 } }
                     : undefined
                 }
               />
-            )}
-            <Tooltip
-              labelFormatter={(val) => `Time: ${formatTime(val as number)}`}
-              contentStyle={{ fontSize: 11 }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            {chart.fields.map((field) => (
-              <Line
-                key={field.key}
-                type="monotone"
-                dataKey={field.key}
-                name={field.label}
-                stroke={field.color}
-                yAxisId={field.yAxisId || "left"}
-                dot={false}
-                strokeWidth={1.5}
-                isAnimationActive={false}
+              {hasDualAxis && (
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 10 }}
+                  label={
+                    chart.yAxisRight
+                      ? { value: chart.yAxisRight, angle: 90, position: "insideRight", style: { fontSize: 10 } }
+                      : undefined
+                  }
+                />
+              )}
+              <Tooltip
+                labelFormatter={(val) => `Time: ${formatTime(val as number)}`}
+                contentStyle={{ fontSize: 11 }}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {chart.fields.map((field) => (
+                <Line
+                  key={field.key}
+                  type="monotone"
+                  dataKey={field.key}
+                  name={field.label}
+                  stroke={field.color}
+                  yAxisId={field.yAxisId || "left"}
+                  dot={false}
+                  strokeWidth={1.5}
+                  isAnimationActive={false}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </CardContent>
     </Card>
   );

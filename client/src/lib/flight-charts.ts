@@ -424,6 +424,230 @@ export function toChartData(
   return data;
 }
 
+// ─── Flight Summary Extraction ─────────────────────────────
+
+export interface FlightSummary {
+  totalFlightTime: number | null; // seconds
+  maxAltitude: number | null; // meters (barometric)
+  maxGpsAltitude: number | null; // meters (GPS)
+  maxSpeed: number | null; // m/s
+  avgSpeed: number | null; // m/s
+  batteryStartVoltage: number | null; // volts
+  batteryEndVoltage: number | null; // volts
+  batteryMinVoltage: number | null; // volts
+  batteryConsumed: number | null; // mAh
+  maxCurrent: number | null; // amps
+  maxVibration: number | null; // m/s²
+  avgVibration: number | null; // m/s²
+  maxClipping: number | null; // count
+  gpsFixType: number | null; // 0-6
+  numSatellites: number | null;
+  maxEscRpm: number | null;
+  totalMessages: number;
+  logDuration: number | null; // seconds (from first to last message timestamp)
+}
+
+/**
+ * Extract a flight summary from parsed DataFlash messages.
+ * Uses resolveMessageKey to handle instance-based keys.
+ */
+export function extractFlightSummary(
+  parsedMessages: Record<string, any>,
+  startTime?: Date | null
+): FlightSummary {
+  const summary: FlightSummary = {
+    totalFlightTime: null,
+    maxAltitude: null,
+    maxGpsAltitude: null,
+    maxSpeed: null,
+    avgSpeed: null,
+    batteryStartVoltage: null,
+    batteryEndVoltage: null,
+    batteryMinVoltage: null,
+    batteryConsumed: null,
+    maxCurrent: null,
+    maxVibration: null,
+    avgVibration: null,
+    maxClipping: null,
+    gpsFixType: null,
+    numSatellites: null,
+    maxEscRpm: null,
+    totalMessages: Object.keys(parsedMessages).length,
+    logDuration: null,
+  };
+
+  // Helper to find a message by name or instance
+  const findMsg = (name: string): any => {
+    const key = resolveMessageKey(name, parsedMessages);
+    return key ? parsedMessages[key] : null;
+  };
+
+  // Helper to get max of a numeric array
+  const maxOf = (arr: number[] | undefined): number | null => {
+    if (!arr || arr.length === 0) return null;
+    let max = -Infinity;
+    for (const v of arr) {
+      if (Number.isFinite(v) && v > max) max = v;
+    }
+    return max === -Infinity ? null : max;
+  };
+
+  // Helper to get min of a numeric array
+  const minOf = (arr: number[] | undefined): number | null => {
+    if (!arr || arr.length === 0) return null;
+    let min = Infinity;
+    for (const v of arr) {
+      if (Number.isFinite(v) && v < min) min = v;
+    }
+    return min === Infinity ? null : min;
+  };
+
+  // Helper to get average of a numeric array
+  const avgOf = (arr: number[] | undefined): number | null => {
+    if (!arr || arr.length === 0) return null;
+    let sum = 0;
+    let count = 0;
+    for (const v of arr) {
+      if (Number.isFinite(v)) {
+        sum += v;
+        count++;
+      }
+    }
+    return count > 0 ? sum / count : null;
+  };
+
+  // ─── Log Duration / Flight Time ───────────────────────────
+  // Find the overall time range from any message with time_boot_ms
+  let globalMinTime = Infinity;
+  let globalMaxTime = -Infinity;
+  for (const key of Object.keys(parsedMessages)) {
+    const msg = parsedMessages[key];
+    if (msg?.time_boot_ms && msg.time_boot_ms.length > 0) {
+      const first = msg.time_boot_ms[0];
+      const last = msg.time_boot_ms[msg.time_boot_ms.length - 1];
+      if (Number.isFinite(first) && first < globalMinTime) globalMinTime = first;
+      if (Number.isFinite(last) && last > globalMaxTime) globalMaxTime = last;
+    }
+  }
+  if (globalMinTime < Infinity && globalMaxTime > -Infinity) {
+    summary.logDuration = (globalMaxTime - globalMinTime) / 1000; // ms to seconds
+    summary.totalFlightTime = summary.logDuration;
+  }
+
+  // ─── Barometer ────────────────────────────────────────────
+  const baro = findMsg("BARO");
+  if (baro?.Alt) {
+    summary.maxAltitude = maxOf(baro.Alt);
+  }
+
+  // ─── GPS ──────────────────────────────────────────────────
+  const gps = findMsg("GPS");
+  if (gps) {
+    if (gps.Spd) {
+      summary.maxSpeed = maxOf(gps.Spd);
+      summary.avgSpeed = avgOf(gps.Spd);
+    }
+    if (gps.Alt) {
+      summary.maxGpsAltitude = maxOf(gps.Alt);
+    }
+    if (gps.Status) {
+      summary.gpsFixType = maxOf(gps.Status);
+    }
+    if (gps.NSats) {
+      summary.numSatellites = maxOf(gps.NSats);
+    }
+  }
+
+  // ─── Battery ──────────────────────────────────────────────
+  const bat = findMsg("BAT");
+  if (bat) {
+    if (bat.Volt && bat.Volt.length > 0) {
+      summary.batteryStartVoltage = bat.Volt[0];
+      summary.batteryEndVoltage = bat.Volt[bat.Volt.length - 1];
+      summary.batteryMinVoltage = minOf(bat.Volt);
+    }
+    if (bat.CurrTot && bat.CurrTot.length > 0) {
+      summary.batteryConsumed = bat.CurrTot[bat.CurrTot.length - 1];
+    }
+    if (bat.Curr) {
+      summary.maxCurrent = maxOf(bat.Curr);
+    }
+  }
+
+  // ─── Vibration ────────────────────────────────────────────
+  const vibe = findMsg("VIBE");
+  if (vibe) {
+    // Compute vibration magnitude from X, Y, Z
+    const vibeVals: number[] = [];
+    const vibeX = vibe.VibeX || [];
+    const vibeY = vibe.VibeY || [];
+    const vibeZ = vibe.VibeZ || [];
+    const len = Math.min(vibeX.length, vibeY.length, vibeZ.length);
+    for (let i = 0; i < len; i++) {
+      const mag = Math.sqrt(
+        (vibeX[i] || 0) ** 2 + (vibeY[i] || 0) ** 2 + (vibeZ[i] || 0) ** 2
+      );
+      vibeVals.push(mag);
+    }
+    summary.maxVibration = maxOf(vibeVals);
+    summary.avgVibration = avgOf(vibeVals);
+
+    if (vibe.Clip) {
+      summary.maxClipping = maxOf(vibe.Clip);
+    }
+  }
+
+  // ─── ESC ──────────────────────────────────────────────────
+  const esc = findMsg("ESC");
+  if (esc?.RPM) {
+    summary.maxEscRpm = maxOf(esc.RPM);
+  }
+
+  return summary;
+}
+
+// ─── Chart Export Utilities ────────────────────────────────
+
+/**
+ * Convert chart data to CSV string.
+ */
+export function chartDataToCsv(
+  chart: ChartDefinition,
+  data: Array<Record<string, number>>
+): string {
+  if (data.length === 0) return "";
+
+  // Build header: time + all field keys
+  const headers = ["time_seconds", ...chart.fields.map((f) => f.key)];
+  const rows = [headers.join(",")];
+
+  for (const point of data) {
+    const row = [
+      point.time?.toFixed(3) ?? "",
+      ...chart.fields.map((f) => {
+        const val = point[f.key];
+        return val !== undefined && Number.isFinite(val) ? val.toString() : "";
+      }),
+    ];
+    rows.push(row.join(","));
+  }
+
+  return rows.join("\n");
+}
+
+/**
+ * Trigger a CSV file download in the browser.
+ */
+export function downloadCsv(filename: string, csvContent: string): void {
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Format time in seconds to MM:SS or HH:MM:SS
  */

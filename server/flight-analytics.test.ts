@@ -208,7 +208,7 @@ describe("Flight Analytics - Frontend Component", () => {
   });
 
   it("shows drone selector", () => {
-    expect(componentSrc).toContain("Select drone...");
+    expect(componentSrc).toContain("Select drone");
   });
 });
 
