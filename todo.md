@@ -1046,3 +1046,6 @@
 - [x] Replace Quiver Hub icon with user's arrow logomark image (sidebar, header, APP_LOGO, favicon)
 - [x] Update project README.md with comprehensive documentation (architecture, apps, API reference, database schema)
 - [x] Fix: CompareView "Rendered more hooks than during the previous render" - moved useMemo hooks above early return
+- [x] Fix: Drone ID dropdown text invisible in Flight Analytics (d.name null fallback to d.droneId)
+- [x] Fix: Compare mode does not persist across app switches (extended AnalyticsCache with compare state)
+- [x] Thorough audit of all Flight Analytics functionality (hooks order, cleanup, state persistence all verified)
