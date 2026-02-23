@@ -1684,22 +1684,7 @@ function CompareView({
 }) {
   const [selectedChart, setSelectedChart] = useState<string>("att-rp");
 
-  if (!slotA && !slotB) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <div className="text-center">
-          <GitCompare className="h-16 w-16 mx-auto mb-4 opacity-30" />
-          <p className="text-lg font-medium">Compare Flights</p>
-          <p className="text-sm mt-1">Click two flight logs from the sidebar to compare them side-by-side</p>
-          <p className="text-xs mt-2 text-muted-foreground">
-            Use the Slot A / Slot B buttons in the header to select which slot to load into
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Find charts available in both logs
+  // All hooks MUST be called before any early return to satisfy Rules of Hooks
   const commonCharts = useMemo(() => {
     if (!slotA?.parseState?.availableCharts || !slotB?.parseState?.availableCharts) {
       return slotA?.parseState?.availableCharts || slotB?.parseState?.availableCharts || [];
@@ -1716,6 +1701,21 @@ function CompareView({
   }, [slotA, slotB]);
 
   const currentChart = allCharts.find((c) => c.id === selectedChart) || allCharts[0];
+
+  if (!slotA && !slotB) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <div className="text-center">
+          <GitCompare className="h-16 w-16 mx-auto mb-4 opacity-30" />
+          <p className="text-lg font-medium">Compare Flights</p>
+          <p className="text-sm mt-1">Click two flight logs from the sidebar to compare them side-by-side</p>
+          <p className="text-xs mt-2 text-muted-foreground">
+            Use the Slot A / Slot B buttons in the header to select which slot to load into
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
