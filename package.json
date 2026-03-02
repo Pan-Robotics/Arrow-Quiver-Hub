@@ -60,6 +60,7 @@
     "express": "^4.21.2",
     "form-data": "^4.0.5",
     "framer-motion": "^12.23.22",
+    "hls.js": "^1.6.15",
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
     "lucide-react": "^0.453.0",

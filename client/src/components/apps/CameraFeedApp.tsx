@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { 
   Camera, 
   Video, 
@@ -17,11 +18,14 @@ import {
   Plus,
   Settings,
   Maximize2,
-  X,
   Activity,
   VideoOff,
-  Loader2
+  Loader2,
+  Wifi,
+  WifiOff,
+  RefreshCw
 } from "lucide-react";
+import Hls from "hls.js";
 import { io, Socket } from "socket.io-client";
 import { useDroneSelection } from "@/hooks/useDroneSelection";
 
@@ -63,7 +67,12 @@ export default function CameraFeedApp() {
   
   const [socket, setSocket] = useState<Socket | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [hlsError, setHlsError] = useState<string | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   
   // Gimbal control state (for continuous rotation while button held)
   const rotationIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -83,6 +92,7 @@ export default function CameraFeedApp() {
       streamActive: false,
     });
     setStreamUrl(null);
+    setHlsError(null);
 
     const socketInstance = io({
       path: "/socket.io/",
@@ -100,13 +110,28 @@ export default function CameraFeedApp() {
     });
 
     // Listen for camera status updates
-    socketInstance.on("camera_status", (data: CameraStatus) => {
-      setStatus(data);
+    socketInstance.on("camera_status", (data: any) => {
+      setStatus(prev => ({
+        ...prev,
+        connected: data.connected ?? prev.connected,
+        yaw: data.attitude?.yaw ?? prev.yaw,
+        pitch: data.attitude?.pitch ?? prev.pitch,
+        roll: data.attitude?.roll ?? prev.roll,
+        zoom: data.zoom_level ?? prev.zoom,
+        recording: data.recording ?? prev.recording,
+      }));
     });
 
-    // Listen for stream URL updates
-    socketInstance.on("camera_stream", (data: { url: string }) => {
-      setStreamUrl(data.url);
+    // Listen for stream URL updates from server (HLS proxy URL)
+    socketInstance.on("camera_stream", (data: { url: string | null }) => {
+      console.log("[Camera] Stream URL received:", data.url);
+      if (data.url) {
+        setStreamUrl(data.url);
+        setStatus(prev => ({ ...prev, streamActive: true }));
+      } else {
+        setStreamUrl(null);
+        setStatus(prev => ({ ...prev, streamActive: false }));
+      }
     });
 
     socketInstance.on("connect_error", (error) => {
@@ -116,11 +141,116 @@ export default function CameraFeedApp() {
 
     setSocket(socketInstance);
 
+    // Also poll for stream status on initial load
+    fetch(`/api/rest/camera/stream-status/${selectedDrone}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.active && data.proxy_url) {
+          setStreamUrl(data.proxy_url);
+          setStatus(prev => ({ ...prev, streamActive: true }));
+        }
+      })
+      .catch(() => { /* ignore polling errors */ });
+
     return () => {
       socketInstance.emit("unsubscribe_camera", selectedDrone);
       socketInstance.disconnect();
     };
   }, [selectedDrone]);
+
+  // HLS.js player setup - attach/detach when streamUrl changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Cleanup previous HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    if (!streamUrl) {
+      video.src = "";
+      return;
+    }
+
+    setHlsError(null);
+    setIsBuffering(true);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        // Low-latency tuning
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 5,
+        liveDurationInfinity: true,
+        enableWorker: true,
+        lowLatencyMode: true,
+        // Retry config for unreliable network to companion
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 6,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+      });
+
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log("[HLS] Manifest parsed, starting playback");
+        setIsBuffering(false);
+        setHlsError(null);
+        video.play().catch(() => {
+          // Autoplay blocked - user will need to click
+          console.warn("[HLS] Autoplay blocked");
+        });
+      });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        console.warn("[HLS] Error:", data.type, data.details);
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              setHlsError("Network error - companion computer may be unreachable");
+              // Try to recover
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              setHlsError("Media error - attempting recovery");
+              hls.recoverMediaError();
+              break;
+            default:
+              setHlsError("Fatal stream error - stream may have ended");
+              hls.destroy();
+              break;
+          }
+        }
+      });
+
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        setIsBuffering(false);
+      });
+
+      hlsRef.current = hls;
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari native HLS support
+      video.src = streamUrl;
+      video.addEventListener("loadedmetadata", () => {
+        setIsBuffering(false);
+        video.play().catch(() => {});
+      });
+    } else {
+      setHlsError("HLS is not supported in this browser");
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [streamUrl]);
 
   // Send command to camera via WebSocket
   const sendCommand = useCallback((command: GimbalCommand) => {
@@ -131,13 +261,10 @@ export default function CameraFeedApp() {
 
   // Gimbal rotation handlers (continuous while held)
   const startRotation = useCallback((yawSpeed: number, pitchSpeed: number) => {
-    // Send initial command
     sendCommand({ type: "rotate", yawSpeed, pitchSpeed });
-    
-    // Continue sending while held
     rotationIntervalRef.current = setInterval(() => {
       sendCommand({ type: "rotate", yawSpeed, pitchSpeed });
-    }, 100); // 10Hz update rate
+    }, 100);
   }, [sendCommand]);
 
   const stopRotation = useCallback(() => {
@@ -145,7 +272,6 @@ export default function CameraFeedApp() {
       clearInterval(rotationIntervalRef.current);
       rotationIntervalRef.current = null;
     }
-    // Send stop command
     sendCommand({ type: "rotate", yawSpeed: 0, pitchSpeed: 0 });
   }, [sendCommand]);
 
@@ -176,14 +302,68 @@ export default function CameraFeedApp() {
     setStatus(prev => ({ ...prev, yaw: 0, pitch: -90 }));
   }, [sendCommand]);
 
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!videoContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      videoContainerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
+  // Retry stream connection
+  const retryStream = useCallback(() => {
+    if (!selectedDrone) return;
+    setHlsError(null);
+    setIsBuffering(true);
+    // Re-poll for stream status
+    fetch(`/api/rest/camera/stream-status/${selectedDrone}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.active && data.proxy_url) {
+          // Force re-attach by toggling URL
+          setStreamUrl(null);
+          setTimeout(() => setStreamUrl(data.proxy_url), 100);
+          setStatus(prev => ({ ...prev, streamActive: true }));
+        } else {
+          setHlsError("No active stream found for this drone");
+          setIsBuffering(false);
+        }
+      })
+      .catch(() => {
+        setHlsError("Failed to check stream status");
+        setIsBuffering(false);
+      });
+  }, [selectedDrone]);
+
   return (
     <div className="h-full flex flex-col bg-zinc-900">
       {/* App Header */}
       <div className="border-b border-zinc-700 bg-zinc-800 px-6 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Camera Feed</h2>
-            <p className="text-sm text-zinc-400">SIYI A8 mini Gimbal Camera</p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Camera Feed</h2>
+              <p className="text-sm text-zinc-400">SIYI A8 mini Gimbal Camera</p>
+            </div>
+            {/* Stream status badge */}
+            {selectedDrone && (
+              <Badge 
+                variant="outline" 
+                className={`text-xs ${
+                  status.streamActive 
+                    ? "border-green-600 text-green-400" 
+                    : "border-zinc-600 text-zinc-400"
+                }`}
+              >
+                {status.streamActive ? (
+                  <><Wifi size={12} className="mr-1" /> HLS Live</>
+                ) : (
+                  <><WifiOff size={12} className="mr-1" /> No Stream</>
+                )}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {/* Drone Selector */}
@@ -215,7 +395,12 @@ export default function CameraFeedApp() {
             <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
               <Settings size={20} />
             </Button>
-            <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="text-zinc-400 hover:text-white"
+              onClick={toggleFullscreen}
+            >
               <Maximize2 size={20} />
             </Button>
           </div>
@@ -228,49 +413,87 @@ export default function CameraFeedApp() {
           
           {/* Video Player */}
           <Card className="bg-zinc-800 border-zinc-700 overflow-hidden">
-            <div className="relative aspect-video bg-black">
-              {streamUrl ? (
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-contain"
-                  autoPlay
-                  muted
-                  playsInline
-                />
-              ) : (
+            <div ref={videoContainerRef} className="relative aspect-video bg-black">
+              {/* HLS Video Element - always present for HLS.js attachment */}
+              <video
+                ref={videoRef}
+                className={`w-full h-full object-contain ${streamUrl ? 'block' : 'hidden'}`}
+                autoPlay
+                muted
+                playsInline
+              />
+              
+              {/* Buffering overlay */}
+              {streamUrl && isBuffering && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
+                  <Loader2 size={48} className="animate-spin text-blue-400 mb-3" />
+                  <p className="text-sm text-zinc-300">Connecting to stream...</p>
+                </div>
+              )}
+
+              {/* HLS Error overlay */}
+              {streamUrl && hlsError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+                  <WifiOff size={48} className="text-red-400 mb-3" />
+                  <p className="text-sm text-red-300 mb-2">{hlsError}</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="border-zinc-600 text-white hover:bg-zinc-700"
+                    onClick={retryStream}
+                  >
+                    <RefreshCw size={14} className="mr-1" /> Retry
+                  </Button>
+                </div>
+              )}
+
+              {/* No stream placeholder */}
+              {!streamUrl && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
                   <VideoOff size={64} className="mb-4" />
                   <p className="text-lg font-medium">No Video Stream</p>
-                  <p className="text-sm text-zinc-600">
+                  <p className="text-sm text-zinc-600 mb-4">
                     {selectedDrone 
-                      ? `Waiting for camera connection from ${selectedDrone}...`
+                      ? `Waiting for HLS stream from ${selectedDrone}...`
                       : "Select a drone to view camera feed"
                     }
                   </p>
+                  {selectedDrone && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="border-zinc-600 text-zinc-300 hover:bg-zinc-700"
+                      onClick={retryStream}
+                    >
+                      <RefreshCw size={14} className="mr-1" /> Check for stream
+                    </Button>
+                  )}
                 </div>
               )}
               
-              {/* Video Overlay - Crosshair */}
-              <div className="absolute inset-0 pointer-events-none">
-                {/* Center crosshair */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                  <div className="w-8 h-[1px] bg-white/50" />
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1px] h-8 bg-white/50" />
-                </div>
-                
-                {/* Altitude indicator (top-left) */}
-                <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded text-white text-sm font-mono">
-                  ALT: --m
-                </div>
-                
-                {/* Recording indicator */}
-                {status.recording && (
-                  <div className="absolute top-4 right-4 flex items-center gap-2 bg-red-600/80 px-3 py-1 rounded">
-                    <Circle className="w-3 h-3 fill-white text-white animate-pulse" />
-                    <span className="text-white text-sm font-medium">REC</span>
+              {/* Video Overlay - Crosshair (only when stream is active) */}
+              {streamUrl && !hlsError && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {/* Center crosshair */}
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                    <div className="w-8 h-[1px] bg-white/50" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1px] h-8 bg-white/50" />
                   </div>
-                )}
-              </div>
+                  
+                  {/* Altitude indicator (top-left) */}
+                  <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded text-white text-sm font-mono">
+                    ALT: --m
+                  </div>
+                  
+                  {/* Recording indicator */}
+                  {status.recording && (
+                    <div className="absolute top-4 right-4 flex items-center gap-2 bg-red-600/80 px-3 py-1 rounded">
+                      <Circle className="w-3 h-3 fill-white text-white animate-pulse" />
+                      <span className="text-white text-sm font-medium">REC</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </Card>
 
@@ -411,6 +634,13 @@ export default function CameraFeedApp() {
                     {status.connected ? 'Yes' : 'No'}
                   </span>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Stream:</span>
+                  <span className={`flex items-center gap-1 ${status.streamActive ? 'text-green-500' : 'text-zinc-500'}`}>
+                    {status.streamActive ? <Wifi size={14} /> : <WifiOff size={14} />}
+                    {status.streamActive ? 'HLS Active' : 'Inactive'}
+                  </span>
+                </div>
               </div>
             </Card>
           </div>
@@ -459,7 +689,7 @@ export default function CameraFeedApp() {
           </div>
 
           {/* Connection Info */}
-          {selectedDrone && !status.connected && (
+          {selectedDrone && !status.connected && !status.streamActive && (
             <Card className="bg-zinc-800/50 border-zinc-700 p-6 text-center">
               <VideoOff className="mx-auto mb-4 text-zinc-500" size={48} />
               <h3 className="text-lg font-medium text-white mb-2">Camera Not Connected</h3>
@@ -470,6 +700,7 @@ export default function CameraFeedApp() {
                 <li>• Camera is powered on and connected to the network</li>
                 <li>• Camera IP is set to 192.168.144.25</li>
                 <li>• Companion computer camera service is running</li>
+                <li>• HLS stream is registered with Quiver Hub</li>
                 <li>• Network connectivity between components</li>
               </ul>
             </Card>

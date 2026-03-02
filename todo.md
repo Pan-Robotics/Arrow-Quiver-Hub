@@ -1049,3 +1049,12 @@
 - [x] Fix: Drone ID dropdown text invisible in Flight Analytics (d.name null fallback to d.droneId)
 - [x] Fix: Compare mode does not persist across app switches (extended AnalyticsCache with compare state)
 - [x] Thorough audit of all Flight Analytics functionality (hooks order, cleanup, state persistence all verified)
+
+## HLS Camera Stream Pipeline
+
+- [x] Add REST endpoint for companion computer to register HLS stream URL (stream-register, stream-unregister, stream-status)
+- [x] Add server-side HLS proxy to forward .m3u8 and .ts requests to companion computer (/api/rest/camera/hls/:droneId/*)
+- [x] Update WebSocket server to relay stream URL to browser clients (broadcastCameraStream)
+- [x] Install HLS.js and integrate HLS player into CameraFeedApp (low-latency config, retry, buffering states)
+- [x] Update companion scripts with stream URL announcement logic (_register_stream_with_hub, _unregister_stream)
+- [x] Write vitest tests for HLS proxy and stream registration (29 new tests, 583 total passing)

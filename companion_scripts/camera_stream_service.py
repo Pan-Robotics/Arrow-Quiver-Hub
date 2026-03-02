@@ -31,9 +31,15 @@ import json
 import argparse
 import logging
 import threading
+import socket
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 # Configure logging
 logging.basicConfig(
@@ -111,12 +117,21 @@ class HLSStreamingService:
     def __init__(self, 
                  stream_type: str = "sub",
                  http_port: int = 8080,
-                 hls_dir: str = DEFAULT_HLS_DIR):
+                 hls_dir: str = DEFAULT_HLS_DIR,
+                 hub_url: Optional[str] = None,
+                 drone_id: Optional[str] = None,
+                 api_key: Optional[str] = None):
         
         self.stream_type = stream_type
         self.rtsp_url = RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
         self.http_port = http_port
         self.hls_dir = Path(hls_dir)
+        
+        # Quiver Hub registration
+        self.hub_url = hub_url          # e.g. "https://your-quiver-hub.com"
+        self.drone_id = drone_id
+        self.api_key = api_key
+        self._stream_registered = False
         
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.http_server: Optional[HTTPServer] = None
@@ -270,6 +285,80 @@ class HLSStreamingService:
             self.http_server = None
             logger.info("HTTP server stopped")
     
+    def _get_local_ip(self) -> str:
+        """Get the local IP address of this machine."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+    
+    def _register_stream_with_hub(self):
+        """
+        Register the HLS stream URL with Quiver Hub.
+        The Hub will then proxy requests from the browser to this local server.
+        """
+        if not self.hub_url or not self.drone_id or not self.api_key:
+            logger.debug("Hub registration skipped: missing hub_url, drone_id, or api_key")
+            return
+        
+        if requests is None:
+            logger.warning("'requests' package not installed. Cannot register stream with Hub.")
+            logger.warning("Install with: pip install requests")
+            return
+        
+        local_ip = self._get_local_ip()
+        stream_url = f"http://{local_ip}:{self.http_port}/stream.m3u8"
+        
+        try:
+            # Convert ws/wss URL to http/https for REST call
+            rest_base = self.hub_url.replace("wss://", "https://").replace("ws://", "http://")
+            rest_base = rest_base.rstrip("/ws").rstrip("/")
+            register_url = f"{rest_base}/api/rest/camera/stream-register"
+            
+            response = requests.post(register_url, json={
+                "api_key": self.api_key,
+                "drone_id": self.drone_id,
+                "stream_url": stream_url,
+            }, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Stream registered with Hub. Proxy URL: {data.get('proxy_url')}")
+                self._stream_registered = True
+            else:
+                logger.warning(f"Stream registration failed ({response.status_code}): {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Failed to register stream with Hub: {e}")
+    
+    def _unregister_stream_from_hub(self):
+        """Unregister the HLS stream from Quiver Hub on shutdown."""
+        if not self._stream_registered or not self.hub_url or not self.drone_id or not self.api_key:
+            return
+        
+        if requests is None:
+            return
+        
+        try:
+            rest_base = self.hub_url.replace("wss://", "https://").replace("ws://", "http://")
+            rest_base = rest_base.rstrip("/ws").rstrip("/")
+            unregister_url = f"{rest_base}/api/rest/camera/stream-unregister"
+            
+            requests.post(unregister_url, json={
+                "api_key": self.api_key,
+                "drone_id": self.drone_id,
+            }, timeout=5)
+            
+            logger.info("Stream unregistered from Hub")
+            self._stream_registered = False
+            
+        except Exception as e:
+            logger.warning(f"Failed to unregister stream from Hub: {e}")
+    
     def _check_stream_health(self) -> bool:
         """Check if stream is healthy by monitoring segment creation."""
         playlist_path = self.hls_dir / "stream.m3u8"
@@ -320,6 +409,7 @@ class HLSStreamingService:
                         continue
                 
                 # Monitor stream health
+                was_healthy = self.stream_healthy
                 self.stream_healthy = self._check_stream_health()
                 
                 if not self.stream_healthy:
@@ -328,6 +418,10 @@ class HLSStreamingService:
                     self.reconnect_count += 1
                     await asyncio.sleep(2)
                     continue
+                
+                # Register with Hub when stream first becomes healthy
+                if self.stream_healthy and not was_healthy:
+                    self._register_stream_with_hub()
                 
                 await asyncio.sleep(1)
                 
@@ -338,6 +432,7 @@ class HLSStreamingService:
                 await asyncio.sleep(5)
         
         # Cleanup
+        self._unregister_stream_from_hub()
         self._stop_ffmpeg()
         self._stop_http_server()
     
@@ -382,7 +477,13 @@ class CombinedCameraService:
         from siyi_camera_controller import CameraWebSocketBridge
         
         self.controller = CameraWebSocketBridge(hub_url, drone_id, api_key)
-        self.streamer = HLSStreamingService(stream_type, http_port)
+        self.streamer = HLSStreamingService(
+            stream_type=stream_type,
+            http_port=http_port,
+            hub_url=hub_url,
+            drone_id=drone_id,
+            api_key=api_key
+        )
         
     async def run(self):
         """Run both services concurrently."""
@@ -412,11 +513,11 @@ async def main():
     parser.add_argument('--combined', action='store_true',
                        help='Run combined service (streaming + controller)')
     parser.add_argument('--hub-url', type=str, default='wss://localhost:3000/ws',
-                       help='Quiver Hub WebSocket URL (for combined mode)')
+                       help='Quiver Hub URL (for stream registration and combined mode)')
     parser.add_argument('--drone-id', type=str, default='quiver_001',
-                       help='Drone identifier (for combined mode)')
+                       help='Drone identifier')
     parser.add_argument('--api-key', type=str, default='',
-                       help='API key for Quiver Hub (for combined mode)')
+                       help='API key for Quiver Hub authentication')
     
     args = parser.parse_args()
     
@@ -430,11 +531,14 @@ async def main():
             http_port=args.port
         )
     else:
-        # Streaming only mode
+        # Streaming only mode (still registers with Hub if credentials provided)
         service = HLSStreamingService(
             stream_type=args.stream,
             http_port=args.port,
-            hls_dir=args.hls_dir
+            hls_dir=args.hls_dir,
+            hub_url=args.hub_url if args.api_key else None,
+            drone_id=args.drone_id if args.api_key else None,
+            api_key=args.api_key or None
         )
     
     # Handle shutdown signals

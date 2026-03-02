@@ -249,6 +249,25 @@ export function broadcastCameraResponse(droneId: string, response: any) {
   io.to(`camera:${droneId}`).emit('camera_response', response);
 }
 
+/**
+ * Broadcast camera stream URL to subscribed clients.
+ * Called when companion computer registers/unregisters an HLS stream.
+ */
+export function broadcastCameraStream(droneId: string, streamUrl: string | null) {
+  if (!io) {
+    console.warn('[WebSocket] Cannot broadcast camera stream: server not initialized');
+    return;
+  }
+
+  io.to(`camera:${droneId}`).emit('camera_stream', {
+    drone_id: droneId,
+    url: streamUrl,
+    timestamp: Date.now(),
+  });
+
+  console.log(`[WebSocket] Camera stream ${streamUrl ? 'available' : 'unavailable'} for ${droneId}`);
+}
+
 export function getWebSocketServer() {
   return io;
 }
