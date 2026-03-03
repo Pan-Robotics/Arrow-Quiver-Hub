@@ -1058,3 +1058,8 @@
 - [x] Install HLS.js and integrate HLS player into CameraFeedApp (low-latency config, retry, buffering states)
 - [x] Update companion scripts with stream URL announcement logic (_register_stream_with_hub, _unregister_stream)
 - [x] Write vitest tests for HLS proxy and stream registration (29 new tests, 583 total passing)
+
+## Companion Computer Bugs
+
+- [x] Fix: siyi_camera_controller.py WebSocket error - try additional_headers first, fallback to extra_headers for version compatibility
+- [x] Fix: camera_stream_service.py RTSP 404 - added --rtsp-url override argument and documented common SIYI RTSP paths

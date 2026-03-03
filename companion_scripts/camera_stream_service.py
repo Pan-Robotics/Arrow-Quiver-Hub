@@ -55,6 +55,12 @@ logger = logging.getLogger('camera_stream')
 SIYI_CAMERA_IP = "192.168.144.25"
 RTSP_PORT = 8554
 
+# Common SIYI A8 RTSP paths (varies by firmware version):
+#   /video1  - Main stream (4K)
+#   /video2  - Sub stream (720p)
+#   /main.264  - Alternative main stream path (some firmware versions)
+#   /sub.264   - Alternative sub stream path (some firmware versions)
+# Use --rtsp-url to override if your camera uses a different path
 RTSP_STREAMS = {
     "main": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/video1",   # 4K
     "sub": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/video2",    # 720p (lower bandwidth)
@@ -114,16 +120,17 @@ class HLSStreamingService:
     4. Serve via built-in HTTP server
     """
     
-    def __init__(self, 
+    def __init__(self,
                  stream_type: str = "sub",
                  http_port: int = 8080,
                  hls_dir: str = DEFAULT_HLS_DIR,
                  hub_url: Optional[str] = None,
                  drone_id: Optional[str] = None,
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 rtsp_url: Optional[str] = None):
         
         self.stream_type = stream_type
-        self.rtsp_url = RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
+        self.rtsp_url = rtsp_url or RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
         self.http_port = http_port
         self.hls_dir = Path(hls_dir)
         
@@ -471,7 +478,8 @@ class CombinedCameraService:
                  drone_id: str,
                  api_key: str,
                  stream_type: str = "sub",
-                 http_port: int = 8080):
+                 http_port: int = 8080,
+                 rtsp_url: Optional[str] = None):
         
         # Import camera controller
         from siyi_camera_controller import CameraWebSocketBridge
@@ -482,7 +490,8 @@ class CombinedCameraService:
             http_port=http_port,
             hub_url=hub_url,
             drone_id=drone_id,
-            api_key=api_key
+            api_key=api_key,
+            rtsp_url=rtsp_url
         )
         
     async def run(self):
@@ -506,6 +515,8 @@ async def main():
     parser = argparse.ArgumentParser(description='SIYI Camera RTSP to HLS Streaming Service')
     parser.add_argument('--stream', type=str, choices=['main', 'sub'], default='sub',
                        help='Stream type: main (4K) or sub (720p)')
+    parser.add_argument('--rtsp-url', type=str, default=None,
+                       help='Override RTSP URL (e.g. rtsp://192.168.144.25:8554/main.264)')
     parser.add_argument('--port', type=int, default=8080,
                        help='HTTP port for HLS server')
     parser.add_argument('--hls-dir', type=str, default=DEFAULT_HLS_DIR,
@@ -528,7 +539,8 @@ async def main():
             drone_id=args.drone_id,
             api_key=args.api_key,
             stream_type=args.stream,
-            http_port=args.port
+            http_port=args.port,
+            rtsp_url=args.rtsp_url
         )
     else:
         # Streaming only mode (still registers with Hub if credentials provided)
@@ -538,7 +550,8 @@ async def main():
             hls_dir=args.hls_dir,
             hub_url=args.hub_url if args.api_key else None,
             drone_id=args.drone_id if args.api_key else None,
-            api_key=args.api_key or None
+            api_key=args.api_key or None,
+            rtsp_url=args.rtsp_url
         )
     
     # Handle shutdown signals

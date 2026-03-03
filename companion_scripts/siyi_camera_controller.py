@@ -637,7 +637,16 @@ class CameraWebSocketBridge:
                 
                 logger.info(f"Connecting to Quiver Hub: {ws_url}")
                 
-                async with websockets.connect(ws_url, extra_headers=headers) as ws:
+                # websockets >= 11.0 renamed extra_headers → additional_headers
+                # Try both for compatibility
+                try:
+                    ws_kwargs = {"additional_headers": headers}
+                    ws = await websockets.connect(ws_url, **ws_kwargs)
+                except TypeError:
+                    ws_kwargs = {"extra_headers": headers}
+                    ws = await websockets.connect(ws_url, **ws_kwargs)
+                
+                async with ws:
                     self.ws = ws
                     logger.info("Connected to Quiver Hub")
                     
