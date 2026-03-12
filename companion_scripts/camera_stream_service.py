@@ -14,8 +14,8 @@ Features:
 - Health monitoring and status reporting
 
 RTSP Sources:
-- Main stream (4K): rtsp://192.168.144.25:8554/video1
-- Sub stream (720p): rtsp://192.168.144.25:8554/video2
+- Main stream (4K): rtsp://192.168.144.25:8554/main.264
+- Sub stream (720p): rtsp://192.168.144.25:8554/sub.264
 
 Usage:
     python camera_stream_service.py --stream main --port 8080
@@ -55,15 +55,15 @@ logger = logging.getLogger('camera_stream')
 SIYI_CAMERA_IP = "192.168.144.25"
 RTSP_PORT = 8554
 
-# Common SIYI A8 RTSP paths (varies by firmware version):
-#   /video1  - Main stream (4K)
-#   /video2  - Sub stream (720p)
-#   /main.264  - Alternative main stream path (some firmware versions)
-#   /sub.264   - Alternative sub stream path (some firmware versions)
+# SIYI A8 RTSP paths:
+#   /main.264  - Main stream (4K)
+#   /sub.264   - Sub stream (720p)
+#   /video1    - Legacy main stream path (older firmware)
+#   /video2    - Legacy sub stream path (older firmware)
 # Use --rtsp-url to override if your camera uses a different path
 RTSP_STREAMS = {
-    "main": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/video1",   # 4K
-    "sub": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/video2",    # 720p (lower bandwidth)
+    "main": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/main.264",   # 4K
+    "sub": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/sub.264",     # 720p (lower bandwidth)
 }
 
 # Default HLS output directory

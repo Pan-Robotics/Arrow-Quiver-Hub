@@ -1064,3 +1064,4 @@
 - [x] Fix: siyi_camera_controller.py WebSocket error - try additional_headers first, fallback to extra_headers for version compatibility
 - [x] Fix: camera_stream_service.py RTSP 404 - added --rtsp-url override argument and documented common SIYI RTSP paths
 - [x] Fix: camera_stream_service.py use -c:v copy instead of libx264 to avoid 100% CPU on Pi 5 (no hardware H.264 encoder)
+- [x] Fix: Update default RTSP URLs to use /main.264 and /sub.264 format instead of /video1 /video2
