@@ -1095,3 +1095,6 @@
 - [x] Identify dead client code, unused components, pages, imports
 - [x] Compile audit report for user approval
 - [x] Execute cleanup
+
+## Organize Scripts
+- [x] Move all .py and .service files into companion_scripts folder

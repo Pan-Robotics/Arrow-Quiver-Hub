@@ -41,7 +41,7 @@ Copy the updated `raspberry_pi_client.py` file to your Raspberry Pi:
 
 ```bash
 # On your development machine (where you have the updated file)
-scp docs/raspberry_pi/raspberry_pi_client.py alexd@raspberrypi:~/raspberry_pi/
+scp companion_scripts/raspberry_pi_client.py julius@<companion-ip>:/home/julius/raspberry_pi/
 
 # Or if you're already on the Pi, download it directly
 cd ~/raspberry_pi
