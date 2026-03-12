@@ -15,7 +15,7 @@ import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastCameraStream, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
-import { handlePayloadIngest } from "./restApi";
+import { handlePayloadIngest } from "./payloadIngest";
 
 const router = Router();
 

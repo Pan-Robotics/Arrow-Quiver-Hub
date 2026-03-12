@@ -1087,3 +1087,11 @@
 - [x] Rewrite CameraWebSocketBridge to use python-socketio instead of raw websockets
 - [x] Fix siyi-camera.service with correct user, paths, and explicit args
 - [x] Update server-side WebSocket handler to relay camera_status and camera_response from companion to frontend
+
+## Spring Cleaning Audit
+- [x] Inventory all project files and map dependencies
+- [x] Identify dead companion scripts and unused files
+- [x] Identify dead server code, unused routes, stale helpers
+- [x] Identify dead client code, unused components, pages, imports
+- [x] Compile audit report for user approval
+- [x] Execute cleanup
