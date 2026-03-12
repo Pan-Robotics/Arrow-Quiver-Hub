@@ -8,12 +8,15 @@ via its TCP SDK protocol. It handles:
 - Zoom control
 - Photo capture and video recording
 - Camera status monitoring
-- WebSocket bridge for Quiver Hub integration
+- Socket.IO bridge for Quiver Hub integration
 
 Protocol Reference: SIYI Gimbal Camera External SDK Protocol V0.1.1
 
+Dependencies:
+    pip install 'python-socketio[asyncio_client]' aiohttp
+
 Usage:
-    python siyi_camera_controller.py --hub-url wss://your-quiver-hub.com --drone-id quiver_001
+    python siyi_camera_controller.py --hub-url https://your-quiver-hub.com --drone-id quiver_001 --api-key YOUR_KEY
 """
 
 import asyncio
@@ -23,6 +26,7 @@ import time
 import json
 import argparse
 import logging
+import signal
 from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 from enum import IntEnum
@@ -178,16 +182,6 @@ class SIYICameraController:
         data_len = len(data)
         seq = self._next_sequence()
         
-        # Build frame without CRC
-        frame = struct.pack('<BBHHHB',
-            STX_LOW, STX_HIGH,  # STX
-            ctrl,               # CTRL (as 2 bytes with padding handled by H)
-            data_len,           # Data length
-            seq,                # Sequence
-            cmd_id              # Command ID
-        )
-        
-        # Actually the format should be:
         # STX (2) + CTRL (1) + Data_len (2) + SEQ (2) + CMD_ID (1) = 8 bytes header
         frame = bytes([STX_LOW, STX_HIGH, ctrl]) + \
                 struct.pack('<H', data_len) + \
@@ -299,7 +293,6 @@ class SIYICameraController:
     
     async def send_heartbeat(self) -> bool:
         """Send heartbeat packet to keep connection alive."""
-        # Heartbeat packet from SDK docs
         heartbeat = bytes([0x55, 0x66, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x8B])
         if self.socket:
             try:
@@ -314,7 +307,6 @@ class SIYICameraController:
         """Request firmware version information."""
         response = await self._send_command(CmdId.FIRMWARE_VERSION)
         if response and len(response) >= 12:
-            # Parse version bytes (uint32_t each, ignore high byte)
             camera_ver = struct.unpack('<I', response[0:4])[0]
             gimbal_ver = struct.unpack('<I', response[4:8])[0]
             zoom_ver = struct.unpack('<I', response[8:12])[0]
@@ -333,7 +325,6 @@ class SIYICameraController:
         """Request current gimbal attitude."""
         response = await self._send_command(CmdId.GIMBAL_ATTITUDE)
         if response and len(response) >= 12:
-            # Parse attitude data (int16_t values, divide by 10 for degrees)
             yaw, pitch, roll = struct.unpack('<hhh', response[0:6])
             yaw_vel, pitch_vel, roll_vel = struct.unpack('<hhh', response[6:12])
             
@@ -392,15 +383,10 @@ class SIYICameraController:
         Args:
             yaw: Target yaw angle (-135.0 to 135.0 degrees)
             pitch: Target pitch angle (-90.0 to 25.0 degrees)
-        
-        Returns:
-            Current attitude after command, or None on failure.
         """
-        # Clamp to valid ranges
         yaw = max(-135.0, min(135.0, yaw))
         pitch = max(-90.0, min(25.0, pitch))
         
-        # Convert to int16 (multiply by 10)
         yaw_int = int(yaw * 10)
         pitch_int = int(pitch * 10)
         
@@ -435,9 +421,6 @@ class SIYICameraController:
         
         Args:
             direction: 1 = zoom in, 0 = stop, -1 = zoom out
-        
-        Returns:
-            Current zoom level, or None on failure.
         """
         direction = max(-1, min(1, direction))
         data = struct.pack('<b', direction)
@@ -496,15 +479,26 @@ class SIYICameraController:
 
 
 # ============================================================================
-# WebSocket Bridge for Quiver Hub
+# Socket.IO Bridge for Quiver Hub
 # ============================================================================
 
 class CameraWebSocketBridge:
     """
-    WebSocket bridge connecting SIYI camera to Quiver Hub.
+    Socket.IO bridge connecting SIYI camera to Quiver Hub.
     
-    Receives commands from Quiver Hub via WebSocket and forwards them
-    to the camera controller. Sends camera status updates back to Hub.
+    The Hub server uses Socket.IO (not raw WebSocket), so this bridge uses
+    python-socketio's async client to communicate. It:
+    
+    1. Connects to the Hub via Socket.IO
+    2. Emits 'register_companion' to join the companion room for this drone
+    3. Listens for 'camera_command' events from the frontend
+    4. Forwards commands to the SIYI camera via TCP SDK
+    5. Emits 'camera_status' updates at 2 Hz
+    6. Emits 'camera_response' after each command execution
+    
+    The Hub's Socket.IO server listens on /socket.io/ (the default path).
+    Authentication is passed as a query parameter since Socket.IO doesn't
+    support custom headers on the initial handshake in all transports.
     """
     
     def __init__(self, hub_url: str, drone_id: str, api_key: str):
@@ -513,7 +507,8 @@ class CameraWebSocketBridge:
         self.api_key = api_key
         self.camera = SIYICameraController()
         self.running = False
-        self.ws = None
+        self.sio = None
+        self._connected_to_hub = False
         
     async def connect_camera(self) -> bool:
         """Connect to the SIYI camera."""
@@ -526,7 +521,8 @@ class CameraWebSocketBridge:
         Command format:
         {
             "type": "camera_command",
-            "action": "rotate" | "center" | "nadir" | "zoom" | "photo" | "record" | "stop_record",
+            "droneId": "quiver_001",
+            "action": "rotate" | "center" | "nadir" | "zoom" | ...,
             "params": { ... }
         }
         """
@@ -536,14 +532,12 @@ class CameraWebSocketBridge:
         
         try:
             if action == 'rotate':
-                # Velocity-based rotation
                 yaw = params.get('yaw', 0)
                 pitch = params.get('pitch', 0)
                 success = await self.camera.rotate_gimbal(yaw, pitch)
                 result["success"] = success
                 
             elif action == 'set_angles':
-                # Absolute angle positioning
                 yaw = params.get('yaw', 0)
                 pitch = params.get('pitch', 0)
                 attitude = await self.camera.set_gimbal_angles(yaw, pitch)
@@ -611,12 +605,31 @@ class CameraWebSocketBridge:
             
         return result
     
+    def _get_hub_http_url(self) -> str:
+        """
+        Convert the hub_url to an HTTP(S) URL for Socket.IO connection.
+        
+        Socket.IO connects over HTTP(S), not WS. The library handles
+        the upgrade to WebSocket transport internally.
+        """
+        url = self.hub_url
+        url = url.replace("wss://", "https://").replace("ws://", "http://")
+        # Strip any path suffixes — socketio client adds /socket.io/ itself
+        for suffix in ["/ws", "/socket.io/", "/socket.io"]:
+            if url.endswith(suffix):
+                url = url[:-len(suffix)]
+        url = url.rstrip("/")
+        return url
+    
     async def run(self):
-        """Main loop connecting to Quiver Hub and handling commands."""
+        """Main loop connecting to Quiver Hub via Socket.IO and handling commands."""
         try:
-            import websockets
+            import socketio
         except ImportError:
-            logger.error("websockets package not installed. Run: pip install websockets")
+            logger.error(
+                "python-socketio package not installed. Run:\n"
+                "  pip install 'python-socketio[asyncio_client]' aiohttp"
+            )
             return
         
         self.running = True
@@ -631,51 +644,87 @@ class CameraWebSocketBridge:
                         await asyncio.sleep(5)
                         continue
                 
-                # Connect to Quiver Hub WebSocket
-                ws_url = f"{self.hub_url}?droneId={self.drone_id}&type=camera"
-                headers = {"Authorization": f"Bearer {self.api_key}"}
+                # Create Socket.IO async client
+                self.sio = socketio.AsyncClient(
+                    reconnection=False,  # We handle reconnection in the outer loop
+                    logger=False,
+                    engineio_logger=False,
+                )
                 
-                logger.info(f"Connecting to Quiver Hub: {ws_url}")
+                hub_url = self._get_hub_http_url()
+                logger.info(f"Connecting to Quiver Hub via Socket.IO: {hub_url}")
                 
-                # websockets >= 11.0 renamed extra_headers → additional_headers
-                # Try both for compatibility
+                # ---- Register event handlers ----
+                
+                @self.sio.event
+                async def connect():
+                    logger.info("Connected to Quiver Hub (Socket.IO)")
+                    self._connected_to_hub = True
+                    # Register as companion computer for this drone
+                    await self.sio.emit('register_companion', {
+                        'droneId': self.drone_id,
+                        'type': 'camera'
+                    })
+                    logger.info(f"Registered as camera companion for drone: {self.drone_id}")
+                
+                @self.sio.event
+                async def disconnect():
+                    logger.warning("Disconnected from Quiver Hub")
+                    self._connected_to_hub = False
+                
+                @self.sio.event
+                async def connect_error(data):
+                    logger.error(f"Socket.IO connection error: {data}")
+                    self._connected_to_hub = False
+                
+                @self.sio.on('camera_command')
+                async def on_camera_command(data):
+                    """Handle camera command from frontend via Hub."""
+                    logger.info(f"Received camera command: {data.get('action', 'unknown')}")
+                    result = await self.handle_command(data)
+                    # Send response back to Hub for frontend
+                    await self.sio.emit('camera_response', {
+                        'type': 'camera_response',
+                        'droneId': self.drone_id,
+                        **result
+                    })
+                
+                # ---- Connect ----
+                # Socket.IO handles the HTTP -> WebSocket upgrade internally.
+                # We use transports=['websocket'] to skip long-polling and go
+                # straight to WebSocket for lower latency.
+                await self.sio.connect(
+                    hub_url,
+                    transports=['websocket'],
+                )
+                
+                # Start background tasks for heartbeat and status updates
+                heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                status_task = asyncio.create_task(self._status_update_loop())
+                
                 try:
-                    ws_kwargs = {"additional_headers": headers}
-                    ws = await websockets.connect(ws_url, **ws_kwargs)
-                except TypeError:
-                    ws_kwargs = {"extra_headers": headers}
-                    ws = await websockets.connect(ws_url, **ws_kwargs)
-                
-                async with ws:
-                    self.ws = ws
-                    logger.info("Connected to Quiver Hub")
-                    
-                    # Send initial status
-                    await self._send_status_update()
-                    
-                    # Start heartbeat and status update tasks
-                    heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-                    status_task = asyncio.create_task(self._status_update_loop())
-                    
+                    # Block until disconnected or stopped
+                    await self.sio.wait()
+                finally:
+                    heartbeat_task.cancel()
+                    status_task.cancel()
                     try:
-                        async for message in ws:
-                            try:
-                                data = json.loads(message)
-                                if data.get('type') == 'camera_command':
-                                    result = await self.handle_command(data)
-                                    await ws.send(json.dumps({
-                                        "type": "camera_response",
-                                        "droneId": self.drone_id,
-                                        **result
-                                    }))
-                            except json.JSONDecodeError:
-                                logger.warning(f"Invalid JSON received: {message}")
-                    finally:
-                        heartbeat_task.cancel()
-                        status_task.cancel()
-                        
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
+                    try:
+                        await status_task
+                    except asyncio.CancelledError:
+                        pass
+                    
             except Exception as e:
-                logger.error(f"WebSocket error: {e}")
+                logger.error(f"Socket.IO error: {e}")
+                self._connected_to_hub = False
+                if self.sio and self.sio.connected:
+                    try:
+                        await self.sio.disconnect()
+                    except:
+                        pass
                 await asyncio.sleep(5)
     
     async def _heartbeat_loop(self):
@@ -690,19 +739,20 @@ class CameraWebSocketBridge:
                 logger.error(f"Heartbeat error: {e}")
     
     async def _status_update_loop(self):
-        """Send status updates to Quiver Hub periodically."""
+        """Send status updates to Quiver Hub periodically at 2 Hz."""
         while self.running:
             try:
-                await self._send_status_update()
-                await asyncio.sleep(0.5)  # 2 Hz updates
+                if self._connected_to_hub and self.sio and self.sio.connected:
+                    await self._send_status_update()
+                await asyncio.sleep(0.5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Status update error: {e}")
     
     async def _send_status_update(self):
-        """Send current camera status to Quiver Hub."""
-        if not self.ws:
+        """Send current camera status to Quiver Hub via Socket.IO."""
+        if not self.sio or not self.sio.connected:
             return
             
         try:
@@ -711,7 +761,7 @@ class CameraWebSocketBridge:
             
             update = {
                 "type": "camera_status",
-                "droneId": self.drone_id,
+                "drone_id": self.drone_id,
                 "connected": self.camera.connected,
                 "timestamp": time.time()
             }
@@ -728,7 +778,7 @@ class CameraWebSocketBridge:
                 update["hdr_enabled"] = status.hdr_enabled
                 update["tf_card_present"] = status.tf_card_present
             
-            await self.ws.send(json.dumps(update))
+            await self.sio.emit('camera_status', update)
             
         except Exception as e:
             logger.error(f"Failed to send status update: {e}")
@@ -745,8 +795,8 @@ class CameraWebSocketBridge:
 async def main():
     parser = argparse.ArgumentParser(description='SIYI A8 Mini Camera Controller')
     parser.add_argument('--hub-url', type=str, 
-                       default='wss://localhost:3000/ws',
-                       help='Quiver Hub WebSocket URL')
+                       default='https://localhost:3000',
+                       help='Quiver Hub URL (HTTP/HTTPS — Socket.IO handles the upgrade)')
     parser.add_argument('--drone-id', type=str, 
                        default='quiver_001',
                        help='Drone identifier')
@@ -755,8 +805,15 @@ async def main():
                        help='API key for Quiver Hub authentication')
     parser.add_argument('--test', action='store_true',
                        help='Run in test mode (direct camera control)')
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug logging')
     
     args = parser.parse_args()
+    
+    if args.debug:
+        logging.getLogger('siyi_camera').setLevel(logging.DEBUG)
+        logging.getLogger('socketio').setLevel(logging.DEBUG)
+        logging.getLogger('engineio').setLevel(logging.DEBUG)
     
     if args.test:
         # Test mode: direct camera control
@@ -764,42 +821,44 @@ async def main():
         camera = SIYICameraController()
         
         if await camera.connect():
-            # Get firmware version
             version = await camera.get_firmware_version()
             if version:
                 logger.info(f"Firmware - Camera: {version.camera}, Gimbal: {version.gimbal}, Zoom: {version.zoom}")
             
-            # Get attitude
             attitude = await camera.get_gimbal_attitude()
             if attitude:
-                logger.info(f"Attitude - Yaw: {attitude.yaw}°, Pitch: {attitude.pitch}°, Roll: {attitude.roll}°")
+                logger.info(f"Attitude - Yaw: {attitude.yaw}, Pitch: {attitude.pitch}, Roll: {attitude.roll}")
             
-            # Get status
             status = await camera.get_camera_status()
             if status:
                 logger.info(f"Status - Recording: {status.recording}, HDR: {status.hdr_enabled}, TF Card: {status.tf_card_present}")
             
-            # Test center
             logger.info("Centering gimbal...")
             await camera.center_gimbal()
             await asyncio.sleep(2)
             
-            # Test rotation
             logger.info("Testing rotation...")
-            await camera.rotate_gimbal(30, 0)  # Rotate right
+            await camera.rotate_gimbal(30, 0)
             await asyncio.sleep(1)
-            await camera.rotate_gimbal(0, 0)   # Stop
+            await camera.rotate_gimbal(0, 0)
             
             await camera.disconnect()
         else:
             logger.error("Failed to connect to camera")
     else:
-        # Production mode: WebSocket bridge
+        # Production mode: Socket.IO bridge
         bridge = CameraWebSocketBridge(
             hub_url=args.hub_url,
             drone_id=args.drone_id,
             api_key=args.api_key
         )
+        
+        def signal_handler(sig, frame):
+            logger.info("Shutdown signal received")
+            bridge.stop()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
         
         try:
             await bridge.run()

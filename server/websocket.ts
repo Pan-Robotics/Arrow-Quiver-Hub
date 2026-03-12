@@ -143,6 +143,21 @@ export function initializeWebSocket(httpServer: HTTPServer) {
       socket.data.companionType = data.type;
     });
 
+    // Camera status updates from companion → forward to subscribed browser clients
+    socket.on('camera_status', (data: CameraStatusMessage) => {
+      if (socket.data.companionDroneId) {
+        io?.to(`camera:${socket.data.companionDroneId}`).emit('camera_status', data);
+        io?.to('stream:camera_status').emit('camera_status', data);
+      }
+    });
+
+    // Camera command responses from companion → forward to subscribed browser clients
+    socket.on('camera_response', (data: any) => {
+      if (socket.data.companionDroneId) {
+        io?.to(`camera:${socket.data.companionDroneId}`).emit('camera_response', data);
+      }
+    });
+
     // Subscribe to a data stream (for stream_subscription apps)
     socket.on('subscribe_stream', (streamId: string) => {
       console.log(`[WebSocket] Client ${socket.id} subscribed to stream: ${streamId}`);

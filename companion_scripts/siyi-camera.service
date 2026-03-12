@@ -5,11 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/quiver
-ExecStart=/usr/bin/python3 /home/pi/quiver/siyi_camera_controller.py --hub-url ${HUB_WS_URL} --drone-id ${DRONE_ID} --api-key ${API_KEY}
+User=julius
+WorkingDirectory=/home/julius/camera_forwarder
+ExecStart=/usr/bin/python3 /home/julius/camera_forwarder/siyi_camera_controller.py \
+    --hub-url HUB_URL_HERE \
+    --drone-id DRONE_ID_HERE \
+    --api-key API_KEY_HERE
 Restart=always
-RestartSec=10
+RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
 # Logging

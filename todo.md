@@ -1081,3 +1081,9 @@
 - [x] Update camera-stream.service to depend on cloudflared tunnel
 - [x] Write vitest tests for tunnel detection logic (30 tests, 613 total passing)
 - [x] Update install script with cloudflared setup instructions
+
+## SIYI Camera Controller WebSocket Connection
+- [x] Debug camera controller WebSocket 502/timeout errors in combined mode (root cause: raw websockets vs Socket.IO mismatch)
+- [x] Rewrite CameraWebSocketBridge to use python-socketio instead of raw websockets
+- [x] Fix siyi-camera.service with correct user, paths, and explicit args
+- [x] Update server-side WebSocket handler to relay camera_status and camera_response from companion to frontend
