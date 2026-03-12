@@ -1,13 +1,23 @@
 [Unit]
 Description=SIYI A8 Mini RTSP to HLS Streaming Service
-After=network-online.target siyi-camera.service
+After=network-online.target siyi-camera.service cloudflared-hls.service
 Wants=network-online.target
+Requires=cloudflared-hls.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/quiver
-ExecStart=/usr/bin/python3 /home/pi/quiver/camera_stream_service.py --stream sub --port 8080
+User=julius
+WorkingDirectory=/home/julius/camera_forwarder
+# --tunnel-metrics-port 33843 enables auto-detection of the cloudflared
+# quick tunnel URL. The script polls http://127.0.0.1:33843/quicktunnel
+# to discover the public hostname and registers it with the Hub.
+ExecStart=/usr/bin/python3 /home/julius/camera_forwarder/camera_stream_service.py \
+    --stream sub \
+    --port 8080 \
+    --hub-url https://rplidar-viz-cjlhozxe.manus.space \
+    --drone-id quiver_001 \
+    --api-key sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M \
+    --tunnel-metrics-port 33843
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1

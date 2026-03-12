@@ -6,9 +6,12 @@ This script captures the RTSP video stream from the SIYI A8 mini camera
 and transcodes it to HLS (HTTP Live Streaming) format for web delivery.
 
 The HLS stream is served via a local HTTP server that Quiver Hub can proxy.
+A cloudflared quick tunnel exposes the local HLS server to the internet so
+the cloud-hosted Hub can reach it — no manual URL configuration needed.
 
 Features:
-- RTSP to HLS transcoding via FFmpeg
+- RTSP to HLS transcoding via FFmpeg (stream copy, no re-encoding)
+- Automatic cloudflared tunnel URL detection
 - Automatic reconnection on stream failure
 - Low-latency configuration for real-time viewing
 - Health monitoring and status reporting
@@ -18,7 +21,19 @@ RTSP Sources:
 - Sub stream (720p): rtsp://192.168.144.25:8554/sub.264
 
 Usage:
-    python camera_stream_service.py --stream main --port 8080
+    python camera_stream_service.py --stream sub --port 8080 \\
+        --hub-url https://your-hub.example.com \\
+        --drone-id quiver_001 --api-key YOUR_KEY
+
+Cloudflared Tunnel:
+    This script auto-detects the public URL from a cloudflared quick tunnel
+    running alongside it. Start cloudflared with a fixed metrics port:
+
+        cloudflared tunnel --url http://localhost:8080 --metrics 127.0.0.1:33843
+
+    The script polls http://127.0.0.1:33843/quicktunnel to discover the
+    public hostname and registers it with the Hub instead of the LAN IP.
+    See companion systemd files: cloudflared-hls.service, camera-stream.service
 """
 
 import asyncio
@@ -77,6 +92,11 @@ HLS_SETTINGS = {
     "start_number": 0,
 }
 
+# Cloudflared tunnel auto-detection
+DEFAULT_CLOUDFLARED_METRICS_PORT = 33843
+TUNNEL_DETECT_TIMEOUT = 60       # Max seconds to wait for tunnel on startup
+TUNNEL_DETECT_INTERVAL = 2       # Seconds between detection attempts
+
 
 # ============================================================================
 # CORS-enabled HTTP Handler
@@ -106,6 +126,64 @@ class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
 
 
 # ============================================================================
+# Cloudflared Tunnel Detection
+# ============================================================================
+
+def detect_tunnel_url(metrics_port: int = DEFAULT_CLOUDFLARED_METRICS_PORT,
+                      timeout: int = TUNNEL_DETECT_TIMEOUT,
+                      interval: int = TUNNEL_DETECT_INTERVAL) -> Optional[str]:
+    """
+    Auto-detect the public URL from a running cloudflared quick tunnel.
+    
+    Cloudflared exposes a /quicktunnel endpoint on its metrics HTTP server
+    that returns JSON: {"hostname": "abc123.trycloudflare.com"}
+    
+    Args:
+        metrics_port: The port cloudflared's metrics server is listening on.
+                      Must match the --metrics flag used when starting cloudflared.
+        timeout: Maximum seconds to wait for the tunnel to become available.
+        interval: Seconds between polling attempts.
+    
+    Returns:
+        The public HTTPS URL (e.g. "https://abc123.trycloudflare.com") or None.
+    """
+    if requests is None:
+        logger.warning("'requests' package not installed. Cannot detect tunnel URL.")
+        return None
+    
+    metrics_url = f"http://127.0.0.1:{metrics_port}/quicktunnel"
+    deadline = time.time() + timeout
+    attempt = 0
+    
+    logger.info(f"Waiting for cloudflared tunnel (polling {metrics_url}, timeout {timeout}s)...")
+    
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            resp = requests.get(metrics_url, timeout=3)
+            if resp.status_code == 200:
+                data = resp.json()
+                hostname = data.get("hostname")
+                if hostname:
+                    public_url = f"https://{hostname}"
+                    logger.info(f"Cloudflared tunnel detected: {public_url} (attempt {attempt})")
+                    return public_url
+                else:
+                    logger.debug(f"Tunnel response missing hostname: {data}")
+            else:
+                logger.debug(f"Tunnel metrics returned {resp.status_code} (attempt {attempt})")
+        except requests.ConnectionError:
+            logger.debug(f"Tunnel not ready yet (attempt {attempt})")
+        except Exception as e:
+            logger.debug(f"Tunnel detection error: {e} (attempt {attempt})")
+        
+        time.sleep(interval)
+    
+    logger.warning(f"Cloudflared tunnel not detected after {timeout}s ({attempt} attempts)")
+    return None
+
+
+# ============================================================================
 # HLS Streaming Service
 # ============================================================================
 
@@ -115,9 +193,14 @@ class HLSStreamingService:
     
     Uses FFmpeg to:
     1. Connect to RTSP stream from SIYI camera
-    2. Transcode to H.264 (if needed) with low-latency settings
+    2. Remux H.264 into HLS segments (stream copy, no re-encoding)
     3. Output HLS segments (.ts) and playlist (.m3u8)
     4. Serve via built-in HTTP server
+    
+    On startup, if cloudflared tunnel detection is enabled, the service
+    polls the cloudflared metrics endpoint to discover the public URL.
+    It then registers the public URL (not the LAN IP) with the Hub so
+    the cloud-hosted proxy can reach the stream.
     """
     
     def __init__(self,
@@ -127,7 +210,9 @@ class HLSStreamingService:
                  hub_url: Optional[str] = None,
                  drone_id: Optional[str] = None,
                  api_key: Optional[str] = None,
-                 rtsp_url: Optional[str] = None):
+                 rtsp_url: Optional[str] = None,
+                 tunnel_metrics_port: Optional[int] = None,
+                 public_url: Optional[str] = None):
         
         self.stream_type = stream_type
         self.rtsp_url = rtsp_url or RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
@@ -139,6 +224,11 @@ class HLSStreamingService:
         self.drone_id = drone_id
         self.api_key = api_key
         self._stream_registered = False
+        
+        # Tunnel configuration
+        self.tunnel_metrics_port = tunnel_metrics_port  # None = disabled
+        self.public_url = public_url                    # Manual override
+        self._tunnel_url: Optional[str] = None          # Auto-detected URL
         
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.http_server: Optional[HTTPServer] = None
@@ -300,10 +390,55 @@ class HLSStreamingService:
         except Exception:
             return "127.0.0.1"
     
+    def _get_stream_base_url(self) -> str:
+        """
+        Determine the base URL to register with the Hub.
+        
+        Priority order:
+        1. Manual --public-url override (for fixed/named tunnels)
+        2. Auto-detected cloudflared tunnel URL
+        3. Fallback to LAN IP (only works if Hub is on same network)
+        """
+        if self.public_url:
+            logger.info(f"Using manual public URL: {self.public_url}")
+            return self.public_url
+        
+        if self._tunnel_url:
+            logger.info(f"Using cloudflared tunnel URL: {self._tunnel_url}")
+            return self._tunnel_url
+        
+        local_ip = self._get_local_ip()
+        local_url = f"http://{local_ip}:{self.http_port}"
+        logger.warning(f"No tunnel available, falling back to LAN URL: {local_url}")
+        logger.warning("The Hub will only be able to proxy if it can reach this LAN address.")
+        return local_url
+    
+    def _detect_tunnel(self):
+        """
+        Attempt to auto-detect the cloudflared tunnel URL.
+        Called once during startup before the main loop.
+        """
+        if self.tunnel_metrics_port is None:
+            logger.debug("Tunnel detection disabled (no --tunnel-metrics-port)")
+            return
+        
+        self._tunnel_url = detect_tunnel_url(
+            metrics_port=self.tunnel_metrics_port,
+            timeout=TUNNEL_DETECT_TIMEOUT,
+            interval=TUNNEL_DETECT_INTERVAL,
+        )
+        
+        if self._tunnel_url:
+            logger.info(f"Will register stream via tunnel: {self._tunnel_url}")
+        else:
+            logger.warning("Tunnel detection failed. Will fall back to LAN IP.")
+    
     def _register_stream_with_hub(self):
         """
         Register the HLS stream URL with Quiver Hub.
-        The Hub will then proxy requests from the browser to this local server.
+        The Hub will then proxy requests from the browser to this URL.
+        
+        Uses the tunnel URL if available, otherwise falls back to LAN IP.
         """
         if not self.hub_url or not self.drone_id or not self.api_key:
             logger.debug("Hub registration skipped: missing hub_url, drone_id, or api_key")
@@ -314,14 +449,16 @@ class HLSStreamingService:
             logger.warning("Install with: pip install requests")
             return
         
-        local_ip = self._get_local_ip()
-        stream_url = f"http://{local_ip}:{self.http_port}/stream.m3u8"
+        base_url = self._get_stream_base_url()
+        stream_url = f"{base_url}/stream.m3u8"
         
         try:
             # Convert ws/wss URL to http/https for REST call
             rest_base = self.hub_url.replace("wss://", "https://").replace("ws://", "http://")
             rest_base = rest_base.rstrip("/ws").rstrip("/")
             register_url = f"{rest_base}/api/rest/camera/stream-register"
+            
+            logger.info(f"Registering stream with Hub: {stream_url}")
             
             response = requests.post(register_url, json={
                 "api_key": self.api_key,
@@ -392,6 +529,9 @@ class HLSStreamingService:
         self._setup_hls_directory()
         self._start_http_server()
         
+        # Detect cloudflared tunnel before entering main loop
+        self._detect_tunnel()
+        
         while self.running:
             try:
                 # Start FFmpeg if not running
@@ -452,6 +592,8 @@ class HLSStreamingService:
             "rtsp_url": self.rtsp_url,
             "http_port": self.http_port,
             "hls_url": f"http://localhost:{self.http_port}/stream.m3u8",
+            "tunnel_url": self._tunnel_url,
+            "public_url": self.public_url,
             "stream_healthy": self.stream_healthy,
             "ffmpeg_running": self.ffmpeg_process is not None and self.ffmpeg_process.poll() is None,
             "reconnect_count": self.reconnect_count
@@ -476,7 +618,9 @@ class CombinedCameraService:
                  api_key: str,
                  stream_type: str = "sub",
                  http_port: int = 8080,
-                 rtsp_url: Optional[str] = None):
+                 rtsp_url: Optional[str] = None,
+                 tunnel_metrics_port: Optional[int] = None,
+                 public_url: Optional[str] = None):
         
         # Import camera controller
         from siyi_camera_controller import CameraWebSocketBridge
@@ -488,7 +632,9 @@ class CombinedCameraService:
             hub_url=hub_url,
             drone_id=drone_id,
             api_key=api_key,
-            rtsp_url=rtsp_url
+            rtsp_url=rtsp_url,
+            tunnel_metrics_port=tunnel_metrics_port,
+            public_url=public_url,
         )
         
     async def run(self):
@@ -527,6 +673,15 @@ async def main():
     parser.add_argument('--api-key', type=str, default='',
                        help='API key for Quiver Hub authentication')
     
+    # Tunnel options
+    parser.add_argument('--tunnel-metrics-port', type=int, default=None,
+                       help='Cloudflared metrics port for tunnel URL auto-detection '
+                            '(e.g. 33843). Omit to disable tunnel detection and use LAN IP.')
+    parser.add_argument('--public-url', type=str, default=None,
+                       help='Manual override for the public stream URL registered with Hub. '
+                            'Use this for named tunnels with a fixed domain. '
+                            'Takes priority over auto-detected tunnel URL.')
+    
     args = parser.parse_args()
     
     if args.combined:
@@ -537,7 +692,9 @@ async def main():
             api_key=args.api_key,
             stream_type=args.stream,
             http_port=args.port,
-            rtsp_url=args.rtsp_url
+            rtsp_url=args.rtsp_url,
+            tunnel_metrics_port=args.tunnel_metrics_port,
+            public_url=args.public_url,
         )
     else:
         # Streaming only mode (still registers with Hub if credentials provided)
@@ -548,7 +705,9 @@ async def main():
             hub_url=args.hub_url if args.api_key else None,
             drone_id=args.drone_id if args.api_key else None,
             api_key=args.api_key or None,
-            rtsp_url=args.rtsp_url
+            rtsp_url=args.rtsp_url,
+            tunnel_metrics_port=args.tunnel_metrics_port,
+            public_url=args.public_url,
         )
     
     # Handle shutdown signals

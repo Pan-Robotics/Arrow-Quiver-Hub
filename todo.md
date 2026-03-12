@@ -1065,3 +1065,19 @@
 - [x] Fix: camera_stream_service.py RTSP 404 - added --rtsp-url override argument and documented common SIYI RTSP paths
 - [x] Fix: camera_stream_service.py use -c:v copy instead of libx264 to avoid 100% CPU on Pi 5 (no hardware H.264 encoder)
 - [x] Fix: Update default RTSP URLs to use /main.264 and /sub.264 format instead of /video1 /video2
+
+## Camera Stream Not Showing in Browser
+
+- [x] Debug: systemd service not passing --hub-url, --api-key, --drone-id so stream registration never happens
+- [x] Provide corrected systemd service file with Hub registration parameters
+- [x] Verify server-side HLS proxy is ready to accept registrations
+
+## Cloudflared Tunnel Auto-Detection for Remote Drone Streaming
+
+- [x] Add cloudflared tunnel URL auto-detection to camera_stream_service.py (query metrics endpoint)
+- [x] Add retry/polling logic to wait for tunnel to become available on startup
+- [x] Register public tunnel URL instead of LAN IP with Hub
+- [x] Create cloudflared-hls.service systemd unit file
+- [x] Update camera-stream.service to depend on cloudflared tunnel
+- [x] Write vitest tests for tunnel detection logic (30 tests, 613 total passing)
+- [x] Update install script with cloudflared setup instructions
