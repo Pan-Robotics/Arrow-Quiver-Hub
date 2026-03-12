@@ -166,14 +166,18 @@ class HLSStreamingService:
         """
         Build FFmpeg command for RTSP to HLS conversion.
         
+        Uses -c:v copy to remux the camera's existing H.264 stream into HLS
+        segments without re-encoding. This is critical for the Pi 5 which has
+        no hardware H.264 encoder — software encoding (libx264) would pin the
+        CPU at 100% and cause thermal shutdown.
+        
         Optimized for:
+        - Near-zero CPU usage (stream copy, no transcoding)
         - Low latency (small segments, minimal buffering)
-        - Web compatibility (H.264 baseline profile)
-        - Bandwidth efficiency (appropriate bitrate for stream type)
+        - Use the sub-stream (720p) to keep bandwidth reasonable
         """
         output_path = self.hls_dir / "stream.m3u8"
         
-        # Base settings
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -186,26 +190,19 @@ class HLSStreamingService:
             "-strict", "experimental",
             "-i", self.rtsp_url,
             
-            # Video encoding settings
-            "-c:v", "libx264",              # H.264 codec
-            "-preset", "ultrafast",         # Fastest encoding
-            "-tune", "zerolatency",         # Zero latency tuning
-            "-profile:v", "baseline",       # Baseline profile for compatibility
-            "-level", "3.1",
+            # Video: copy the existing H.264 stream as-is (no re-encoding)
+            # The SIYI camera already outputs H.264, so we just remux into
+            # HLS .ts segments. This uses ~1-2% CPU vs ~100% with libx264.
+            "-c:v", "copy",
+            
+            # Note: with -c:v copy, scaling (-vf scale=...) and bitrate
+            # limits (-b:v, -maxrate, -bufsize) are not available.
+            # Use the sub-stream (720p) instead of main (4K) to control
+            # resolution and bandwidth at the source.
         ]
         
-        # Bitrate based on stream type
-        if self.stream_type == "main":
-            cmd.extend(["-b:v", "4000k", "-maxrate", "4500k", "-bufsize", "8000k"])
-        else:
-            cmd.extend(["-b:v", "1500k", "-maxrate", "2000k", "-bufsize", "3000k"])
-        
-        # Scale down if main stream (4K is too heavy for web)
-        if self.stream_type == "main":
-            cmd.extend(["-vf", "scale=1920:1080"])
-        
-        # Audio settings (copy if present, or disable)
-        cmd.extend(["-an"])  # Disable audio for now (camera may not have mic)
+        # Audio: disable (camera typically has no mic)
+        cmd.extend(["-an"])
         
         # HLS output settings
         cmd.extend([
