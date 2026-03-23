@@ -1111,3 +1111,6 @@
 - [x] Delete cloudflared-hls.service (replaced by Tailscale funnel)
 - [x] Update CAMERA_SERVICES_README.md for new architecture
 - [x] Write tests for new endpoints (29 WebRTC tests, 583 total passing, removed 30 old cloudflared tests)
+
+## Latency Indicator
+- [x] Add WebRTC latency indicator to Camera Feed widget (RTT, jitter, connection quality)

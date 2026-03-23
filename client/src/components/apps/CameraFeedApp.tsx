@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Camera, 
   Video, 
@@ -23,7 +24,8 @@ import {
   Loader2,
   Wifi,
   WifiOff,
-  RefreshCw
+  RefreshCw,
+  Gauge
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { useDroneSelection } from "@/hooks/useDroneSelection";
@@ -39,6 +41,55 @@ interface CameraStatus {
   streamActive: boolean;
 }
 
+// WebRTC stats for latency indicator
+interface WebRTCStats {
+  rtt: number | null;          // Round-trip time in ms
+  jitter: number | null;       // Jitter in ms
+  bitrate: number | null;      // Incoming video bitrate in kbps
+  packetsLost: number | null;  // Total packets lost
+  framesPerSecond: number | null; // Current FPS
+  resolution: { width: number; height: number } | null;
+  codec: string | null;
+  transportType: string | null; // "udp" or "tcp" (relay vs direct)
+}
+
+// Connection quality levels
+type ConnectionQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
+
+function getConnectionQuality(stats: WebRTCStats): ConnectionQuality {
+  if (stats.rtt === null) return "unknown";
+  if (stats.rtt < 50 && (stats.jitter === null || stats.jitter < 10)) return "excellent";
+  if (stats.rtt < 150 && (stats.jitter === null || stats.jitter < 30)) return "good";
+  if (stats.rtt < 300 && (stats.jitter === null || stats.jitter < 50)) return "fair";
+  return "poor";
+}
+
+function getQualityColor(quality: ConnectionQuality): string {
+  switch (quality) {
+    case "excellent": return "text-green-400";
+    case "good": return "text-emerald-400";
+    case "fair": return "text-yellow-400";
+    case "poor": return "text-red-400";
+    default: return "text-zinc-500";
+  }
+}
+
+function getQualityBars(quality: ConnectionQuality): number {
+  switch (quality) {
+    case "excellent": return 4;
+    case "good": return 3;
+    case "fair": return 2;
+    case "poor": return 1;
+    default: return 0;
+  }
+}
+
+function formatBitrate(kbps: number | null): string {
+  if (kbps === null) return "--";
+  if (kbps >= 1000) return `${(kbps / 1000).toFixed(1)} Mbps`;
+  return `${Math.round(kbps)} kbps`;
+}
+
 // Command types for gimbal control
 type GimbalCommand = 
   | { type: "rotate"; yawSpeed: number; pitchSpeed: number }
@@ -51,15 +102,6 @@ type GimbalCommand =
 
 /**
  * Connect to a go2rtc WebRTC stream using the WHEP-like signaling API.
- * 
- * Flow:
- * 1. Create RTCPeerConnection with STUN servers
- * 2. Add a transceiver for video (recvonly)
- * 3. Create SDP offer
- * 4. POST offer to go2rtc's /api/webrtc endpoint
- * 5. Receive SDP answer
- * 6. Set remote description
- * 7. Media starts flowing peer-to-peer via UDP
  */
 async function connectWebRTC(
   webrtcUrl: string,
@@ -152,6 +194,115 @@ async function connectWebRTC(
   return pc;
 }
 
+/**
+ * Signal quality bars component
+ */
+function QualityBars({ quality }: { quality: ConnectionQuality }) {
+  const bars = getQualityBars(quality);
+  const color = getQualityColor(quality);
+  return (
+    <div className="flex items-end gap-[2px] h-4">
+      {[1, 2, 3, 4].map((level) => (
+        <div
+          key={level}
+          className={`w-[3px] rounded-sm transition-colors ${
+            level <= bars ? color.replace("text-", "bg-") : "bg-zinc-600"
+          }`}
+          style={{ height: `${level * 25}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Latency indicator overlay component
+ */
+function LatencyIndicator({ stats, showDetails }: { stats: WebRTCStats; showDetails: boolean }) {
+  const quality = getConnectionQuality(stats);
+  const qualityColor = getQualityColor(quality);
+
+  if (!showDetails) {
+    // Compact mode: just the quality bars + RTT in the video overlay
+    return (
+      <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded">
+        <QualityBars quality={quality} />
+        <span className={`text-xs font-mono ${qualityColor}`}>
+          {stats.rtt !== null ? `${Math.round(stats.rtt)}ms` : "--"}
+        </span>
+      </div>
+    );
+  }
+
+  // Expanded mode: full stats panel
+  return (
+    <div className="bg-black/80 backdrop-blur-sm rounded-lg p-3 min-w-[200px]">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-700">
+        <div className="flex items-center gap-2">
+          <QualityBars quality={quality} />
+          <span className={`text-xs font-semibold uppercase ${qualityColor}`}>
+            {quality}
+          </span>
+        </div>
+        {stats.transportType && (
+          <span className="text-[10px] font-mono text-zinc-500 uppercase">
+            {stats.transportType}
+          </span>
+        )}
+      </div>
+
+      {/* Stats grid */}
+      <div className="space-y-1.5 text-xs">
+        <div className="flex justify-between">
+          <span className="text-zinc-400">RTT</span>
+          <span className={`font-mono ${qualityColor}`}>
+            {stats.rtt !== null ? `${Math.round(stats.rtt)} ms` : "--"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-zinc-400">Jitter</span>
+          <span className="font-mono text-zinc-200">
+            {stats.jitter !== null ? `${stats.jitter.toFixed(1)} ms` : "--"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-zinc-400">Bitrate</span>
+          <span className="font-mono text-zinc-200">
+            {formatBitrate(stats.bitrate)}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-zinc-400">FPS</span>
+          <span className="font-mono text-zinc-200">
+            {stats.framesPerSecond !== null ? Math.round(stats.framesPerSecond) : "--"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-zinc-400">Resolution</span>
+          <span className="font-mono text-zinc-200">
+            {stats.resolution ? `${stats.resolution.width}x${stats.resolution.height}` : "--"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-zinc-400">Codec</span>
+          <span className="font-mono text-zinc-200">
+            {stats.codec || "--"}
+          </span>
+        </div>
+        {stats.packetsLost !== null && stats.packetsLost > 0 && (
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Pkt Lost</span>
+            <span className="font-mono text-red-400">
+              {stats.packetsLost}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CameraFeedApp() {
   // Drone selection via shared hook
   const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection("camera");
@@ -172,12 +323,118 @@ export default function CameraFeedApp() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showStatsDetails, setShowStatsDetails] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   
+  // WebRTC stats
+  const [webrtcStats, setWebrtcStats] = useState<WebRTCStats>({
+    rtt: null,
+    jitter: null,
+    bitrate: null,
+    packetsLost: null,
+    framesPerSecond: null,
+    resolution: null,
+    codec: null,
+    transportType: null,
+  });
+  const prevBytesRef = useRef<number>(0);
+  const prevTimestampRef = useRef<number>(0);
+  
   // Gimbal control state (for continuous rotation while button held)
   const rotationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Poll WebRTC stats every second
+  useEffect(() => {
+    const pc = pcRef.current;
+    if (!pc || pc.connectionState !== "connected") {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const stats = await pc.getStats();
+        let rtt: number | null = null;
+        let jitter: number | null = null;
+        let packetsLost: number | null = null;
+        let framesPerSecond: number | null = null;
+        let resolution: { width: number; height: number } | null = null;
+        let codec: string | null = null;
+        let transportType: string | null = null;
+        let currentBytes = 0;
+        let currentTimestamp = 0;
+
+        // Collect codec IDs for lookup
+        const codecMap = new Map<string, string>();
+
+        stats.forEach((report) => {
+          // Get codec info
+          if (report.type === "codec" && report.mimeType) {
+            codecMap.set(report.id, report.mimeType.replace("video/", ""));
+          }
+
+          // Get candidate pair for RTT and transport type
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            if (report.currentRoundTripTime !== undefined) {
+              rtt = report.currentRoundTripTime * 1000; // Convert to ms
+            }
+            // Check if using relay (TURN) or direct
+            if (report.remoteCandidateId) {
+              stats.forEach((r) => {
+                if (r.id === report.remoteCandidateId && r.type === "remote-candidate") {
+                  transportType = r.candidateType === "relay" ? "relay" : 
+                                  r.protocol === "tcp" ? "tcp" : "udp";
+                }
+              });
+            }
+          }
+
+          // Get inbound video stats
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            if (report.jitter !== undefined) {
+              jitter = report.jitter * 1000; // Convert to ms
+            }
+            if (report.packetsLost !== undefined) {
+              packetsLost = report.packetsLost;
+            }
+            if (report.framesPerSecond !== undefined) {
+              framesPerSecond = report.framesPerSecond;
+            }
+            if (report.frameWidth && report.frameHeight) {
+              resolution = { width: report.frameWidth, height: report.frameHeight };
+            }
+            if (report.bytesReceived !== undefined) {
+              currentBytes = report.bytesReceived;
+              currentTimestamp = report.timestamp;
+            }
+            // Get codec from codecId
+            if (report.codecId && codecMap.has(report.codecId)) {
+              codec = codecMap.get(report.codecId) || null;
+            }
+          }
+        });
+
+        // Calculate bitrate
+        let bitrate: number | null = null;
+        if (prevBytesRef.current > 0 && prevTimestampRef.current > 0 && currentBytes > 0) {
+          const bytesDiff = currentBytes - prevBytesRef.current;
+          const timeDiff = (currentTimestamp - prevTimestampRef.current) / 1000; // ms to s
+          if (timeDiff > 0) {
+            bitrate = (bytesDiff * 8) / timeDiff / 1000; // kbps
+          }
+        }
+        prevBytesRef.current = currentBytes;
+        prevTimestampRef.current = currentTimestamp;
+
+        setWebrtcStats({ rtt, jitter, bitrate, packetsLost, framesPerSecond, resolution, codec, transportType });
+      } catch {
+        // Stats collection failed, ignore
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [webrtcUrl, isConnecting, streamError]);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -195,6 +452,10 @@ export default function CameraFeedApp() {
     });
     setWebrtcUrl(null);
     setStreamError(null);
+    setWebrtcStats({
+      rtt: null, jitter: null, bitrate: null, packetsLost: null,
+      framesPerSecond: null, resolution: null, codec: null, transportType: null,
+    });
 
     const socketInstance = io({
       path: "/socket.io/",
@@ -271,6 +532,12 @@ export default function CameraFeedApp() {
       pcRef.current = null;
     }
     video.srcObject = null;
+    prevBytesRef.current = 0;
+    prevTimestampRef.current = 0;
+    setWebrtcStats({
+      rtt: null, jitter: null, bitrate: null, packetsLost: null,
+      framesPerSecond: null, resolution: null, codec: null, transportType: null,
+    });
 
     if (!webrtcUrl) {
       return;
@@ -418,6 +685,8 @@ export default function CameraFeedApp() {
       });
   }, [selectedDrone]);
 
+  const isStreamLive = webrtcUrl && !streamError && !isConnecting;
+
   return (
     <div className="h-full flex flex-col bg-zinc-900">
       {/* App Header */}
@@ -472,6 +741,23 @@ export default function CameraFeedApp() {
             ) : (
               <div className="text-sm text-zinc-400">No drones registered</div>
             )}
+
+            {/* Stats toggle button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className={`text-zinc-400 hover:text-white ${showStatsDetails ? 'bg-zinc-700' : ''}`}
+                  onClick={() => setShowStatsDetails(prev => !prev)}
+                >
+                  <Gauge size={20} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{showStatsDetails ? "Hide" : "Show"} connection stats</p>
+              </TooltipContent>
+            </Tooltip>
 
             <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
               <Settings size={20} />
@@ -552,8 +838,8 @@ export default function CameraFeedApp() {
                 </div>
               )}
               
-              {/* Video Overlay - Crosshair (only when stream is active) */}
-              {webrtcUrl && !streamError && (
+              {/* Video Overlay - Crosshair + Latency (only when stream is active) */}
+              {isStreamLive && (
                 <div className="absolute inset-0 pointer-events-none">
                   {/* Center crosshair */}
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -565,10 +851,18 @@ export default function CameraFeedApp() {
                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded text-white text-sm font-mono">
                     ALT: --m
                   </div>
+
+                  {/* Latency indicator (top-right) */}
+                  <div 
+                    className="absolute top-4 right-4 pointer-events-auto cursor-pointer"
+                    onClick={() => setShowStatsDetails(prev => !prev)}
+                  >
+                    <LatencyIndicator stats={webrtcStats} showDetails={showStatsDetails} />
+                  </div>
                   
                   {/* Recording indicator */}
                   {status.recording && (
-                    <div className="absolute top-4 right-4 flex items-center gap-2 bg-red-600/80 px-3 py-1 rounded">
+                    <div className="absolute top-4 right-4 flex items-center gap-2 bg-red-600/80 px-3 py-1 rounded" style={{ top: showStatsDetails ? "auto" : undefined, bottom: showStatsDetails ? "4rem" : undefined }}>
                       <Circle className="w-3 h-3 fill-white text-white animate-pulse" />
                       <span className="text-white text-sm font-medium">REC</span>
                     </div>
@@ -722,6 +1016,16 @@ export default function CameraFeedApp() {
                     {status.streamActive ? 'WebRTC Active' : 'Inactive'}
                   </span>
                 </div>
+                {/* Latency in status panel */}
+                {isStreamLive && webrtcStats.rtt !== null && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">Latency:</span>
+                    <span className={`flex items-center gap-1 font-mono ${getQualityColor(getConnectionQuality(webrtcStats))}`}>
+                      <QualityBars quality={getConnectionQuality(webrtcStats)} />
+                      {Math.round(webrtcStats.rtt)} ms
+                    </span>
+                  </div>
+                )}
               </div>
             </Card>
           </div>
