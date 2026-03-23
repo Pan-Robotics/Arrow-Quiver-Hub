@@ -22,14 +22,14 @@ const router = Router();
 // In-memory buffer for recent scans (for polling fallback)
 const lastScans = new Map<string, PointCloudMessage>();
 
-// In-memory registry for active HLS stream URLs from companion computers
-// Maps droneId -> { originUrl, registeredAt, droneId }
-export interface HlsStreamEntry {
-  originUrl: string;      // e.g. "http://192.168.1.50:8080"
+// In-memory registry for active WebRTC stream URLs from companion computers
+// Maps droneId -> { webrtcUrl, registeredAt, droneId }
+export interface WebRTCStreamEntry {
+  webrtcUrl: string;      // e.g. "https://quiver.tail1234.ts.net/api/webrtc?src=camera"
   registeredAt: number;   // Unix timestamp ms
   droneId: string;
 }
-export const hlsStreamRegistry = new Map<string, HlsStreamEntry>();
+export const webrtcStreamRegistry = new Map<string, WebRTCStreamEntry>();
 
 /**
  * POST /api/rest/pointcloud/ingest
@@ -593,25 +593,26 @@ router.post("/flightlog/upload", async (req: Request, res: Response) => {
 
 /**
  * POST /api/rest/camera/stream-register
- * Register an HLS stream URL from the companion computer.
- * The server stores the origin URL and notifies browser clients via WebSocket.
- * The server then proxies HLS requests so the browser doesn't need direct LAN access.
+ * Register a WebRTC stream URL from the companion computer.
+ * The companion provides the go2rtc WHEP signaling URL (exposed via Tailscale funnel).
+ * The server stores it and notifies browser clients via WebSocket.
+ * No proxying needed — WebRTC media flows peer-to-peer.
  *
  * Request body:
  * {
  *   api_key: string,
  *   drone_id: string,
- *   stream_url: string  (e.g. "http://192.168.1.50:8080/stream.m3u8")
+ *   webrtc_url: string  (e.g. "https://quiver.tail1234.ts.net/api/webrtc?src=camera")
  * }
  */
 router.post("/camera/stream-register", async (req: Request, res: Response) => {
   try {
-    const { api_key, drone_id, stream_url } = req.body;
+    const { api_key, drone_id, webrtc_url } = req.body;
 
-    if (!api_key || !drone_id || !stream_url) {
+    if (!api_key || !drone_id || !webrtc_url) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: api_key, drone_id, stream_url",
+        error: "Missing required fields: api_key, drone_id, webrtc_url",
       });
     }
 
@@ -625,32 +626,29 @@ router.post("/camera/stream-register", async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: "Drone ID mismatch" });
     }
 
-    // Parse the origin base URL from the full stream URL
-    // e.g. "http://192.168.1.50:8080/stream.m3u8" -> "http://192.168.1.50:8080"
-    let originUrl: string;
+    // Validate URL format
     try {
-      const parsed = new URL(stream_url);
-      originUrl = `${parsed.protocol}//${parsed.host}`;
+      new URL(webrtc_url);
     } catch {
-      return res.status(400).json({ success: false, error: "Invalid stream_url format" });
+      return res.status(400).json({ success: false, error: "Invalid webrtc_url format" });
     }
 
     // Register the stream
-    hlsStreamRegistry.set(drone_id, {
-      originUrl,
+    webrtcStreamRegistry.set(drone_id, {
+      webrtcUrl: webrtc_url,
       registeredAt: Date.now(),
       droneId: drone_id,
     });
 
-    console.log(`[HLS] Stream registered for ${drone_id}: ${originUrl}`);
+    console.log(`[WebRTC] Stream registered for ${drone_id}: ${webrtc_url}`);
 
-    // Broadcast the proxied stream URL to browser clients via WebSocket
-    broadcastCameraStream(drone_id, `/api/rest/camera/hls/${drone_id}/stream.m3u8`);
+    // Broadcast the WebRTC URL to browser clients via WebSocket
+    broadcastCameraStream(drone_id, webrtc_url);
 
     return res.status(200).json({
       success: true,
-      message: "Stream registered",
-      proxy_url: `/api/rest/camera/hls/${drone_id}/stream.m3u8`,
+      message: "WebRTC stream registered",
+      webrtc_url,
     });
   } catch (error) {
     console.error("Error in /api/rest/camera/stream-register:", error);
@@ -664,7 +662,7 @@ router.post("/camera/stream-register", async (req: Request, res: Response) => {
 
 /**
  * POST /api/rest/camera/stream-unregister
- * Unregister an HLS stream (companion shutting down).
+ * Unregister a WebRTC stream (companion shutting down).
  *
  * Request body:
  * {
@@ -692,8 +690,8 @@ router.post("/camera/stream-unregister", async (req: Request, res: Response) => 
       return res.status(403).json({ success: false, error: "Drone ID mismatch" });
     }
 
-    hlsStreamRegistry.delete(drone_id);
-    console.log(`[HLS] Stream unregistered for ${drone_id}`);
+    webrtcStreamRegistry.delete(drone_id);
+    console.log(`[WebRTC] Stream unregistered for ${drone_id}`);
 
     // Notify browser clients that stream is gone
     broadcastCameraStream(drone_id, null);
@@ -710,106 +708,13 @@ router.post("/camera/stream-unregister", async (req: Request, res: Response) => 
 });
 
 /**
- * GET /api/rest/camera/hls/:droneId/*
- * Proxy HLS requests (.m3u8 playlist and .ts segments) to the companion computer.
- * This allows the browser to access the stream without direct LAN connectivity.
- */
-router.get("/camera/hls/:droneId/*", async (req: Request, res: Response) => {
-  try {
-    const { droneId } = req.params;
-    const entry = hlsStreamRegistry.get(droneId);
-
-    if (!entry) {
-      return res.status(404).json({
-        success: false,
-        error: `No active stream registered for drone: ${droneId}`,
-      });
-    }
-
-    // Extract the path after /camera/hls/:droneId/
-    // req.params[0] contains the wildcard match
-    const hlsPath = req.params[0] || "stream.m3u8";
-    const targetUrl = `${entry.originUrl}/${hlsPath}`;
-
-    // Proxy the request to the companion computer
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-    try {
-      const upstream = await fetch(targetUrl, {
-        signal: controller.signal,
-        headers: {
-          'Accept': req.headers.accept || '*/*',
-        },
-      });
-
-      clearTimeout(timeout);
-
-      if (!upstream.ok) {
-        return res.status(upstream.status).json({
-          success: false,
-          error: `Upstream returned ${upstream.status}`,
-        });
-      }
-
-      // Set appropriate content type
-      const contentType = upstream.headers.get('content-type');
-      if (contentType) {
-        res.setHeader('Content-Type', contentType);
-      } else if (hlsPath.endsWith('.m3u8')) {
-        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-      } else if (hlsPath.endsWith('.ts')) {
-        res.setHeader('Content-Type', 'video/mp2t');
-      }
-
-      // Set CORS and caching headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', hlsPath.endsWith('.m3u8') ? 'no-cache' : 'max-age=60');
-
-      // Stream the response body
-      if (upstream.body) {
-        const reader = upstream.body.getReader();
-        const pump = async () => {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(Buffer.from(value));
-          }
-          res.end();
-        };
-        await pump();
-      } else {
-        // Fallback: read as arrayBuffer
-        const buffer = await upstream.arrayBuffer();
-        res.send(Buffer.from(buffer));
-      }
-    } catch (fetchError: any) {
-      clearTimeout(timeout);
-      if (fetchError.name === 'AbortError') {
-        return res.status(504).json({
-          success: false,
-          error: "Upstream timeout - companion computer not reachable",
-        });
-      }
-      throw fetchError;
-    }
-  } catch (error) {
-    console.error("Error in HLS proxy:", error);
-    return res.status(502).json({
-      success: false,
-      error: "Failed to proxy HLS stream",
-      message: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
-/**
  * GET /api/rest/camera/stream-status/:droneId
- * Check if a stream is registered for a drone
+ * Check if a WebRTC stream is registered for a drone.
+ * Returns the go2rtc WHEP signaling URL for the browser to connect directly.
  */
 router.get("/camera/stream-status/:droneId", (req: Request, res: Response) => {
   const { droneId } = req.params;
-  const entry = hlsStreamRegistry.get(droneId);
+  const entry = webrtcStreamRegistry.get(droneId);
 
   if (!entry) {
     return res.status(200).json({
@@ -823,7 +728,7 @@ router.get("/camera/stream-status/:droneId", (req: Request, res: Response) => {
     success: true,
     active: true,
     drone_id: droneId,
-    proxy_url: `/api/rest/camera/hls/${droneId}/stream.m3u8`,
+    webrtc_url: entry.webrtcUrl,
     registered_at: new Date(entry.registeredAt).toISOString(),
   });
 });

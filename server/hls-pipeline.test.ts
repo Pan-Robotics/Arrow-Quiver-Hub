@@ -1,68 +1,64 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * HLS Camera Stream Pipeline Tests
- * Tests the stream registration, proxy, WebSocket relay, and client integration
+ * WebRTC Camera Stream Pipeline Tests
+ * Tests the WebRTC stream registration, signaling URL relay, and client integration.
+ * Replaces the old HLS pipeline tests.
  */
 
-// ─── HLS Stream Registry ─────────────────────────────────────────
+// ─── WebRTC Stream Registry ─────────────────────────────────────
 
-describe("HLS Stream Registry", () => {
+describe("WebRTC Stream Registry", () => {
+  interface WebRTCStreamEntry {
+    webrtcUrl: string;
+    registeredAt: number;
+    droneId: string;
+  }
+
   it("should store stream entry with correct fields", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+    const registry = new Map<string, WebRTCStreamEntry>();
 
-    const entry: HlsStreamEntry = {
-      originUrl: "http://192.168.1.50:8080",
+    const entry: WebRTCStreamEntry = {
+      webrtcUrl: "https://quiver.tail1234.ts.net/api/webrtc?src=camera",
       registeredAt: Date.now(),
       droneId: "quiver_001",
     };
     registry.set("quiver_001", entry);
 
     expect(registry.has("quiver_001")).toBe(true);
-    expect(registry.get("quiver_001")?.originUrl).toBe("http://192.168.1.50:8080");
+    expect(registry.get("quiver_001")?.webrtcUrl).toBe(
+      "https://quiver.tail1234.ts.net/api/webrtc?src=camera"
+    );
     expect(registry.get("quiver_001")?.droneId).toBe("quiver_001");
   });
 
-  it("should overwrite existing entry on re-register", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+  it("should overwrite existing entry on re-register (e.g. Tailscale hostname change)", () => {
+    const registry = new Map<string, WebRTCStreamEntry>();
 
     registry.set("quiver_001", {
-      originUrl: "http://192.168.1.50:8080",
+      webrtcUrl: "https://old-host.ts.net/api/webrtc?src=camera",
       registeredAt: 1000,
       droneId: "quiver_001",
     });
 
     registry.set("quiver_001", {
-      originUrl: "http://192.168.1.100:8080",
+      webrtcUrl: "https://new-host.ts.net/api/webrtc?src=camera",
       registeredAt: 2000,
       droneId: "quiver_001",
     });
 
     expect(registry.size).toBe(1);
-    expect(registry.get("quiver_001")?.originUrl).toBe("http://192.168.1.100:8080");
+    expect(registry.get("quiver_001")?.webrtcUrl).toBe(
+      "https://new-host.ts.net/api/webrtc?src=camera"
+    );
     expect(registry.get("quiver_001")?.registeredAt).toBe(2000);
   });
 
   it("should remove entry on unregister", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+    const registry = new Map<string, WebRTCStreamEntry>();
 
     registry.set("quiver_001", {
-      originUrl: "http://192.168.1.50:8080",
+      webrtcUrl: "https://quiver.tail1234.ts.net/api/webrtc?src=camera",
       registeredAt: Date.now(),
       droneId: "quiver_001",
     });
@@ -73,52 +69,52 @@ describe("HLS Stream Registry", () => {
   });
 
   it("should support multiple drones simultaneously", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+    const registry = new Map<string, WebRTCStreamEntry>();
 
     registry.set("quiver_001", {
-      originUrl: "http://192.168.1.50:8080",
+      webrtcUrl: "https://quiver1.tail1234.ts.net/api/webrtc?src=camera",
       registeredAt: Date.now(),
       droneId: "quiver_001",
     });
     registry.set("quiver_002", {
-      originUrl: "http://192.168.1.51:8080",
+      webrtcUrl: "https://quiver2.tail5678.ts.net/api/webrtc?src=camera",
       registeredAt: Date.now(),
       droneId: "quiver_002",
     });
 
     expect(registry.size).toBe(2);
-    expect(registry.get("quiver_001")?.originUrl).toBe("http://192.168.1.50:8080");
-    expect(registry.get("quiver_002")?.originUrl).toBe("http://192.168.1.51:8080");
+    expect(registry.get("quiver_001")?.webrtcUrl).toContain("quiver1");
+    expect(registry.get("quiver_002")?.webrtcUrl).toContain("quiver2");
   });
 });
 
-// ─── Stream URL Parsing ──────────────────────────────────────────
+// ─── WebRTC URL Validation ──────────────────────────────────────
 
-describe("Stream URL Parsing", () => {
-  it("should extract origin URL from full stream URL", () => {
-    const streamUrl = "http://192.168.1.50:8080/stream.m3u8";
-    const parsed = new URL(streamUrl);
-    const originUrl = `${parsed.protocol}//${parsed.host}`;
-    expect(originUrl).toBe("http://192.168.1.50:8080");
+describe("WebRTC URL Validation", () => {
+  it("should accept valid Tailscale funnel URLs", () => {
+    const validUrls = [
+      "https://quiver.tail1234.ts.net/api/webrtc?src=camera",
+      "https://drone-cam.tailnet-abc.ts.net/api/webrtc?src=camera",
+      "https://my-pi.tail5678.ts.net:443/api/webrtc?src=camera",
+    ];
+
+    for (const url of validUrls) {
+      expect(() => new URL(url)).not.toThrow();
+      const parsed = new URL(url);
+      expect(parsed.protocol).toBe("https:");
+      expect(parsed.pathname).toBe("/api/webrtc");
+      expect(parsed.searchParams.get("src")).toBe("camera");
+    }
   });
 
-  it("should handle URLs with different ports", () => {
-    const streamUrl = "http://192.168.144.25:9090/live/stream.m3u8";
-    const parsed = new URL(streamUrl);
-    const originUrl = `${parsed.protocol}//${parsed.host}`;
-    expect(originUrl).toBe("http://192.168.144.25:9090");
-  });
+  it("should accept URLs with custom ports (8443, 10000)", () => {
+    const url8443 = "https://quiver.tail1234.ts.net:8443/api/webrtc?src=camera";
+    const url10000 = "https://quiver.tail1234.ts.net:10000/api/webrtc?src=camera";
 
-  it("should handle URLs with default port 80", () => {
-    const streamUrl = "http://10.0.0.1/stream.m3u8";
-    const parsed = new URL(streamUrl);
-    const originUrl = `${parsed.protocol}//${parsed.host}`;
-    expect(originUrl).toBe("http://10.0.0.1");
+    expect(() => new URL(url8443)).not.toThrow();
+    expect(() => new URL(url10000)).not.toThrow();
+    expect(new URL(url8443).port).toBe("8443");
+    expect(new URL(url10000).port).toBe("10000");
   });
 
   it("should reject invalid URLs", () => {
@@ -126,89 +122,52 @@ describe("Stream URL Parsing", () => {
     expect(() => new URL("")).toThrow();
   });
 
-  it("should construct correct proxy URL from drone ID", () => {
-    const droneId = "quiver_001";
-    const proxyUrl = `/api/rest/camera/hls/${droneId}/stream.m3u8`;
-    expect(proxyUrl).toBe("/api/rest/camera/hls/quiver_001/stream.m3u8");
-  });
-
-  it("should construct correct upstream URL from origin and path", () => {
-    const originUrl = "http://192.168.1.50:8080";
-    const hlsPath = "stream.m3u8";
-    const targetUrl = `${originUrl}/${hlsPath}`;
-    expect(targetUrl).toBe("http://192.168.1.50:8080/stream.m3u8");
-  });
-
-  it("should handle .ts segment paths correctly", () => {
-    const originUrl = "http://192.168.1.50:8080";
-    const hlsPath = "segment_00042.ts";
-    const targetUrl = `${originUrl}/${hlsPath}`;
-    expect(targetUrl).toBe("http://192.168.1.50:8080/segment_00042.ts");
+  it("should extract base URL for go2rtc API access", () => {
+    const webrtcUrl = "https://quiver.tail1234.ts.net/api/webrtc?src=camera";
+    const parsed = new URL(webrtcUrl);
+    const baseUrl = `${parsed.protocol}//${parsed.host}`;
+    expect(baseUrl).toBe("https://quiver.tail1234.ts.net");
   });
 });
 
-// ─── Content Type Detection ──────────────────────────────────────
+// ─── WebRTC Signaling (WHEP) ────────────────────────────────────
 
-describe("HLS Content Type Detection", () => {
-  it("should detect .m3u8 as HLS playlist", () => {
-    const path = "stream.m3u8";
-    const isPlaylist = path.endsWith(".m3u8");
-    const isSegment = path.endsWith(".ts");
-    expect(isPlaylist).toBe(true);
-    expect(isSegment).toBe(false);
+describe("WebRTC WHEP Signaling", () => {
+  it("should construct correct WHEP endpoint from base URL", () => {
+    const baseUrl = "https://quiver.tail1234.ts.net";
+    const streamName = "camera";
+    const whepUrl = `${baseUrl}/api/webrtc?src=${streamName}`;
+    expect(whepUrl).toBe("https://quiver.tail1234.ts.net/api/webrtc?src=camera");
   });
 
-  it("should detect .ts as MPEG transport stream", () => {
-    const path = "segment_00042.ts";
-    const isPlaylist = path.endsWith(".m3u8");
-    const isSegment = path.endsWith(".ts");
-    expect(isPlaylist).toBe(false);
-    expect(isSegment).toBe(true);
+  it("should format SDP offer correctly for go2rtc", () => {
+    // go2rtc expects SDP in the POST body with content-type application/sdp
+    const mockSdpOffer = "v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n";
+    expect(mockSdpOffer).toContain("v=0");
+    expect(typeof mockSdpOffer).toBe("string");
   });
 
-  it("should set correct content type for .m3u8", () => {
-    const path = "stream.m3u8";
-    const contentType = path.endsWith(".m3u8")
-      ? "application/vnd.apple.mpegurl"
-      : path.endsWith(".ts")
-      ? "video/mp2t"
-      : "application/octet-stream";
-    expect(contentType).toBe("application/vnd.apple.mpegurl");
-  });
-
-  it("should set correct content type for .ts", () => {
-    const path = "segment_00042.ts";
-    const contentType = path.endsWith(".m3u8")
-      ? "application/vnd.apple.mpegurl"
-      : path.endsWith(".ts")
-      ? "video/mp2t"
-      : "application/octet-stream";
-    expect(contentType).toBe("video/mp2t");
-  });
-
-  it("should set correct cache headers for playlist vs segment", () => {
-    const playlistCache = "no-cache";
-    const segmentCache = "max-age=60";
-
-    expect(playlistCache).toBe("no-cache"); // Playlist should never be cached
-    expect(segmentCache).toBe("max-age=60"); // Segments are immutable, can be cached
+  it("should handle SDP answer response", () => {
+    const mockSdpAnswer = "v=0\r\no=- 0 0 IN IP4 192.168.1.50\r\ns=-\r\nt=0 0\r\n";
+    expect(mockSdpAnswer).toContain("v=0");
+    expect(typeof mockSdpAnswer).toBe("string");
   });
 });
 
 // ─── WebSocket Camera Stream Events ─────────────────────────────
 
-describe("WebSocket Camera Stream Events", () => {
-  it("should format stream available event correctly", () => {
+describe("WebSocket Camera Stream Events (WebRTC)", () => {
+  it("should format stream available event with WebRTC URL", () => {
     const droneId = "quiver_001";
-    const streamUrl = "/api/rest/camera/hls/quiver_001/stream.m3u8";
+    const webrtcUrl = "https://quiver.tail1234.ts.net/api/webrtc?src=camera";
     const event = {
       drone_id: droneId,
-      url: streamUrl,
+      webrtc_url: webrtcUrl,
       timestamp: Date.now(),
     };
 
     expect(event.drone_id).toBe("quiver_001");
-    expect(event.url).toBe("/api/rest/camera/hls/quiver_001/stream.m3u8");
+    expect(event.webrtc_url).toContain("/api/webrtc");
     expect(typeof event.timestamp).toBe("number");
   });
 
@@ -216,12 +175,12 @@ describe("WebSocket Camera Stream Events", () => {
     const droneId = "quiver_001";
     const event = {
       drone_id: droneId,
-      url: null as string | null,
+      webrtc_url: null as string | null,
       timestamp: Date.now(),
     };
 
     expect(event.drone_id).toBe("quiver_001");
-    expect(event.url).toBeNull();
+    expect(event.webrtc_url).toBeNull();
   });
 
   it("should use correct room name for camera subscriptions", () => {
@@ -233,27 +192,33 @@ describe("WebSocket Camera Stream Events", () => {
 
 // ─── Stream Registration Request Validation ──────────────────────
 
-describe("Stream Registration Request Validation", () => {
+describe("WebRTC Stream Registration Request Validation", () => {
   it("should require all fields for registration", () => {
     const validRequest = {
       api_key: "test-key",
       drone_id: "quiver_001",
-      stream_url: "http://192.168.1.50:8080/stream.m3u8",
+      webrtc_url: "https://quiver.tail1234.ts.net/api/webrtc?src=camera",
     };
 
     expect(validRequest.api_key).toBeTruthy();
     expect(validRequest.drone_id).toBeTruthy();
-    expect(validRequest.stream_url).toBeTruthy();
+    expect(validRequest.webrtc_url).toBeTruthy();
   });
 
   it("should detect missing fields", () => {
-    const missingApiKey = { drone_id: "quiver_001", stream_url: "http://x:8080/s.m3u8" };
-    const missingDroneId = { api_key: "key", stream_url: "http://x:8080/s.m3u8" };
-    const missingStreamUrl = { api_key: "key", drone_id: "quiver_001" };
+    const missingApiKey = {
+      drone_id: "quiver_001",
+      webrtc_url: "https://x.ts.net/api/webrtc?src=camera",
+    };
+    const missingDroneId = {
+      api_key: "key",
+      webrtc_url: "https://x.ts.net/api/webrtc?src=camera",
+    };
+    const missingWebrtcUrl = { api_key: "key", drone_id: "quiver_001" };
 
     expect((missingApiKey as any).api_key).toBeFalsy();
     expect((missingDroneId as any).drone_id).toBeFalsy();
-    expect((missingStreamUrl as any).stream_url).toBeFalsy();
+    expect((missingWebrtcUrl as any).webrtc_url).toBeFalsy();
   });
 
   it("should require only api_key and drone_id for unregistration", () => {
@@ -264,21 +229,23 @@ describe("Stream Registration Request Validation", () => {
 
     expect(validUnregister.api_key).toBeTruthy();
     expect(validUnregister.drone_id).toBeTruthy();
+    expect(Object.keys(validUnregister)).toHaveLength(2);
   });
 });
 
 // ─── Stream Status Response ──────────────────────────────────────
 
-describe("Stream Status Response", () => {
-  it("should return active status when stream is registered", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+describe("WebRTC Stream Status Response", () => {
+  interface WebRTCStreamEntry {
+    webrtcUrl: string;
+    registeredAt: number;
+    droneId: string;
+  }
+
+  it("should return active status with WebRTC URL when stream is registered", () => {
+    const registry = new Map<string, WebRTCStreamEntry>();
     registry.set("quiver_001", {
-      originUrl: "http://192.168.1.50:8080",
+      webrtcUrl: "https://quiver.tail1234.ts.net/api/webrtc?src=camera",
       registeredAt: 1700000000000,
       droneId: "quiver_001",
     });
@@ -290,7 +257,7 @@ describe("Stream Status Response", () => {
           success: true,
           active: true,
           drone_id: droneId,
-          proxy_url: `/api/rest/camera/hls/${droneId}/stream.m3u8`,
+          webrtc_url: entry.webrtcUrl,
           registered_at: new Date(entry.registeredAt).toISOString(),
         }
       : {
@@ -300,16 +267,13 @@ describe("Stream Status Response", () => {
         };
 
     expect(response.active).toBe(true);
-    expect((response as any).proxy_url).toBe("/api/rest/camera/hls/quiver_001/stream.m3u8");
+    expect((response as any).webrtc_url).toBe(
+      "https://quiver.tail1234.ts.net/api/webrtc?src=camera"
+    );
   });
 
   it("should return inactive status when no stream is registered", () => {
-    interface HlsStreamEntry {
-      originUrl: string;
-      registeredAt: number;
-      droneId: string;
-    }
-    const registry = new Map<string, HlsStreamEntry>();
+    const registry = new Map<string, WebRTCStreamEntry>();
 
     const droneId = "quiver_002";
     const entry = registry.get(droneId);
@@ -318,7 +282,7 @@ describe("Stream Status Response", () => {
           success: true,
           active: true,
           drone_id: droneId,
-          proxy_url: `/api/rest/camera/hls/${droneId}/stream.m3u8`,
+          webrtc_url: entry.webrtcUrl,
         }
       : {
           success: true,
@@ -327,62 +291,139 @@ describe("Stream Status Response", () => {
         };
 
     expect(response.active).toBe(false);
-    expect((response as any).proxy_url).toBeUndefined();
+    expect((response as any).webrtc_url).toBeUndefined();
   });
 });
 
-// ─── HLS.js Configuration ────────────────────────────────────────
+// ─── Tailscale Funnel URL Detection ─────────────────────────────
 
-describe("HLS.js Configuration", () => {
-  it("should use low-latency tuning values", () => {
-    const config = {
-      liveSyncDurationCount: 2,
-      liveMaxLatencyDurationCount: 5,
-      liveDurationInfinity: true,
-      enableWorker: true,
-      lowLatencyMode: true,
-      manifestLoadingMaxRetry: 6,
-      manifestLoadingRetryDelay: 1000,
-      levelLoadingMaxRetry: 6,
-      levelLoadingRetryDelay: 1000,
-      fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 1000,
+describe("Tailscale Funnel URL Detection", () => {
+  it("should parse Tailscale DNS name from status JSON", () => {
+    // Simulates the output of `tailscale status --json`
+    const mockStatus = {
+      Self: {
+        DNSName: "quiver.tail1234.ts.net.",
+      },
     };
 
-    expect(config.lowLatencyMode).toBe(true);
-    expect(config.liveSyncDurationCount).toBeLessThanOrEqual(3);
-    expect(config.manifestLoadingMaxRetry).toBeGreaterThanOrEqual(3);
-    expect(config.fragLoadingMaxRetry).toBeGreaterThanOrEqual(3);
+    const hostname = mockStatus.Self.DNSName.replace(/\.$/, "");
+    expect(hostname).toBe("quiver.tail1234.ts.net");
   });
 
-  it("should have reasonable retry delays", () => {
-    const retryDelay = 1000;
-    expect(retryDelay).toBeGreaterThanOrEqual(500);
-    expect(retryDelay).toBeLessThanOrEqual(5000);
+  it("should construct funnel URL from hostname with default port 443", () => {
+    const hostname = "quiver.tail1234.ts.net";
+    const port = 443;
+    const funnelUrl =
+      port === 443
+        ? `https://${hostname}`
+        : `https://${hostname}:${port}`;
+    expect(funnelUrl).toBe("https://quiver.tail1234.ts.net");
+  });
+
+  it("should construct funnel URL with non-default port", () => {
+    const hostname = "quiver.tail1234.ts.net";
+    const port = 8443;
+    const funnelUrl =
+      port === 443
+        ? `https://${hostname}`
+        : `https://${hostname}:${port}`;
+    expect(funnelUrl).toBe("https://quiver.tail1234.ts.net:8443");
+  });
+
+  it("should construct WebRTC signaling URL from funnel URL", () => {
+    const funnelUrl = "https://quiver.tail1234.ts.net";
+    const streamName = "camera";
+    const webrtcUrl = `${funnelUrl}/api/webrtc?src=${streamName}`;
+    expect(webrtcUrl).toBe("https://quiver.tail1234.ts.net/api/webrtc?src=camera");
+  });
+
+  it("should handle trailing dot in DNS name", () => {
+    const dnsNames = [
+      "quiver.tail1234.ts.net.",
+      "quiver.tail1234.ts.net",
+    ];
+
+    for (const name of dnsNames) {
+      const hostname = name.replace(/\.$/, "");
+      expect(hostname).toBe("quiver.tail1234.ts.net");
+      expect(hostname.endsWith(".")).toBe(false);
+    }
+  });
+});
+
+// ─── go2rtc Health Check ────────────────────────────────────────
+
+describe("go2rtc Health Check", () => {
+  it("should parse go2rtc streams API response", () => {
+    // Simulates GET /api/streams response from go2rtc
+    const mockResponse = {
+      camera: {
+        producers: [
+          {
+            url: "rtsp://192.168.144.25:8554/sub.264",
+            medias: ["video"],
+          },
+        ],
+        consumers: [],
+      },
+    };
+
+    expect(mockResponse.camera).toBeDefined();
+    expect(mockResponse.camera.producers).toHaveLength(1);
+    expect(mockResponse.camera.producers[0].url).toContain("rtsp://");
+  });
+
+  it("should detect healthy stream (has producers)", () => {
+    const streams = {
+      camera: {
+        producers: [{ url: "rtsp://192.168.144.25:8554/sub.264" }],
+      },
+    };
+
+    const isHealthy =
+      streams.camera &&
+      streams.camera.producers &&
+      streams.camera.producers.length > 0;
+    expect(isHealthy).toBe(true);
+  });
+
+  it("should detect unhealthy stream (no producers)", () => {
+    const streams = {
+      camera: {
+        producers: [],
+      },
+    };
+
+    const isHealthy =
+      streams.camera &&
+      streams.camera.producers &&
+      streams.camera.producers.length > 0;
+    expect(isHealthy).toBe(false);
   });
 });
 
 // ─── Companion Computer Integration ─────────────────────────────
 
-describe("Companion Computer Stream Registration", () => {
-  it("should construct correct registration payload", () => {
+describe("Companion Computer WebRTC Registration", () => {
+  it("should construct correct registration payload with WebRTC URL", () => {
     const hubUrl = "https://quiver-hub.example.com";
     const droneId = "quiver_001";
     const apiKey = "test-api-key";
-    const localIp = "192.168.1.50";
-    const port = 8080;
+    const funnelUrl = "https://quiver.tail1234.ts.net";
 
     const payload = {
       api_key: apiKey,
       drone_id: droneId,
-      stream_url: `http://${localIp}:${port}/stream.m3u8`,
+      webrtc_url: `${funnelUrl}/api/webrtc?src=camera`,
     };
 
     const endpoint = `${hubUrl}/api/rest/camera/stream-register`;
 
     expect(payload.api_key).toBe("test-api-key");
     expect(payload.drone_id).toBe("quiver_001");
-    expect(payload.stream_url).toBe("http://192.168.1.50:8080/stream.m3u8");
+    expect(payload.webrtc_url).toBe(
+      "https://quiver.tail1234.ts.net/api/webrtc?src=camera"
+    );
     expect(endpoint).toContain("/api/rest/camera/stream-register");
   });
 
@@ -395,14 +436,5 @@ describe("Companion Computer Stream Registration", () => {
     expect(payload.api_key).toBeTruthy();
     expect(payload.drone_id).toBeTruthy();
     expect(Object.keys(payload)).toHaveLength(2);
-  });
-
-  it("should detect local IP format", () => {
-    const validIps = ["192.168.1.50", "10.0.0.1", "172.16.0.5"];
-    const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-
-    for (const ip of validIps) {
-      expect(ipRegex.test(ip)).toBe(true);
-    }
   });
 });

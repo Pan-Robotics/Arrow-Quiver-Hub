@@ -1098,3 +1098,16 @@
 
 ## Organize Scripts
 - [x] Move all .py and .service files into companion_scripts folder
+
+## WebRTC Migration (HLS → go2rtc + Tailscale)
+- [x] Research WebRTC server options (chose go2rtc)
+- [x] Design WebRTC architecture with Tailscale funnel
+- [x] Rewrite camera_stream_service.py to manage go2rtc process instead of FFmpeg/HLS
+- [x] Auto-detect Tailscale funnel URL and register with Hub
+- [x] Update server rest-api.ts: replace HLS proxy with WebRTC signaling URL relay
+- [x] Update CameraFeedApp.tsx: replace HLS.js with native WebRTC player
+- [x] Rewrite install_camera_services.sh with Tailscale + go2rtc setup (auto-detect funnel URL)
+- [x] Update camera-stream.service for go2rtc
+- [x] Delete cloudflared-hls.service (replaced by Tailscale funnel)
+- [x] Update CAMERA_SERVICES_README.md for new architecture
+- [x] Write tests for new endpoints (29 WebRTC tests, 583 total passing, removed 30 old cloudflared tests)

@@ -25,7 +25,6 @@ import {
   WifiOff,
   RefreshCw
 } from "lucide-react";
-import Hls from "hls.js";
 import { io, Socket } from "socket.io-client";
 import { useDroneSelection } from "@/hooks/useDroneSelection";
 
@@ -50,6 +49,109 @@ type GimbalCommand =
   | { type: "photo" }
   | { type: "recordToggle" };
 
+/**
+ * Connect to a go2rtc WebRTC stream using the WHEP-like signaling API.
+ * 
+ * Flow:
+ * 1. Create RTCPeerConnection with STUN servers
+ * 2. Add a transceiver for video (recvonly)
+ * 3. Create SDP offer
+ * 4. POST offer to go2rtc's /api/webrtc endpoint
+ * 5. Receive SDP answer
+ * 6. Set remote description
+ * 7. Media starts flowing peer-to-peer via UDP
+ */
+async function connectWebRTC(
+  webrtcUrl: string,
+  videoElement: HTMLVideoElement,
+  onConnected: () => void,
+  onDisconnected: (reason: string) => void,
+): Promise<RTCPeerConnection> {
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ],
+    iceCandidatePoolSize: 4,
+  });
+
+  // Add receive-only transceivers for video and audio
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.addTransceiver("audio", { direction: "recvonly" });
+
+  // Handle incoming media stream
+  pc.ontrack = (event) => {
+    if (event.streams.length > 0) {
+      videoElement.srcObject = event.streams[0];
+      onConnected();
+    }
+  };
+
+  // Monitor connection state
+  pc.onconnectionstatechange = () => {
+    switch (pc.connectionState) {
+      case "connected":
+        onConnected();
+        break;
+      case "disconnected":
+        onDisconnected("Connection lost");
+        break;
+      case "failed":
+        onDisconnected("Connection failed");
+        break;
+      case "closed":
+        onDisconnected("Connection closed");
+        break;
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === "failed") {
+      onDisconnected("ICE negotiation failed — NAT traversal may be blocked");
+    }
+  };
+
+  // Create and set local offer
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  // Wait for ICE gathering to complete (or timeout after 3s)
+  await new Promise<void>((resolve) => {
+    if (pc.iceGatheringState === "complete") {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(resolve, 3000);
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === "complete") {
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+  });
+
+  // Send offer to go2rtc WHEP endpoint
+  const response = await fetch(webrtcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: pc.localDescription?.sdp,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`WebRTC signaling failed (${response.status}): ${text}`);
+  }
+
+  // Set remote answer
+  const answerSdp = await response.text();
+  await pc.setRemoteDescription(new RTCSessionDescription({
+    type: "answer",
+    sdp: answerSdp,
+  }));
+
+  return pc;
+}
+
 export default function CameraFeedApp() {
   // Drone selection via shared hook
   const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection("camera");
@@ -66,12 +168,12 @@ export default function CameraFeedApp() {
   });
   
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [hlsError, setHlsError] = useState<string | null>(null);
-  const [isBuffering, setIsBuffering] = useState(false);
+  const [webrtcUrl, setWebrtcUrl] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   
   // Gimbal control state (for continuous rotation while button held)
@@ -91,8 +193,8 @@ export default function CameraFeedApp() {
       recording: false,
       streamActive: false,
     });
-    setStreamUrl(null);
-    setHlsError(null);
+    setWebrtcUrl(null);
+    setStreamError(null);
 
     const socketInstance = io({
       path: "/socket.io/",
@@ -122,14 +224,14 @@ export default function CameraFeedApp() {
       }));
     });
 
-    // Listen for stream URL updates from server (HLS proxy URL)
+    // Listen for WebRTC stream URL updates from server
     socketInstance.on("camera_stream", (data: { url: string | null }) => {
-      console.log("[Camera] Stream URL received:", data.url);
+      console.log("[Camera] WebRTC URL received:", data.url);
       if (data.url) {
-        setStreamUrl(data.url);
+        setWebrtcUrl(data.url);
         setStatus(prev => ({ ...prev, streamActive: true }));
       } else {
-        setStreamUrl(null);
+        setWebrtcUrl(null);
         setStatus(prev => ({ ...prev, streamActive: false }));
       }
     });
@@ -145,8 +247,8 @@ export default function CameraFeedApp() {
     fetch(`/api/rest/camera/stream-status/${selectedDrone}`)
       .then(res => res.json())
       .then(data => {
-        if (data.active && data.proxy_url) {
-          setStreamUrl(data.proxy_url);
+        if (data.active && data.webrtc_url) {
+          setWebrtcUrl(data.webrtc_url);
           setStatus(prev => ({ ...prev, streamActive: true }));
         }
       })
@@ -158,99 +260,71 @@ export default function CameraFeedApp() {
     };
   }, [selectedDrone]);
 
-  // HLS.js player setup - attach/detach when streamUrl changes
+  // WebRTC connection - connect/disconnect when webrtcUrl changes
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    // Cleanup previous HLS instance
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
+    // Cleanup previous peer connection
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
     }
+    video.srcObject = null;
 
-    if (!streamUrl) {
-      video.src = "";
+    if (!webrtcUrl) {
       return;
     }
 
-    setHlsError(null);
-    setIsBuffering(true);
+    setStreamError(null);
+    setIsConnecting(true);
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        // Low-latency tuning
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 5,
-        liveDurationInfinity: true,
-        enableWorker: true,
-        lowLatencyMode: true,
-        // Retry config for unreliable network to companion
-        manifestLoadingMaxRetry: 6,
-        manifestLoadingRetryDelay: 1000,
-        levelLoadingMaxRetry: 6,
-        levelLoadingRetryDelay: 1000,
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 1000,
-      });
+    let cancelled = false;
 
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log("[HLS] Manifest parsed, starting playback");
-        setIsBuffering(false);
-        setHlsError(null);
-        video.play().catch(() => {
-          // Autoplay blocked - user will need to click
-          console.warn("[HLS] Autoplay blocked");
-        });
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.warn("[HLS] Error:", data.type, data.details);
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              setHlsError("Network error - companion computer may be unreachable");
-              // Try to recover
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              setHlsError("Media error - attempting recovery");
-              hls.recoverMediaError();
-              break;
-            default:
-              setHlsError("Fatal stream error - stream may have ended");
-              hls.destroy();
-              break;
-          }
+    connectWebRTC(
+      webrtcUrl,
+      video,
+      () => {
+        // onConnected
+        if (!cancelled) {
+          setIsConnecting(false);
+          setStreamError(null);
+          video.play().catch(() => {
+            console.warn("[WebRTC] Autoplay blocked");
+          });
+        }
+      },
+      (reason) => {
+        // onDisconnected
+        if (!cancelled) {
+          setStreamError(reason);
+          setStatus(prev => ({ ...prev, streamActive: false }));
+        }
+      },
+    )
+      .then((pc) => {
+        if (cancelled) {
+          pc.close();
+        } else {
+          pcRef.current = pc;
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("[WebRTC] Connection error:", err);
+          setStreamError(err.message || "Failed to connect to WebRTC stream");
+          setIsConnecting(false);
         }
       });
 
-      hls.on(Hls.Events.FRAG_BUFFERED, () => {
-        setIsBuffering(false);
-      });
-
-      hlsRef.current = hls;
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari native HLS support
-      video.src = streamUrl;
-      video.addEventListener("loadedmetadata", () => {
-        setIsBuffering(false);
-        video.play().catch(() => {});
-      });
-    } else {
-      setHlsError("HLS is not supported in this browser");
-    }
-
     return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
+      cancelled = true;
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
       }
     };
-  }, [streamUrl]);
+  }, [webrtcUrl]);
 
   // Send command to camera via WebSocket
   const sendCommand = useCallback((command: GimbalCommand) => {
@@ -315,25 +389,32 @@ export default function CameraFeedApp() {
   // Retry stream connection
   const retryStream = useCallback(() => {
     if (!selectedDrone) return;
-    setHlsError(null);
-    setIsBuffering(true);
+    setStreamError(null);
+    setIsConnecting(true);
+    
+    // Close existing connection
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
     // Re-poll for stream status
     fetch(`/api/rest/camera/stream-status/${selectedDrone}`)
       .then(res => res.json())
       .then(data => {
-        if (data.active && data.proxy_url) {
-          // Force re-attach by toggling URL
-          setStreamUrl(null);
-          setTimeout(() => setStreamUrl(data.proxy_url), 100);
+        if (data.active && data.webrtc_url) {
+          // Force re-connect by toggling URL
+          setWebrtcUrl(null);
+          setTimeout(() => setWebrtcUrl(data.webrtc_url), 100);
           setStatus(prev => ({ ...prev, streamActive: true }));
         } else {
-          setHlsError("No active stream found for this drone");
-          setIsBuffering(false);
+          setStreamError("No active stream found for this drone");
+          setIsConnecting(false);
         }
       })
       .catch(() => {
-        setHlsError("Failed to check stream status");
-        setIsBuffering(false);
+        setStreamError("Failed to check stream status");
+        setIsConnecting(false);
       });
   }, [selectedDrone]);
 
@@ -358,7 +439,7 @@ export default function CameraFeedApp() {
                 }`}
               >
                 {status.streamActive ? (
-                  <><Wifi size={12} className="mr-1" /> HLS Live</>
+                  <><Wifi size={12} className="mr-1" /> WebRTC Live</>
                 ) : (
                   <><WifiOff size={12} className="mr-1" /> No Stream</>
                 )}
@@ -414,28 +495,28 @@ export default function CameraFeedApp() {
           {/* Video Player */}
           <Card className="bg-zinc-800 border-zinc-700 overflow-hidden">
             <div ref={videoContainerRef} className="relative aspect-video bg-black">
-              {/* HLS Video Element - always present for HLS.js attachment */}
+              {/* WebRTC Video Element */}
               <video
                 ref={videoRef}
-                className={`w-full h-full object-contain ${streamUrl ? 'block' : 'hidden'}`}
+                className={`w-full h-full object-contain ${webrtcUrl ? 'block' : 'hidden'}`}
                 autoPlay
                 muted
                 playsInline
               />
               
-              {/* Buffering overlay */}
-              {streamUrl && isBuffering && (
+              {/* Connecting overlay */}
+              {webrtcUrl && isConnecting && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
                   <Loader2 size={48} className="animate-spin text-blue-400 mb-3" />
-                  <p className="text-sm text-zinc-300">Connecting to stream...</p>
+                  <p className="text-sm text-zinc-300">Establishing WebRTC connection...</p>
                 </div>
               )}
 
-              {/* HLS Error overlay */}
-              {streamUrl && hlsError && (
+              {/* Error overlay */}
+              {webrtcUrl && streamError && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
                   <WifiOff size={48} className="text-red-400 mb-3" />
-                  <p className="text-sm text-red-300 mb-2">{hlsError}</p>
+                  <p className="text-sm text-red-300 mb-2">{streamError}</p>
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -448,13 +529,13 @@ export default function CameraFeedApp() {
               )}
 
               {/* No stream placeholder */}
-              {!streamUrl && (
+              {!webrtcUrl && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500">
                   <VideoOff size={64} className="mb-4" />
                   <p className="text-lg font-medium">No Video Stream</p>
                   <p className="text-sm text-zinc-600 mb-4">
                     {selectedDrone 
-                      ? `Waiting for HLS stream from ${selectedDrone}...`
+                      ? `Waiting for WebRTC stream from ${selectedDrone}...`
                       : "Select a drone to view camera feed"
                     }
                   </p>
@@ -472,7 +553,7 @@ export default function CameraFeedApp() {
               )}
               
               {/* Video Overlay - Crosshair (only when stream is active) */}
-              {streamUrl && !hlsError && (
+              {webrtcUrl && !streamError && (
                 <div className="absolute inset-0 pointer-events-none">
                   {/* Center crosshair */}
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -638,7 +719,7 @@ export default function CameraFeedApp() {
                   <span className="text-zinc-400">Stream:</span>
                   <span className={`flex items-center gap-1 ${status.streamActive ? 'text-green-500' : 'text-zinc-500'}`}>
                     {status.streamActive ? <Wifi size={14} /> : <WifiOff size={14} />}
-                    {status.streamActive ? 'HLS Active' : 'Inactive'}
+                    {status.streamActive ? 'WebRTC Active' : 'Inactive'}
                   </span>
                 </div>
               </div>
@@ -700,8 +781,9 @@ export default function CameraFeedApp() {
                 <li>• Camera is powered on and connected to the network</li>
                 <li>• Camera IP is set to 192.168.144.25</li>
                 <li>• Companion computer camera service is running</li>
-                <li>• HLS stream is registered with Quiver Hub</li>
-                <li>• Network connectivity between components</li>
+                <li>• go2rtc is running and connected to RTSP stream</li>
+                <li>• Tailscale funnel is active and accessible</li>
+                <li>• WebRTC stream is registered with Quiver Hub</li>
               </ul>
             </Card>
           )}

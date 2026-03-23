@@ -1,138 +1,137 @@
-# SIYI A8 Mini Camera Services
-
-This directory contains Python services for controlling the SIYI A8 mini gimbal camera and streaming video to Quiver Hub.
+# SIYI A8 Mini Camera Services — WebRTC + Tailscale Architecture
 
 ## Overview
 
-The camera integration consists of three services running on the companion computer:
-
-1. **Camera Controller** (`siyi_camera_controller.py`) — Handles gimbal control commands via the SIYI SDK protocol over TCP, connected to Quiver Hub via Socket.IO
-2. **Streaming Service** (`camera_stream_service.py`) — Converts RTSP video to HLS for web delivery, registers the stream with Quiver Hub via REST API
-3. **Cloudflared Tunnel** (`cloudflared-hls.service`) — Exposes the local HLS server to the internet so the Hub can proxy the stream to remote browsers
+This system streams video from a SIYI A8 Mini gimbal camera on a Raspberry Pi companion computer to a remote browser via WebRTC, with sub-second latency. Camera gimbal controls (pan, tilt, zoom, photo, record) flow from the browser through the Quiver Hub to the companion via Socket.IO.
 
 ## Architecture
 
 ```
-┌─────────────────┐    Socket.IO     ┌─────────────────────────────┐
-│   Quiver Hub    │◄────────────────►│       Companion Pi          │
-│   (Browser)     │  Commands/Status │                             │
-│                 │                  │  ┌───────────────────────┐  │
-│   HLS Player    │    Cloudflare    │  │  Camera Controller    │  │
-│   (via proxy)   │◄───Tunnel───────►│  │  (Socket.IO client)   │  │
-└─────────────────┘                  │  └──────────┬────────────┘  │
-                                     │             │ TCP (SDK)     │
-                                     │             ▼              │
-                                     │  ┌───────────────────────┐  │
-                                     │  │  Streaming Service    │  │
-                                     │  │  (FFmpeg + HLS HTTP)  │  │
-                                     │  └──────────┬────────────┘  │
-                                     │             │ RTSP          │
-                                     │  ┌──────────▼────────────┐  │
-                                     │  │  Cloudflared Tunnel   │  │
-                                     │  │  (port 8080 → public) │  │
-                                     │  └───────────────────────┘  │
-                                     └─────────────┬───────────────┘
-                                                   │
-                                          ┌────────▼────────┐
-                                          │  SIYI A8 Mini   │
-                                          │  192.168.144.25 │
-                                          └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Raspberry Pi (Companion Computer)                          │
+│                                                             │
+│  SIYI A8 Mini ──RTSP──▶ go2rtc ──WebRTC──▶ Browser         │
+│  (192.168.144.25)       (port 1984)    (peer-to-peer UDP)   │
+│                              │                              │
+│                     Tailscale Funnel                        │
+│                     (HTTPS signaling)                       │
+│                              │                              │
+│  siyi_camera_controller.py ──Socket.IO──▶ Quiver Hub        │
+│  (gimbal control via UDP SDK)                               │
+│                                                             │
+│  camera_stream_service.py                                   │
+│  (manages go2rtc, detects funnel URL, registers with Hub)   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Cloud (Quiver Hub)                                         │
+│                                                             │
+│  Stores WebRTC signaling URL per drone                      │
+│  Relays gimbal commands (browser → companion via Socket.IO) │
+│  Relays camera status (companion → browser via Socket.IO)   │
+│  No video proxying — media flows peer-to-peer               │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Browser                                                    │
+│                                                             │
+│  Gets WebRTC URL from Hub → WHEP signaling via funnel       │
+│  Receives video via WebRTC (UDP peer-to-peer)               │
+│  Sends gimbal commands via Socket.IO through Hub            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## How the Stream Reaches the Browser
+## Data Flow
 
-1. FFmpeg captures RTSP from the camera and outputs HLS segments to `/tmp/hls_stream/`
-2. A local HTTP server (port 8080) serves the HLS playlist and segments
-3. Cloudflared creates a public tunnel URL (e.g., `https://abc123.trycloudflare.com`) pointing to port 8080
-4. The streaming service auto-detects the tunnel URL by querying cloudflared's metrics endpoint (`http://127.0.0.1:33843/quicktunnel`)
-5. The streaming service registers the public tunnel URL with Quiver Hub via `POST /api/rest/camera/stream-register`
-6. The Hub proxies HLS requests from the browser through the tunnel to the Pi
+| Flow | Protocol | Path |
+|------|----------|------|
+| Video (RTSP ingest) | RTSP/TCP | Camera → go2rtc |
+| Video (to browser) | WebRTC/UDP | go2rtc → Browser (peer-to-peer via STUN) |
+| WebRTC signaling | HTTPS | Browser → Tailscale funnel → go2rtc |
+| Stream registration | HTTPS REST | camera_stream_service.py → Quiver Hub |
+| Gimbal commands | Socket.IO | Browser → Hub → siyi_camera_controller.py |
+| Camera status | Socket.IO | siyi_camera_controller.py → Hub → Browser |
 
-This means the Pi can be on any network (cellular, satellite, private LAN) — as long as it has outbound internet access, the stream will reach the Hub.
+## Components
+
+### go2rtc
+
+A single binary that converts RTSP to WebRTC natively. No FFmpeg needed. Configured via `go2rtc.yaml` to ingest from the SIYI camera's RTSP stream and serve WebRTC on port 1984 (API) and port 8555 (WebRTC UDP).
+
+### Tailscale Funnel
+
+Exposes go2rtc's HTTP API (port 1984) to the internet via a stable HTTPS URL (e.g., `https://quiver.tail1234.ts.net`). Only signaling traffic (SDP offer/answer) goes through the funnel. Actual video flows peer-to-peer via UDP.
+
+### camera_stream_service.py
+
+Manages the streaming pipeline:
+- Monitors go2rtc health via its API
+- Auto-detects the Tailscale funnel URL by querying `tailscale status`
+- Registers the WebRTC signaling URL with the Quiver Hub
+- Handles graceful shutdown (unregisters stream)
+
+### siyi_camera_controller.py
+
+Controls the SIYI A8 Mini gimbal via its UDP SDK (port 37260):
+- Connects to the Quiver Hub via Socket.IO
+- Receives gimbal commands (rotate, zoom, photo, record, center, nadir)
+- Sends camera status updates (attitude, zoom level, recording state)
 
 ## Network Configuration
 
-The SIYI A8 mini camera has a fixed IP address on the aircraft's internal network:
-
 | Service | IP Address | Port | Protocol |
 |---------|------------|------|----------|
-| SDK Control | 192.168.144.25 | 37260 | TCP |
+| SDK Control | 192.168.144.25 | 37260 | UDP |
 | Main Stream (4K) | 192.168.144.25 | 8554 | RTSP (`/main.264`) |
 | Sub Stream (720p) | 192.168.144.25 | 8554 | RTSP (`/sub.264`) |
+| go2rtc API | localhost | 1984 | HTTP |
+| go2rtc WebRTC | 0.0.0.0 | 8555 | UDP |
 
-## Quick Start
+## Installation
 
-### Prerequisites
-
-- Raspberry Pi 4 or 5 with Raspberry Pi OS (64-bit)
-- Python 3.9+
-- FFmpeg
-- Network connectivity to SIYI camera
-- Outbound internet access (for cloudflared tunnel)
-
-### Installation
-
-1. Copy the scripts to the companion computer:
 ```bash
-scp -r companion_scripts/ julius@<companion-ip>:/home/julius/camera_forwarder/
-```
-
-2. Run the installation script:
-```bash
-ssh julius@<companion-ip>
-cd /home/julius/camera_forwarder
 chmod +x install_camera_services.sh
 sudo ./install_camera_services.sh
 ```
 
-3. Follow the prompts to configure:
-   - Quiver Hub URL (HTTPS, e.g., `https://rplidar-viz-cjlhozxe.manus.space`)
-   - Drone ID
-   - API Key
+The install script handles:
+1. Installing go2rtc binary (auto-detects ARM64/ARM/AMD64)
+2. Installing Tailscale (if not present) and authenticating
+3. Setting up Tailscale funnel (auto-detects hostname)
+4. Creating go2rtc configuration
+5. Installing all systemd services
+6. Starting everything
 
-The install script will:
-- Install `ffmpeg`, `python3-pip`, `cloudflared`
-- Install Python dependencies (`python-socketio[asyncio_client]`, `aiohttp`, `requests`)
-- Create and enable three systemd services
+## Systemd Services
 
-### Manual Installation
+| Service | Description | Dependencies |
+|---------|-------------|--------------|
+| `go2rtc.service` | RTSP→WebRTC streaming server | network |
+| `tailscale-funnel.service` | Exposes go2rtc API to internet | tailscaled, go2rtc |
+| `siyi-camera.service` | Gimbal controller (Socket.IO) | network |
+| `camera-stream.service` | Stream manager + Hub registration | go2rtc, tailscale-funnel |
+
+Startup order: `go2rtc` → `tailscale-funnel` → `camera-stream` (parallel: `siyi-camera`)
+
+### Service Management
 
 ```bash
-# Install system dependencies
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip ffmpeg
+# Check status
+sudo systemctl status go2rtc camera-stream siyi-camera tailscale-funnel
 
-# Install cloudflared
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 \
-  -o /usr/local/bin/cloudflared
-sudo chmod +x /usr/local/bin/cloudflared
+# View logs (follow mode)
+sudo journalctl -u go2rtc -f
+sudo journalctl -u camera-stream -f
+sudo journalctl -u siyi-camera -f
 
-# Install Python dependencies
-pip3 install --break-system-packages 'python-socketio[asyncio_client]' aiohttp requests
+# Restart all services
+sudo systemctl restart go2rtc tailscale-funnel camera-stream siyi-camera
 
-# Start cloudflared tunnel (terminal 1)
-cloudflared tunnel --url http://localhost:8080 --metrics localhost:33843
-
-# Start streaming service (terminal 2)
-python3 camera_stream_service.py \
-  --stream sub --port 8080 \
-  --hub-url https://your-hub.manus.space \
-  --drone-id quiver_001 \
-  --api-key YOUR_API_KEY \
-  --tunnel-metrics-port 33843
-
-# Start camera controller (terminal 3)
-python3 siyi_camera_controller.py \
-  --hub-url https://your-hub.manus.space \
-  --drone-id quiver_001 \
-  --api-key YOUR_API_KEY
+# Stop all services
+sudo systemctl stop siyi-camera camera-stream tailscale-funnel go2rtc
 ```
 
-## Camera Controller
-
-The camera controller (`siyi_camera_controller.py`) implements the SIYI SDK binary protocol for gimbal control and connects to Quiver Hub via **Socket.IO** (not raw WebSocket).
-
-### Supported Commands
+## Camera Controller Commands
 
 | Action | Description | Parameters |
 |--------|-------------|------------|
@@ -148,164 +147,33 @@ The camera controller (`siyi_camera_controller.py`) implements the SIYI SDK bina
 | `focus` | Auto focus at point | `x`, `y` (0-1000) |
 | `get_status` | Get current status | None |
 
-### Command Line Options
-
-```
---hub-url       Quiver Hub URL (HTTPS — Socket.IO handles transport upgrade)
---drone-id      Drone identifier
---api-key       API key for authentication
---test          Run in test mode (direct camera control, no Hub connection)
---debug         Enable debug logging (Socket.IO + engine.io verbose output)
-```
-
-### Socket.IO Events
-
-| Event | Direction | Description |
-|-------|-----------|-------------|
-| `register_companion` | Pi → Hub | Register as camera companion for a drone |
-| `camera_command` | Hub → Pi | Forward gimbal/zoom/photo command from browser |
-| `camera_response` | Pi → Hub | Command execution result |
-| `camera_status` | Pi → Hub | Periodic status update (2 Hz) |
-
-### Status Update Format
-
-```json
-{
-  "type": "camera_status",
-  "drone_id": "quiver_001",
-  "connected": true,
-  "timestamp": 1706000000.0,
-  "attitude": { "yaw": 45.5, "pitch": -30.0, "roll": 0.0 },
-  "recording": false,
-  "hdr_enabled": false,
-  "tf_card_present": true
-}
-```
-
-## Streaming Service
-
-The streaming service (`camera_stream_service.py`) converts RTSP to HLS using FFmpeg and registers the stream with Quiver Hub.
-
-### Features
-
-- Low-latency HLS output (1-second segments, 3-segment window)
-- Automatic cloudflared tunnel URL detection
-- Auto-registration with Quiver Hub using public tunnel URL
-- Automatic reconnection on stream failure
-- CORS-enabled HTTP server for cross-origin access
-- Health monitoring with configurable thresholds
-
-### Command Line Options
-
-```
---stream              Stream type: 'main' (4K) or 'sub' (720p, default)
---port                HTTP port for HLS server (default: 8080)
---hls-dir             Directory for HLS output files
---hub-url             Quiver Hub URL for stream registration
---drone-id            Drone identifier
---api-key             API key for authentication
---tunnel-metrics-port Cloudflared metrics port for tunnel URL auto-detection (default: 33843)
---debug               Enable debug logging
-```
-
-### Tunnel Auto-Detection
-
-On startup, the streaming service polls `http://127.0.0.1:<metrics-port>/quicktunnel` to discover the cloudflared tunnel's public URL. It retries up to 30 times (1 second apart) to allow cloudflared time to establish the tunnel. Once discovered, it registers the public URL with the Hub instead of the local LAN IP.
-
-## Systemd Services
-
-### Service Files
-
-| Service | File | Description |
-|---------|------|-------------|
-| `cloudflared-hls` | `cloudflared-hls.service` | Cloudflare tunnel for HLS port |
-| `camera-stream` | `camera-stream.service` | FFmpeg streaming + Hub registration |
-| `siyi-camera` | `siyi-camera.service` | Gimbal controller + Socket.IO bridge |
-
-### Startup Order
-
-```
-cloudflared-hls → camera-stream → siyi-camera
-```
-
-`camera-stream` depends on `cloudflared-hls` (needs the tunnel URL). `siyi-camera` is independent but typically started after the stream is up.
-
-### Service Management
-
-```bash
-# Check status
-sudo systemctl status cloudflared-hls camera-stream siyi-camera
-
-# View logs (follow mode)
-sudo journalctl -u cloudflared-hls -f
-sudo journalctl -u camera-stream -f
-sudo journalctl -u siyi-camera -f
-
-# Restart all services
-sudo systemctl restart cloudflared-hls camera-stream siyi-camera
-
-# Stop all services
-sudo systemctl stop siyi-camera camera-stream cloudflared-hls
-```
-
 ## Troubleshooting
 
-### Camera Not Connecting
+**No video in browser:**
+1. Check go2rtc is running: `sudo systemctl status go2rtc`
+2. Check go2rtc can reach camera: `curl http://localhost:1984/api/streams`
+3. Check Tailscale funnel: `tailscale funnel status`
+4. Check stream is registered: `sudo journalctl -u camera-stream -f`
 
-1. Verify network connectivity:
-```bash
-ping 192.168.144.25
-```
+**High latency:**
+- Ensure WebRTC is using UDP (not TCP fallback)
+- Check STUN connectivity — symmetric NAT may force TURN relay
+- Use `sub` stream (720p) instead of `main` (4K) to reduce encoding load
 
-2. Check if SDK port is accessible:
-```bash
-nc -zv 192.168.144.25 37260
-```
+**Gimbal not responding:**
+1. Check siyi-camera service: `sudo systemctl status siyi-camera`
+2. Verify camera IP: `ping 192.168.144.25`
+3. Check Socket.IO connection in logs: `sudo journalctl -u siyi-camera -f`
 
-3. Verify camera is powered on and network cable is connected
-
-### No Video Stream
-
-1. Test RTSP stream directly:
-```bash
-ffplay rtsp://192.168.144.25:8554/sub.264
-```
-
-2. Check if HLS segments are being created:
-```bash
-ls -la /tmp/hls_stream/
-```
-
-3. Check if cloudflared tunnel is up:
-```bash
-curl http://127.0.0.1:33843/quicktunnel
-```
-
-4. View streaming service logs:
-```bash
-sudo journalctl -u camera-stream -f
-```
-
-### Stream Not Showing in Browser
-
-1. Check if stream registered with Hub (look for "Stream registered with Hub" in logs)
-2. Verify the tunnel URL is reachable from outside the Pi's network
-3. Check Hub server logs for proxy errors
-
-### Gimbal Not Responding
-
-1. Check camera controller logs:
-```bash
-sudo journalctl -u siyi-camera -f
-```
-
-2. Verify Socket.IO connection (look for "Connected to Quiver Hub (Socket.IO)" in logs)
-
-3. Ensure API key is valid and matches drone ID
+**Tailscale funnel not working:**
+1. Verify Tailscale is connected: `tailscale status`
+2. Check funnel is enabled: `tailscale funnel status`
+3. Ensure your Tailscale plan supports funnel (free tier includes it)
+4. Check DNS propagation: `curl https://your-hostname.ts.net`
 
 ## SIYI SDK Protocol Reference
 
-The SDK uses a binary frame format:
+The SDK uses a binary frame format over UDP:
 
 ```
 | STX (2) | CTRL (1) | DATA_LEN (2) | SEQ (2) | CMD_ID (1) | DATA (N) | CRC16 (2) |
