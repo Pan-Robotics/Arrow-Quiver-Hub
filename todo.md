@@ -1128,3 +1128,6 @@
 - [x] Write companion Python script (logs_ota_service.py)
 - [x] Create systemd service file and install script updates
 - [x] Write tests for new endpoints (82 tests passing)
+
+## Bug Fixes
+- [x] Fix App Store showing "Coming Soon" for Logs & OTA Updates instead of install button

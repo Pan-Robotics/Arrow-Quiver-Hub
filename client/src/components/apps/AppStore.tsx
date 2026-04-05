@@ -181,7 +181,7 @@ export default function AppStore({ onInstallApp, onManageApps, editingAppId, onC
           {storeApps.map((app) => {
             const Icon = app.icon;
             const isInstalled = isAppInstalled(app.id);
-            const isInstallable = app.id === "telemetry" || app.id === "camera" || app.id === "analytics"; // Telemetry, Camera Feed, and Flight Analytics are installable
+            const isInstallable = app.id === "telemetry" || app.id === "camera" || app.id === "analytics" || app.id === "logs-ota"; // Telemetry, Camera Feed, Flight Analytics, and Logs & OTA are installable
             
             return (
               <Card key={app.id} className="p-6 hover:shadow-lg transition-shadow">
