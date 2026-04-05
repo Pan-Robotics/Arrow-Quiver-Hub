@@ -158,6 +158,35 @@ export function initializeWebSocket(httpServer: HTTPServer) {
       }
     });
 
+    // Subscribe to logs & OTA events
+    socket.on('subscribe_logs', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to logs: ${droneId}`);
+      socket.join(`logs:${droneId}`);
+    });
+
+    socket.on('unsubscribe_logs', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from logs: ${droneId}`);
+      socket.leave(`logs:${droneId}`);
+    });
+
+    // Remote log stream request from browser → forward to companion
+    socket.on('log_stream_request', (data: { droneId: string; service: string; action: 'start' | 'stop'; lines?: number }) => {
+      console.log(`[WebSocket] Log stream ${data.action} for ${data.service} on ${data.droneId}`);
+      io?.to(`companion:${data.droneId}`).emit('log_stream_request', data);
+    });
+
+    // Log stream lines from companion → forward to subscribed browser clients
+    socket.on('log_stream_line', (data: { drone_id: string; service: string; lines: string[] }) => {
+      if (socket.data.companionDroneId) {
+        io?.to(`logs:${socket.data.companionDroneId}`).emit('log_stream', {
+          drone_id: socket.data.companionDroneId,
+          service: data.service,
+          lines: data.lines,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
     // Subscribe to a data stream (for stream_subscription apps)
     socket.on('subscribe_stream', (streamId: string) => {
       console.log(`[WebSocket] Client ${socket.id} subscribed to stream: ${streamId}`);
@@ -281,6 +310,60 @@ export function broadcastCameraStream(droneId: string, streamUrl: string | null)
   });
 
   console.log(`[WebSocket] Camera stream ${streamUrl ? 'available' : 'unavailable'} for ${droneId}`);
+}
+
+/**
+ * Broadcast FC log download progress to subscribed browser clients
+ */
+export function broadcastLogProgress(droneId: string, data: {
+  logId: number;
+  status: string;
+  progress: number;
+  errorMessage?: string;
+  url?: string;
+  filename?: string;
+}) {
+  if (!io) return;
+  io.to(`logs:${droneId}`).emit('fc_log_progress', { drone_id: droneId, ...data });
+}
+
+/**
+ * Broadcast firmware flash progress to subscribed browser clients
+ */
+export function broadcastFirmwareProgress(droneId: string, data: {
+  updateId: number;
+  status: string;
+  flashStage?: string;
+  progress: number;
+  errorMessage?: string;
+}) {
+  if (!io) return;
+  io.to(`logs:${droneId}`).emit('firmware_progress', { drone_id: droneId, ...data });
+}
+
+/**
+ * Broadcast system diagnostics to subscribed browser clients
+ */
+export function broadcastDiagnostics(droneId: string, data: {
+  cpuPercent?: number;
+  memoryPercent?: number;
+  diskPercent?: number;
+  cpuTempC?: number;
+  uptimeSeconds?: number;
+  services?: Record<string, string>;
+  network?: Record<string, any>;
+  timestamp: string;
+}) {
+  if (!io) return;
+  io.to(`logs:${droneId}`).emit('diagnostics', { drone_id: droneId, ...data });
+}
+
+/**
+ * Broadcast remote log stream lines to subscribed browser clients
+ */
+export function broadcastLogStream(droneId: string, lines: string[], service: string) {
+  if (!io) return;
+  io.to(`logs:${droneId}`).emit('log_stream', { drone_id: droneId, service, lines, timestamp: Date.now() });
 }
 
 export function getWebSocketServer() {

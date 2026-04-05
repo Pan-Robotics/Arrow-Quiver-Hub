@@ -34,6 +34,16 @@ import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
 import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion, deleteCustomApp } from "./customAppDb";
 import { createDroneJob, getPendingJobsForDrone, acknowledgeJob, completeJob, getAllJobsForDrone, createDroneFile, getDroneFile, getDroneFiles, deleteDroneFile } from "./droneJobsDb";
+import {
+  getFcLogsForDrone,
+  getFcLogById,
+  deleteFcLog,
+  getFirmwareUpdatesForDrone,
+  getFirmwareUpdateById,
+  createFirmwareUpdate,
+  getLatestDiagnostics,
+  getDiagnosticsHistory,
+} from "./logsOtaDb";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { gzipSync } from "zlib";
@@ -1355,6 +1365,167 @@ export const appRouter = router({
         await updateFlightLog(input.logId, { mediaUrls: [...existingMedia, url] });
 
         return { success: true, url };
+      }),
+  }),
+
+  // ─── FC Logs & OTA Updates ─────────────────────────────────────────────────
+
+  fcLogs: router({
+    // List FC logs for a drone
+    list: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        limit: z.number().optional().default(100),
+      }))
+      .query(async ({ input }) => {
+        return await getFcLogsForDrone(input.droneId, input.limit);
+      }),
+
+    // Get a single FC log
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await getFcLogById(input.id);
+      }),
+
+    // Request the Pi to scan FC SD card for logs
+    requestScan: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await createDroneJob({
+          droneId: input.droneId,
+          type: "scan_fc_logs",
+          payload: { logPath: "/APM/LOGS" },
+          createdBy: ctx.user.id,
+        });
+        return { success: true, message: "FC log scan job created" };
+      }),
+
+    // Request the Pi to download a specific FC log
+    requestDownload: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        logId: z.number(),
+        remotePath: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await createDroneJob({
+          droneId: input.droneId,
+          type: "download_fc_log",
+          payload: {
+            logId: input.logId,
+            remotePath: input.remotePath,
+          },
+          createdBy: ctx.user.id,
+        });
+        return { success: true, message: "FC log download job created" };
+      }),
+
+    // Delete an FC log record
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteFcLog(input.id);
+        return { success: true };
+      }),
+  }),
+
+  firmware: router({
+    // List firmware updates for a drone
+    list: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        limit: z.number().optional().default(50),
+      }))
+      .query(async ({ input }) => {
+        return await getFirmwareUpdatesForDrone(input.droneId, input.limit);
+      }),
+
+    // Get a single firmware update
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await getFirmwareUpdateById(input.id);
+      }),
+
+    // Upload firmware file and create record
+    upload: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        filename: z.string(),
+        content: z.string(), // base64 encoded
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const buffer = Buffer.from(input.content, "base64");
+
+        // Validate file extension
+        if (!input.filename.toLowerCase().endsWith(".abin") && !input.filename.toLowerCase().endsWith(".apj")) {
+          throw new Error("Only .abin and .apj firmware files are supported");
+        }
+
+        // 50MB limit for firmware
+        if (buffer.length > 50 * 1024 * 1024) {
+          throw new Error("Firmware file too large. Maximum size is 50MB.");
+        }
+
+        const fileKey = `firmware/${input.droneId}/${nanoid()}-${input.filename}`;
+        const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
+
+        const updateId = await createFirmwareUpdate({
+          droneId: input.droneId,
+          filename: input.filename,
+          fileSize: buffer.length,
+          storageKey: fileKey,
+          url,
+          status: "uploaded",
+          initiatedBy: ctx.user.id,
+        });
+
+        return { success: true, updateId, url, fileSize: buffer.length };
+      }),
+
+    // Request the Pi to flash firmware to the FC
+    requestFlash: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        updateId: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const update = await getFirmwareUpdateById(input.updateId);
+        if (!update) throw new Error("Firmware update not found");
+        if (update.droneId !== input.droneId) throw new Error("Drone ID mismatch");
+
+        await createDroneJob({
+          droneId: input.droneId,
+          type: "flash_firmware",
+          payload: {
+            updateId: input.updateId,
+            firmwareUrl: update.url,
+            filename: update.filename,
+          },
+          createdBy: ctx.user.id,
+        });
+
+        return { success: true, message: "Firmware flash job created" };
+      }),
+  }),
+
+  diagnostics: router({
+    // Get latest diagnostics snapshot for a drone
+    latest: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .query(async ({ input }) => {
+        return await getLatestDiagnostics(input.droneId);
+      }),
+
+    // Get diagnostics history for charts
+    history: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        limit: z.number().optional().default(60),
+      }))
+      .query(async ({ input }) => {
+        return await getDiagnosticsHistory(input.droneId, input.limit);
       }),
   }),
 });

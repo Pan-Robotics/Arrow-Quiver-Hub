@@ -14,6 +14,7 @@ import AppStore from "@/components/apps/AppStore";
 import AppRenderer from "@/components/apps/AppRenderer";
 import AppManagement from "@/pages/AppManagement";
 import FlightAnalyticsApp from "@/components/apps/FlightAnalyticsApp";
+import LogsOtaApp from "@/components/apps/LogsOtaApp";
 import { trpc } from "@/lib/trpc";
 
 export default function Home() {
@@ -127,16 +128,7 @@ export default function Home() {
       case "drone-config":
         return <DroneConfig />;
       case "logs-ota":
-        return (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <ScrollText className="mx-auto mb-4 text-muted-foreground" size={64} />
-              <h2 className="text-2xl font-semibold mb-2">Logs & OTA Updates</h2>
-              <p className="text-muted-foreground mb-1">Remote log streaming, system diagnostics, and over-the-air firmware updates.</p>
-              <Badge variant="secondary" className="mt-3">Coming Soon</Badge>
-            </div>
-          </div>
-        );
+        return <LogsOtaApp />;
       case "mission":
         return (
           <div className="h-full flex items-center justify-center">

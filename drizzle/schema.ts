@@ -271,3 +271,102 @@ export const flightLogs = mysqlTable("flightLogs", {
 
 export type FlightLog = typeof flightLogs.$inferSelect;
 export type InsertFlightLog = typeof flightLogs.$inferInsert;
+
+/**
+ * FC logs table - tracks flight controller log files discovered and downloaded via MAVFTP.
+ * The companion script lists logs on the FC SD card, downloads them, and uploads to S3.
+ */
+export const fcLogs = mysqlTable("fcLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Drone this log belongs to */
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  /** Remote file path on FC SD card (e.g. /APM/LOGS/00000042.BIN) */
+  remotePath: varchar("remotePath", { length: 512 }).notNull(),
+  /** Original filename */
+  filename: varchar("filename", { length: 255 }).notNull(),
+  /** File size in bytes on the FC */
+  fileSize: int("fileSize"),
+  /** Download status */
+  status: mysqlEnum("status", ["discovered", "downloading", "uploading", "completed", "failed"]).default("discovered").notNull(),
+  /** Download progress percentage (0-100) */
+  progress: int("progress").default(0),
+  /** S3 storage key once uploaded */
+  storageKey: varchar("storageKey", { length: 512 }),
+  /** Public S3 URL once uploaded */
+  url: varchar("url", { length: 1024 }),
+  /** Error message if download failed */
+  errorMessage: text("errorMessage"),
+  /** When the log was discovered on the FC */
+  discoveredAt: timestamp("discoveredAt").defaultNow().notNull(),
+  /** When download completed */
+  downloadedAt: timestamp("downloadedAt"),
+});
+
+export type FcLog = typeof fcLogs.$inferSelect;
+export type InsertFcLog = typeof fcLogs.$inferInsert;
+
+/**
+ * Firmware updates table - tracks OTA firmware upload and flash operations.
+ * Firmware .abin files are uploaded to S3, then pushed to the FC via MAVFTP.
+ */
+export const firmwareUpdates = mysqlTable("firmwareUpdates", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Drone this update targets */
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  /** Firmware filename (e.g. arducopter.abin) */
+  filename: varchar("filename", { length: 255 }).notNull(),
+  /** File size in bytes */
+  fileSize: int("fileSize").notNull(),
+  /** S3 storage key */
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  /** Public S3 URL for download */
+  url: varchar("url", { length: 1024 }).notNull(),
+  /** Overall status */
+  status: mysqlEnum("status", ["uploaded", "queued", "transferring", "flashing", "verifying", "completed", "failed"]).default("uploaded").notNull(),
+  /** ArduPilot flash stage based on file rename (ardupilot.abin → ardupilot-verify.abin → etc.) */
+  flashStage: varchar("flashStage", { length: 64 }),
+  /** Transfer/flash progress percentage (0-100) */
+  progress: int("progress").default(0),
+  /** Error message if update failed */
+  errorMessage: text("errorMessage"),
+  /** User who initiated the update */
+  initiatedBy: int("initiatedBy"),
+  /** When the firmware was uploaded */
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  /** When the flash started */
+  startedAt: timestamp("startedAt"),
+  /** When the flash completed */
+  completedAt: timestamp("completedAt"),
+});
+
+export type FirmwareUpdate = typeof firmwareUpdates.$inferSelect;
+export type InsertFirmwareUpdate = typeof firmwareUpdates.$inferInsert;
+
+/**
+ * System diagnostics table - stores periodic health snapshots from companion computers.
+ * Pi reports CPU, memory, disk, temperature, and service status.
+ */
+export const systemDiagnostics = mysqlTable("systemDiagnostics", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Drone/companion this diagnostic belongs to */
+  droneId: varchar("droneId", { length: 64 }).notNull(),
+  /** CPU usage percentage */
+  cpuPercent: int("cpuPercent"),
+  /** Memory usage percentage */
+  memoryPercent: int("memoryPercent"),
+  /** Disk usage percentage */
+  diskPercent: int("diskPercent"),
+  /** CPU temperature in Celsius */
+  cpuTempC: int("cpuTempC"),
+  /** Uptime in seconds */
+  uptimeSeconds: int("uptimeSeconds"),
+  /** Service statuses (JSON: {serviceName: "active"|"inactive"|"failed"}) */
+  services: json("services"),
+  /** Network info (JSON: {interface: {ip, rx_bytes, tx_bytes}}) */
+  network: json("network"),
+  /** When this snapshot was taken */
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export type SystemDiagnostic = typeof systemDiagnostics.$inferSelect;
+export type InsertSystemDiagnostic = typeof systemDiagnostics.$inferInsert;

@@ -1,0 +1,31 @@
+[Unit]
+Description=Quiver Hub – Logs & OTA Service
+Documentation=https://github.com/Pan-Robotics/Feather-Companion-Computer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alexd
+Group=alexd
+WorkingDirectory=/home/alexd
+ExecStart=/usr/bin/python3 /home/alexd/companion_scripts/logs_ota_service.py \
+    --hub-url HUB_URL_PLACEHOLDER \
+    --drone-id DRONE_ID_PLACEHOLDER \
+    --api-key API_KEY_PLACEHOLDER \
+    --fc-connection FC_CONNECTION_PLACEHOLDER \
+    --poll-interval 5 \
+    --diagnostics-interval 10
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=logs-ota
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

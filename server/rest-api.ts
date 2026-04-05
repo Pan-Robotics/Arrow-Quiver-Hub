@@ -16,6 +16,17 @@ import { nanoid } from "nanoid";
 import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastCameraStream, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./payloadIngest";
+import {
+  upsertFcLog,
+  updateFcLog,
+  getFcLogById,
+  createFirmwareUpdate,
+  updateFirmwareStatus,
+  getFirmwareUpdateById,
+  insertDiagnostics,
+  cleanupOldDiagnostics,
+} from "./logsOtaDb";
+import { broadcastLogProgress, broadcastFirmwareProgress, broadcastDiagnostics } from "./websocket";
 
 const router = Router();
 
@@ -731,6 +742,372 @@ router.get("/camera/stream-status/:droneId", (req: Request, res: Response) => {
     webrtc_url: entry.webrtcUrl,
     registered_at: new Date(entry.registeredAt).toISOString(),
   });
+});
+
+// ─── FC Log Management ─────────────────────────────────────────────────────
+
+/**
+ * POST /api/rest/logs/fc-list
+ * Pi reports discovered FC log files from the SD card.
+ * Creates/updates fcLogs entries with status "discovered".
+ *
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   logs: Array<{ remote_path: string, filename: string, file_size?: number }>
+ * }
+ */
+router.post("/logs/fc-list", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, logs } = req.body;
+
+    if (!api_key || !drone_id || !logs || !Array.isArray(logs)) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, logs[]",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    let created = 0;
+    for (const log of logs) {
+      if (!log.remote_path || !log.filename) continue;
+      await upsertFcLog({
+        droneId: drone_id,
+        remotePath: log.remote_path,
+        filename: log.filename,
+        fileSize: log.file_size || null,
+        status: "discovered",
+      });
+      created++;
+    }
+
+    console.log(`[Logs] ${created} FC logs listed for ${drone_id}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `${created} FC logs registered`,
+      count: created,
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/logs/fc-list:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+/**
+ * POST /api/rest/logs/fc-progress
+ * Pi reports download progress for an FC log.
+ *
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   log_id: number,
+ *   status: "downloading" | "uploading" | "completed" | "failed",
+ *   progress: number (0-100),
+ *   error_message?: string
+ * }
+ */
+router.post("/logs/fc-progress", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, log_id, status, progress, error_message } = req.body;
+
+    if (!api_key || !drone_id || !log_id || !status) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, log_id, status",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    await updateFcLog(log_id, {
+      status,
+      progress: progress ?? 0,
+      errorMessage: error_message || null,
+    });
+
+    // Broadcast progress to browser clients
+    broadcastLogProgress(drone_id, {
+      logId: log_id,
+      status,
+      progress: progress ?? 0,
+      errorMessage: error_message,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error in /api/rest/logs/fc-progress:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+/**
+ * POST /api/rest/logs/fc-upload
+ * Pi uploads a downloaded FC log file to S3 via the Hub.
+ *
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   log_id: number,
+ *   filename: string,
+ *   content: string (base64 encoded),
+ *   file_size: number
+ * }
+ */
+router.post("/logs/fc-upload", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, log_id, filename, content, file_size } = req.body;
+
+    if (!api_key || !drone_id || !log_id || !filename || !content) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, log_id, filename, content",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    const buffer = Buffer.from(content, "base64");
+
+    // Enforce 200MB limit for FC logs
+    if (buffer.length > 200 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: "File too large. Maximum size is 200MB.",
+      });
+    }
+
+    // Upload to S3
+    const fileKey = `fc-logs/${drone_id}/${nanoid()}-${filename}`;
+    const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
+
+    // Update the FC log record
+    await updateFcLog(log_id, {
+      status: "completed",
+      progress: 100,
+      storageKey: fileKey,
+      url,
+      fileSize: file_size || buffer.length,
+      downloadedAt: new Date(),
+    });
+
+    // Also create a flight log entry for the Flight Analytics app
+    await createFlightLog({
+      droneId: drone_id,
+      filename,
+      fileSize: file_size || buffer.length,
+      storageKey: fileKey,
+      url,
+      format: filename.toLowerCase().endsWith(".log") ? "log" : "bin",
+      description: `Auto-downloaded from FC via MAVFTP`,
+      uploadSource: "api",
+      uploadedBy: null,
+    });
+
+    // Broadcast completion
+    broadcastLogProgress(drone_id, {
+      logId: log_id,
+      status: "completed",
+      progress: 100,
+      url,
+      filename,
+    });
+
+    console.log(`[Logs] FC log uploaded for ${drone_id}: ${filename} (${buffer.length} bytes)`);
+
+    return res.status(200).json({
+      success: true,
+      message: "FC log uploaded",
+      url,
+      file_size: buffer.length,
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/logs/fc-upload:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// ─── Firmware Update Progress ──────────────────────────────────────────────
+
+/**
+ * POST /api/rest/firmware/progress
+ * Pi reports firmware flash progress.
+ *
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   update_id: number,
+ *   status: "transferring" | "flashing" | "verifying" | "completed" | "failed",
+ *   flash_stage?: string (ardupilot.abin rename stage),
+ *   progress: number (0-100),
+ *   error_message?: string
+ * }
+ */
+router.post("/firmware/progress", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, update_id, status, flash_stage, progress, error_message } = req.body;
+
+    if (!api_key || !drone_id || !update_id || !status) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, update_id, status",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    const updates: any = {
+      status,
+      progress: progress ?? 0,
+      errorMessage: error_message || null,
+    };
+    if (flash_stage) updates.flashStage = flash_stage;
+    if (status === "transferring" || status === "flashing") {
+      updates.startedAt = new Date();
+    }
+    if (status === "completed" || status === "failed") {
+      updates.completedAt = new Date();
+    }
+
+    await updateFirmwareStatus(update_id, updates);
+
+    // Broadcast to browser
+    broadcastFirmwareProgress(drone_id, {
+      updateId: update_id,
+      status,
+      flashStage: flash_stage,
+      progress: progress ?? 0,
+      errorMessage: error_message,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error in /api/rest/firmware/progress:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// ─── System Diagnostics ────────────────────────────────────────────────────
+
+/**
+ * POST /api/rest/diagnostics/report
+ * Pi sends a system health snapshot (CPU, memory, disk, temp, services).
+ * Stored in DB and broadcast to browser.
+ *
+ * Request body:
+ * {
+ *   api_key: string,
+ *   drone_id: string,
+ *   cpu_percent: number,
+ *   memory_percent: number,
+ *   disk_percent: number,
+ *   cpu_temp_c: number,
+ *   uptime_seconds: number,
+ *   services: { [name: string]: "active" | "inactive" | "failed" },
+ *   network: { [iface: string]: { ip: string, rx_bytes: number, tx_bytes: number } }
+ * }
+ */
+router.post("/diagnostics/report", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, cpu_percent, memory_percent, disk_percent, cpu_temp_c, uptime_seconds, services, network } = req.body;
+
+    if (!api_key || !drone_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    // Store in DB
+    await insertDiagnostics({
+      droneId: drone_id,
+      cpuPercent: cpu_percent ?? null,
+      memoryPercent: memory_percent ?? null,
+      diskPercent: disk_percent ?? null,
+      cpuTempC: cpu_temp_c ?? null,
+      uptimeSeconds: uptime_seconds ?? null,
+      services: services ?? null,
+      network: network ?? null,
+    });
+
+    // Cleanup old entries (keep last 24h at 1/min = 1440)
+    await cleanupOldDiagnostics(drone_id, 1440);
+
+    // Broadcast to browser
+    broadcastDiagnostics(drone_id, {
+      cpuPercent: cpu_percent,
+      memoryPercent: memory_percent,
+      diskPercent: disk_percent,
+      cpuTempC: cpu_temp_c,
+      uptimeSeconds: uptime_seconds,
+      services,
+      network,
+      timestamp: new Date().toISOString(),
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error in /api/rest/diagnostics/report:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 });
 
 export default router;

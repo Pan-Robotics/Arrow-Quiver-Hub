@@ -1114,3 +1114,17 @@
 
 ## Latency Indicator
 - [x] Add WebRTC latency indicator to Camera Feed widget (RTT, jitter, connection quality)
+
+## Logs & OTA Updates Pipeline
+- [x] Research ArduPilot MAVFTP, MAVSDK log/firmware APIs
+- [x] Design full architecture (companion script, server endpoints, frontend UI)
+- [x] Write companion Python script for log download and OTA firmware upload via MAVSDK/MAVFTP
+- [x] Add database schema for logs and OTA update records (fcLogs, firmwareUpdates, systemDiagnostics)
+- [x] Add database query helpers (logsOtaDb.ts)
+- [x] Add server-side REST endpoints for Pi to upload logs, report diagnostics, update firmware status
+- [x] Add server-side tRPC routers (fcLogs, firmware, diagnostics)
+- [x] Add WebSocket handlers for progress streaming and log streaming
+- [x] Build Logs & OTA Updates frontend app (log browser, download, OTA upload UI)
+- [x] Write companion Python script (logs_ota_service.py)
+- [x] Create systemd service file and install script updates
+- [x] Write tests for new endpoints (82 tests passing)
