@@ -1131,3 +1131,4 @@
 
 ## Bug Fixes
 - [x] Fix App Store showing "Coming Soon" for Logs & OTA Updates instead of install button
+- [x] Fix diagnostics.latest tRPC query returning undefined (React Query requires non-undefined)

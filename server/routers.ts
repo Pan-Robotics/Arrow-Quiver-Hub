@@ -1515,7 +1515,7 @@ export const appRouter = router({
     latest: protectedProcedure
       .input(z.object({ droneId: z.string() }))
       .query(async ({ input }) => {
-        return await getLatestDiagnostics(input.droneId);
+        return (await getLatestDiagnostics(input.droneId)) ?? null;
       }),
 
     // Get diagnostics history for charts
