@@ -1428,6 +1428,36 @@ export const appRouter = router({
         await deleteFcLog(input.id);
         return { success: true };
       }),
+
+    // Send a completed FC log to the Flight Analytics app
+    sendToAnalytics: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const fcLog = await getFcLogById(input.id);
+        if (!fcLog) throw new Error("FC log not found");
+        if (fcLog.status !== "completed" || !fcLog.url || !fcLog.storageKey) {
+          throw new Error("FC log must be fully downloaded before sending to analytics");
+        }
+
+        // Determine format from extension
+        const ext = fcLog.filename.toLowerCase().split(".").pop();
+        const format = ext === "log" ? "log" as const : "bin" as const;
+
+        // Create a flight log record reusing the same S3 URL (no re-upload)
+        await createFlightLog({
+          droneId: fcLog.droneId,
+          filename: fcLog.filename,
+          fileSize: fcLog.fileSize || 0,
+          storageKey: fcLog.storageKey,
+          url: fcLog.url,
+          format,
+          description: `Imported from FC log (${fcLog.remotePath})`,
+          uploadSource: "api",
+          uploadedBy: ctx.user.id,
+        });
+
+        return { success: true, filename: fcLog.filename };
+      }),
   }),
 
   firmware: router({

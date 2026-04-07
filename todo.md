@@ -1132,3 +1132,5 @@
 ## Bug Fixes
 - [x] Fix App Store showing "Coming Soon" for Logs & OTA Updates instead of install button
 - [x] Fix diagnostics.latest tRPC query returning undefined (React Query requires non-undefined)
+- [x] Add "Send to Flight Analysis" action on completed FC logs in Logs & OTA app
+- [x] Check if Flight Analytics app is installed before sending; show install prompt if not

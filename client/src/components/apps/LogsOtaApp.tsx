@@ -59,6 +59,7 @@ import {
   Square,
   ArrowDown,
   ExternalLink,
+  BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -217,9 +218,11 @@ function serviceStatusIcon(status: string) {
 function FcLogsTab({
   droneId,
   socket,
+  isAnalyticsInstalled,
 }: {
   droneId: string;
   socket: Socket | null;
+  isAnalyticsInstalled: boolean;
 }) {
   const utils = trpc.useUtils();
   const { data: logs, isLoading } = trpc.fcLogs.list.useQuery(
@@ -244,6 +247,26 @@ function FcLogsTab({
     },
     onError: (e) => toast.error(`Delete failed: ${e.message}`),
   });
+
+  const sendToAnalyticsMutation = trpc.fcLogs.sendToAnalytics.useMutation({
+    onSuccess: (data) => {
+      toast.success(`"${data.filename}" sent to Flight Analytics`, {
+        description: "Open the Flight Analytics app to parse and analyze this log.",
+      });
+    },
+    onError: (e) => toast.error(`Failed to send to analytics: ${e.message}`),
+  });
+
+  const handleSendToAnalytics = (log: FcLog) => {
+    if (!isAnalyticsInstalled) {
+      toast.error("Flight Analytics app is not installed", {
+        description: "Install the Flight Analytics app from the App Store first, then try again.",
+        duration: 5000,
+      });
+      return;
+    }
+    sendToAnalyticsMutation.mutate({ id: log.id });
+  };
 
   // Listen for real-time progress updates
   useEffect(() => {
@@ -360,19 +383,43 @@ function FcLogsTab({
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {log.status === "completed" && log.url ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => window.open(log.url!, "_blank")}
-                              >
-                                <ExternalLink size={14} />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Download from cloud</TooltipContent>
-                          </Tooltip>
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleSendToAnalytics(log)}
+                                  disabled={sendToAnalyticsMutation.isPending}
+                                >
+                                  {sendToAnalyticsMutation.isPending ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <BarChart3 size={14} />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {isAnalyticsInstalled
+                                  ? "Send to Flight Analytics"
+                                  : "Flight Analytics not installed"}
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => window.open(log.url!, "_blank")}
+                                >
+                                  <ExternalLink size={14} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Download from cloud</TooltipContent>
+                            </Tooltip>
+                          </>
                         ) : log.status === "discovered" || log.status === "failed" ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1048,6 +1095,13 @@ export default function LogsOtaApp() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [activeTab, setActiveTab] = useState("fc-logs");
 
+  // Check if Flight Analytics app is installed
+  const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
+  const isAnalyticsInstalled = useMemo(
+    () => (installedApps || []).some((app) => app.appId === "analytics"),
+    [installedApps]
+  );
+
   // Socket.IO connection
   useEffect(() => {
     if (!selectedDrone) return;
@@ -1170,7 +1224,7 @@ export default function LogsOtaApp() {
 
             <div className="flex-1 overflow-auto px-6 py-4">
               <TabsContent value="fc-logs" className="mt-0">
-                <FcLogsTab droneId={selectedDrone} socket={socket} />
+                <FcLogsTab droneId={selectedDrone} socket={socket} isAnalyticsInstalled={isAnalyticsInstalled} />
               </TabsContent>
               <TabsContent value="ota" className="mt-0">
                 <OtaUpdatesTab droneId={selectedDrone} socket={socket} />
