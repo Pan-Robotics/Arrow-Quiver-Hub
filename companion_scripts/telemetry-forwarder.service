@@ -1,0 +1,40 @@
+[Unit]
+Description=Quiver Hub – Telemetry Forwarder (MAVLink + UAVCAN → Hub)
+Documentation=https://github.com/quiver/quiver-hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alexd
+Group=alexd
+WorkingDirectory=/home/alexd/quiver
+
+# Load environment variables (WEB_SERVER_URL, API_KEY, DRONE_ID, etc.)
+EnvironmentFile=/home/alexd/quiver/forwarder.env
+
+# Execute the telemetry forwarder
+# Uses WEB_SERVER_URL, API_KEY, DRONE_ID, MAVLINK_URL, CAN_INTERFACE from env
+ExecStart=/usr/bin/python3 /home/alexd/quiver/telemetry_forwarder.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telemetry-forwarder
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alexd/quiver
+
+[Install]
+WantedBy=multi-user.target

@@ -704,6 +704,7 @@ class DiagnosticsCollector:
 
     # Services to monitor (systemd unit names)
     MONITORED_SERVICES = [
+        "telemetry-forwarder.service",
         "camera-stream.service",
         "siyi-camera.service",
         "logs-ota.service",

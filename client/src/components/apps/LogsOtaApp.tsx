@@ -908,6 +908,7 @@ function RemoteLogsTab({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const services = [
+    { value: "telemetry-forwarder", label: "Telemetry Forwarder" },
     { value: "logs-ota", label: "Logs & OTA" },
     { value: "camera-stream", label: "Camera Stream" },
     { value: "siyi-camera", label: "SIYI Camera" },

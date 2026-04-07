@@ -1134,3 +1134,7 @@
 - [x] Fix diagnostics.latest tRPC query returning undefined (React Query requires non-undefined)
 - [x] Add "Send to Flight Analysis" action on completed FC logs in Logs & OTA app
 - [x] Check if Flight Analytics app is installed before sending; show install prompt if not
+- [x] Add flight telemetry service to Remote Logs service dropdown
+- [x] Create telemetry-forwarder.service systemd unit file
+- [x] Copy telemetry_forwarder.py into companion_scripts
+- [x] Add telemetry-forwarder to monitored services in logs_ota_service.py
