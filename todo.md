@@ -1139,3 +1139,4 @@
 - [x] Copy telemetry_forwarder.py into companion_scripts
 - [x] Add telemetry-forwarder to monitored services in logs_ota_service.py
 - [x] Create install_telemetry_forwarder.sh script for Pi deployment
+- [x] Audit and organize all files in the project filesystem
