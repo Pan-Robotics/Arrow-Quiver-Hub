@@ -1,0 +1,11 @@
+matplotlib==3.5.2
+authlib==1.0.1
+flask-login==0.5.0
+python-dotenv==0.20.0
+flask==1.1.2
+werkzeug==1.0.1
+Jjinja2==3.0.3
+itsdangerous==1.1.0
+pymavlink==2.4.31
+markdown==3.8
+requests==3.32.3

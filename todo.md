@@ -1140,3 +1140,4 @@
 - [x] Add telemetry-forwarder to monitored services in logs_ota_service.py
 - [x] Create install_telemetry_forwarder.sh script for Pi deployment
 - [x] Audit and organize all files in the project filesystem
+- [x] Find and move ALL project-related files from /home/ubuntu/ into the project

@@ -1,0 +1,18 @@
+Flight Analytics is "Installed" in the App Store.
+The sidebar shows buttons 2-8 for apps, but the sidebar seems to be scrollable.
+The sidebar has: lidar (core), then installed built-in (telemetry, camera, analytics) + custom apps (RPLidar Point Cloud Viewer, LiDAR Stats Monitor, test5) + drone-config (bottom) + add button.
+The sidebar container might be scrollable. Need to scroll the sidebar container to find the analytics button.
+Actually, looking more carefully at the sidebar, buttons 2-8 are visible, then 9 (settings) and 10 (+). 
+Let me try hovering over each button to identify them:
+- Button 2: Quiver Hub logo (home)
+- Button 3: RPLidar Terrain Mapping
+- Button 4: Telemetry
+- Button 5: Camera Feed
+- Button 6: RPLidar Point Cloud Viewer (custom)  
+- Button 7: LiDAR Stats Monitor (custom)
+- Button 8: test5 (custom)
+- Button 9: Drone Configuration (settings)
+- Button 10: + (App Store)
+
+So Flight Analytics is NOT in the sidebar even though it's installed. The sidebar might need scrolling or there's a rendering issue.
+Wait - I see there's a sparkle icon between 8 and 9. That might be the analytics button but it's not numbered.

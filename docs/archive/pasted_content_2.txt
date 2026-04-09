@@ -1,0 +1,874 @@
+alexd@raspberrypi:~ $ sudo journalctl -u rplidar-forwarder -f
+Feb 19 17:35:24 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:24 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:24 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:24 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:24 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:24 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:24 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:24 raspberrypi python3[2312]:     }
+Feb 19 17:35:24 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:24 raspberrypi python3[2312]: </html>
+Feb 19 17:35:27 raspberrypi python3[2312]: 2026-02-19 17:35:27,851 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:27 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:27 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:27 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:27 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:27 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:27 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:27 raspberrypi python3[2312]:       html,
+Feb 19 17:35:27 raspberrypi python3[2312]:       body {
+Feb 19 17:35:27 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:27 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:27 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:27 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:27 raspberrypi python3[2312]:       }
+Feb 19 17:35:27 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:27 raspberrypi python3[2312]:       p {
+Feb 19 17:35:27 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:27 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:27 raspberrypi python3[2312]:       }
+Feb 19 17:35:27 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:27 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:27 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:27 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:27 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:27 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:27 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:27 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:27 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:       ">
+Feb 19 17:35:27 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:27 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:27 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:27 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:27 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:27 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:27 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:27 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:27 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:27 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:27 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:27 raspberrypi python3[2312]:         ">
+Feb 19 17:35:27 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:27 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:27 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:27 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:27 raspberrypi python3[2312]:           ">
+Feb 19 17:35:27 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:27 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:27 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:27 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:27 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:27 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:27 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:27 raspberrypi python3[2312]:           ">
+Feb 19 17:35:27 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:27 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:27 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:27 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:27 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:27 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:27 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:27 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             ">
+Feb 19 17:35:27 raspberrypi python3[2312]:           <button
+Feb 19 17:35:27 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:27 raspberrypi python3[2312]:             style="
+Feb 19 17:35:27 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:27 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:27 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:27 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:27 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:27 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:27 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:27 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:27 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:27 raspberrypi python3[2312]:             "
+Feb 19 17:35:27 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:27 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:27 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:27 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:27 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:27 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:27 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:27 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:27 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:27 raspberrypi python3[2312]:     }
+Feb 19 17:35:27 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:27 raspberrypi python3[2312]: </html>
+Feb 19 17:35:30 raspberrypi python3[2312]: 2026-02-19 17:35:30,519 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:30 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:30 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:30 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:30 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:30 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:30 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:30 raspberrypi python3[2312]:       html,
+Feb 19 17:35:30 raspberrypi python3[2312]:       body {
+Feb 19 17:35:30 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:30 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:30 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:30 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:30 raspberrypi python3[2312]:       }
+Feb 19 17:35:30 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:30 raspberrypi python3[2312]:       p {
+Feb 19 17:35:30 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:30 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:30 raspberrypi python3[2312]:       }
+Feb 19 17:35:30 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:30 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:30 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:30 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:30 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:30 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:30 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:30 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:30 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:       ">
+Feb 19 17:35:30 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:30 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:30 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:30 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:30 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:30 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:30 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:30 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:30 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:30 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:30 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:30 raspberrypi python3[2312]:         ">
+Feb 19 17:35:30 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:30 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:30 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:30 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:30 raspberrypi python3[2312]:           ">
+Feb 19 17:35:30 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:30 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:30 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:30 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:30 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:30 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:30 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:30 raspberrypi python3[2312]:           ">
+Feb 19 17:35:30 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:30 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:30 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:30 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:30 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:30 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:30 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:30 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             ">
+Feb 19 17:35:30 raspberrypi python3[2312]:           <button
+Feb 19 17:35:30 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:30 raspberrypi python3[2312]:             style="
+Feb 19 17:35:30 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:30 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:30 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:30 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:30 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:30 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:30 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:30 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:30 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:30 raspberrypi python3[2312]:             "
+Feb 19 17:35:30 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:30 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:30 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:30 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:30 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:30 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:30 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:30 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:30 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:30 raspberrypi python3[2312]:     }
+Feb 19 17:35:30 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:30 raspberrypi python3[2312]: </html>
+Feb 19 17:35:33 raspberrypi python3[2312]: 2026-02-19 17:35:33,867 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:33 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:33 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:33 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:33 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:33 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:33 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:33 raspberrypi python3[2312]:       html,
+Feb 19 17:35:33 raspberrypi python3[2312]:       body {
+Feb 19 17:35:33 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:33 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:33 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:33 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:33 raspberrypi python3[2312]:       }
+Feb 19 17:35:33 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:33 raspberrypi python3[2312]:       p {
+Feb 19 17:35:33 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:33 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:33 raspberrypi python3[2312]:       }
+Feb 19 17:35:33 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:33 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:33 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:33 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:33 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:33 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:33 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:33 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:33 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:       ">
+Feb 19 17:35:33 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:33 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:33 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:33 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:33 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:33 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:33 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:33 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:33 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:33 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:33 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:33 raspberrypi python3[2312]:         ">
+Feb 19 17:35:33 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:33 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:33 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:33 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:33 raspberrypi python3[2312]:           ">
+Feb 19 17:35:33 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:33 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:33 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:33 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:33 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:33 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:33 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:33 raspberrypi python3[2312]:           ">
+Feb 19 17:35:33 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:33 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:33 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:33 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:33 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:33 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:33 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:33 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             ">
+Feb 19 17:35:33 raspberrypi python3[2312]:           <button
+Feb 19 17:35:33 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:33 raspberrypi python3[2312]:             style="
+Feb 19 17:35:33 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:33 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:33 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:33 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:33 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:33 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:33 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:33 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:33 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:33 raspberrypi python3[2312]:             "
+Feb 19 17:35:33 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:33 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:33 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:33 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:33 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:33 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:33 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:33 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:33 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:33 raspberrypi python3[2312]:     }
+Feb 19 17:35:33 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:33 raspberrypi python3[2312]: </html>
+Feb 19 17:35:37 raspberrypi python3[2312]: 2026-02-19 17:35:37,100 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:37 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:37 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:37 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:37 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:37 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:37 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:37 raspberrypi python3[2312]:       html,
+Feb 19 17:35:37 raspberrypi python3[2312]:       body {
+Feb 19 17:35:37 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:37 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:37 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:37 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:37 raspberrypi python3[2312]:       }
+Feb 19 17:35:37 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:37 raspberrypi python3[2312]:       p {
+Feb 19 17:35:37 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:37 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:37 raspberrypi python3[2312]:       }
+Feb 19 17:35:37 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:37 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:37 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:37 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:37 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:37 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:37 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:37 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:37 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:       ">
+Feb 19 17:35:37 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:37 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:37 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:37 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:37 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:37 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:37 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:37 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:37 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:37 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:37 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:37 raspberrypi python3[2312]:         ">
+Feb 19 17:35:37 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:37 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:37 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:37 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:37 raspberrypi python3[2312]:           ">
+Feb 19 17:35:37 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:37 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:37 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:37 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:37 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:37 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:37 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:37 raspberrypi python3[2312]:           ">
+Feb 19 17:35:37 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:37 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:37 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:37 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:37 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:37 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:37 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:37 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             ">
+Feb 19 17:35:37 raspberrypi python3[2312]:           <button
+Feb 19 17:35:37 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:37 raspberrypi python3[2312]:             style="
+Feb 19 17:35:37 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:37 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:37 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:37 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:37 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:37 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:37 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:37 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:37 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:37 raspberrypi python3[2312]:             "
+Feb 19 17:35:37 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:37 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:37 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:37 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:37 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:37 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:37 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:37 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:37 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:37 raspberrypi python3[2312]:     }
+Feb 19 17:35:37 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:37 raspberrypi python3[2312]: </html>
+Feb 19 17:35:39 raspberrypi python3[2312]: 2026-02-19 17:35:39,264 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:39 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:39 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:39 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:39 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:39 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:39 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:39 raspberrypi python3[2312]:       html,
+Feb 19 17:35:39 raspberrypi python3[2312]:       body {
+Feb 19 17:35:39 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:39 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:39 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:39 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:39 raspberrypi python3[2312]:       }
+Feb 19 17:35:39 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:39 raspberrypi python3[2312]:       p {
+Feb 19 17:35:39 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:39 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:39 raspberrypi python3[2312]:       }
+Feb 19 17:35:39 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:39 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:39 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:39 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:39 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:39 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:39 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:39 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:39 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:       ">
+Feb 19 17:35:39 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:39 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:39 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:39 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:39 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:39 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:39 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:39 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:39 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:39 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:39 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:39 raspberrypi python3[2312]:         ">
+Feb 19 17:35:39 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:39 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:39 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:39 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:39 raspberrypi python3[2312]:           ">
+Feb 19 17:35:39 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:39 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:39 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:39 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:39 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:39 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:39 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:39 raspberrypi python3[2312]:           ">
+Feb 19 17:35:39 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:39 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:39 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:39 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:39 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:39 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:39 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:39 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             ">
+Feb 19 17:35:39 raspberrypi python3[2312]:           <button
+Feb 19 17:35:39 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:39 raspberrypi python3[2312]:             style="
+Feb 19 17:35:39 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:39 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:39 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:39 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:39 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:39 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:39 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:39 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:39 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:39 raspberrypi python3[2312]:             "
+Feb 19 17:35:39 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:39 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:39 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:39 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:39 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:39 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:39 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:39 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:39 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:39 raspberrypi python3[2312]:     }
+Feb 19 17:35:39 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:39 raspberrypi python3[2312]: </html>
+Feb 19 17:35:43 raspberrypi python3[2312]: 2026-02-19 17:35:43,185 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:43 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:43 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:43 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:43 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:43 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:43 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:43 raspberrypi python3[2312]:       html,
+Feb 19 17:35:43 raspberrypi python3[2312]:       body {
+Feb 19 17:35:43 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:43 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:43 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:43 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:43 raspberrypi python3[2312]:       }
+Feb 19 17:35:43 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:43 raspberrypi python3[2312]:       p {
+Feb 19 17:35:43 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:43 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:43 raspberrypi python3[2312]:       }
+Feb 19 17:35:43 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:43 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:43 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:43 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:43 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:43 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:43 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:43 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:43 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:       ">
+Feb 19 17:35:43 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:43 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:43 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:43 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:43 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:43 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:43 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:43 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:43 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:43 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:43 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:43 raspberrypi python3[2312]:         ">
+Feb 19 17:35:43 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:43 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:43 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:43 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:43 raspberrypi python3[2312]:           ">
+Feb 19 17:35:43 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:43 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:43 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:43 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:43 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:43 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:43 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:43 raspberrypi python3[2312]:           ">
+Feb 19 17:35:43 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:43 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:43 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:43 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:43 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:43 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:43 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:43 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             ">
+Feb 19 17:35:43 raspberrypi python3[2312]:           <button
+Feb 19 17:35:43 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:43 raspberrypi python3[2312]:             style="
+Feb 19 17:35:43 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:43 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:43 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:43 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:43 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:43 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:43 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:43 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:43 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:43 raspberrypi python3[2312]:             "
+Feb 19 17:35:43 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:43 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:43 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:43 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:43 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:43 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:43 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:43 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:43 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:43 raspberrypi python3[2312]:     }
+Feb 19 17:35:43 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:43 raspberrypi python3[2312]: </html>
+Feb 19 17:35:47 raspberrypi python3[2312]: 2026-02-19 17:35:47,215 - WARNING - HTTP 502: <!doctype html>
+Feb 19 17:35:47 raspberrypi python3[2312]: <html lang="en">
+Feb 19 17:35:47 raspberrypi python3[2312]:   <head>
+Feb 19 17:35:47 raspberrypi python3[2312]:     <meta charset="UTF-8" />
+Feb 19 17:35:47 raspberrypi python3[2312]:     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+Feb 19 17:35:47 raspberrypi python3[2312]:     <title>Manus Sandbox</title>
+Feb 19 17:35:47 raspberrypi python3[2312]:     <style>
+Feb 19 17:35:47 raspberrypi python3[2312]:       html,
+Feb 19 17:35:47 raspberrypi python3[2312]:       body {
+Feb 19 17:35:47 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:47 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:47 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:47 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:47 raspberrypi python3[2312]:       }
+Feb 19 17:35:47 raspberrypi python3[2312]:       h2,
+Feb 19 17:35:47 raspberrypi python3[2312]:       p {
+Feb 19 17:35:47 raspberrypi python3[2312]:         margin: 0;
+Feb 19 17:35:47 raspberrypi python3[2312]:         padding: 0;
+Feb 19 17:35:47 raspberrypi python3[2312]:       }
+Feb 19 17:35:47 raspberrypi python3[2312]:     </style>
+Feb 19 17:35:47 raspberrypi python3[2312]:   </head>
+Feb 19 17:35:47 raspberrypi python3[2312]:   <body>
+Feb 19 17:35:47 raspberrypi python3[2312]:     <div style="
+Feb 19 17:35:47 raspberrypi python3[2312]:         width: 100%;
+Feb 19 17:35:47 raspberrypi python3[2312]:         height: 100%;
+Feb 19 17:35:47 raspberrypi python3[2312]:         display: flex;
+Feb 19 17:35:47 raspberrypi python3[2312]:         flex-direction: column;
+Feb 19 17:35:47 raspberrypi python3[2312]:         justify-content: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:         align-items: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:       ">
+Feb 19 17:35:47 raspberrypi python3[2312]:      <svg width="161" height="160" viewBox="0 0 161 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+Feb 19 17:35:47 raspberrypi python3[2312]:       <mask id="mask0_6488_4129" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="161" height="160">
+Feb 19 17:35:47 raspberrypi python3[2312]:       <path d="M0.898438 0H160.898V160H0.898438V0Z" fill="url(#paint0_linear_6488_4129)"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </mask>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <g mask="url(#mask0_6488_4129)">
+Feb 19 17:35:47 raspberrypi python3[2312]:       <path d="M58.8984 116H102.898V146H58.8984V116Z" fill="#C5C6C6"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <rect x="54.8984" y="146" width="52" height="4" fill="#666769"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <rect x="1.29844" y="10.4" width="159.2" height="105.2" rx="7.6" fill="#E5E5E5" stroke="#F4F4F4" stroke-width="0.8" stroke-dasharray="1 1"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <path d="M4.89844 20C4.89844 16.6863 7.58473 14 10.8984 14H150.898C154.212 14 156.898 16.6863 156.898 20V106C156.898 109.314 154.212 112 150.898 112H10.8984C7.58473 112 4.89844 109.314 4.89844 106V20Z" fill="#D0D0D2"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <path d="M150.398 16V16.2998H150.898C151.062 16.2998 151.224 16.3104 151.382 16.3311L151.42 16.0342C151.773 16.0801 152.111 16.172 152.429 16.3037L152.314 16.5811C152.615 16.7057 152.896 16.8688 153.15 17.0645L153.333 16.8271C153.61 17.0398 153.858 17.2878 154.07 17.5645L153.834 17.748C154.03 18.0027 154.193 18.2834 154.317 18.584L154.594 18.4688C154.726 18.7865 154.817 19.1247 154.863 19.4775L154.567 19.5166C154.588 19.6747 154.599 19.836 154.599 20V20.5H154.898V21.5H154.599V22.5H154.898V23.5H154.599V24.5H154.898V25.5H154.599V26.5H154.898V27.5H154.599V28.5H154.898V29.5H154.599V30.5H154.898V31.5H154.599V32.5H154.898V33.5H154.599V34.5H154.898V35.5H154.599V36.5H154.898V37.5H154.599V38.5H154.898V39.5H154.599V40.5H154.898V41.5H154.599V42.5H154.898V43.5H154.599V44.5H154.898V45.5H154.599V46.5H154.898V47.5H154.599V48.5H154.898V49.5H154.599V50.5H154.898V51.5H154.599V52.5H154.898V53.5H154.599V54.5H154.898V55.5H154.599V56.5H154.898V57.5H154.599V58.5H154.898V59.5H154.599V60.5H154.898V61.5H154.599V62.5H154.898V63.5H154.599V64.5H154.898V65.5H154.599V66.5H154.898V67.5H154.599V68.5H154.898V69.5H154.599V70.5H154.898V71.5H154.599V72.5H154.898V73.5H154.599V74.5H154.898V75.5H154.599V76.5H154.898V77.5H154.599V78.5H154.898V79.5H154.599V80.5H154.898V81.5H154.599V82.5H154.898V83.5H154.599V84.5H154.898V85.5H154.599V86.5H154.898V87.5H154.599V88.5H154.898V89.5H154.599V90.5H154.898V91.5H154.599V92.5H154.898V93.5H154.599V94.5H154.898V95.5H154.599V96.5H154.898V97.5H154.599V98.5H154.898V99.5H154.599V100.5H154.898V101.5H154.599V102.5H154.898V103.5H154.599V104.5H154.898V105.5H154.599V106C154.599 106.164 154.588 106.325 154.567 106.483L154.863 106.521C154.817 106.874 154.725 107.212 154.594 107.53L154.317 107.416C154.193 107.717 154.03 107.997 153.834 108.252L154.07 108.435C153.858 108.711 153.61 108.959 153.333 109.172L153.15 108.936C152.896 109.131 152.615 109.294 152.314 109.419L152.429 109.695C152.111 109.827 151.773 109.919 151.42 109.965L151.382 109.669C151.224 109.69 151.062 109.7 150.898 109.7H150.398V110H149.398V109.7H148.398V110H147.398V109.7H146.398V110H145.398V109.7H144.398V110H143.398V109.7H142.398V110H141.398V109.7H140.398V110H139.398V109.7H138.398V110H137.398V109.7H136.398V110H135.398V109.7H134.398V110H133.398V109.7H132.398V110H131.398V109.7H130.398V110H129.398V109.7H128.398V110H127.398V109.7H126.398V110H125.398V109.7H124.398V110H123.398V109.7H122.398V110H121.398V109.7H120.398V110H119.398V109.7H118.398V110H117.398V109.7H116.398V110H115.398V109.7H114.398V110H113.398V109.7H112.398V110H111.398V109.7H110.398V110H109.398V109.7H108.398V110H107.398V109.7H106.398V110H105.398V109.7H104.398V110H103.398V109.7H102.398V110H101.398V109.7H100.398V110H99.3984V109.7H98.3984V110H97.3984V109.7H96.3984V110H95.3984V109.7H94.3984V110H93.3984V109.7H92.3984V110H91.3984V109.7H90.3984V110H89.3984V109.7H88.3984V110H87.3984V109.7H86.3984V110H85.3984V109.7H84.3984V110H83.3984V109.7H82.3984V110H81.3984V109.7H80.3984V110H79.3984V109.7H78.3984V110H77.3984V109.7H76.3984V110H75.3984V109.7H74.3984V110H73.3984V109.7H72.3984V110H71.3984V109.7H70.3984V110H69.3984V109.7H68.3984V110H67.3984V109.7H66.3984V110H65.3984V109.7H64.3984V110H63.3984V109.7H62.3984V110H61.3984V109.7H60.3984V110H59.3984V109.7H58.3984V110H57.3984V109.7H56.3984V110H55.3984V109.7H54.3984V110H53.3984V109.7H52.3984V110H51.3984V109.7H50.3984V110H49.3984V109.7H48.3984V110H47.3984V109.7H46.3984V110H45.3984V109.7H44.3984V110H43.3984V109.7H42.3984V110H41.3984V109.7H40.3984V110H39.3984V109.7H38.3984V110H37.3984V109.7H36.3984V110H35.3984V109.7H34.3984V110H33.3984V109.7H32.3984V110H31.3984V109.7H30.3984V110H29.3984V109.7H28.3984V110H27.3984V109.7H26.3984V110H25.3984V109.7H24.3984V110H23.3984V109.7H22.3984V110H21.3984V109.7H20.3984V110H19.3984V109.7H18.3984V110H17.3984V109.7H16.3984V110H15.3984V109.7H14.3984V110H13.3984V109.7H12.3984V110H11.3984V109.7H10.8984C10.7345 109.7 10.5731 109.69 10.415 109.669L10.376 109.965C10.0231 109.919 9.68493 109.827 9.36719 109.695L9.48242 109.419C9.18185 109.294 8.90114 109.131 8.64648 108.936L8.46289 109.172C8.18623 108.959 7.93825 108.711 7.72559 108.435L7.96289 108.252C7.76722 107.997 7.60414 107.717 7.47949 107.416L7.20215 107.53C7.07046 107.213 6.97856 106.874 6.93262 106.521L7.22949 106.483C7.20888 106.325 7.19824 106.164 7.19824 106V105.5H6.89844V104.5H7.19824V103.5H6.89844V102.5H7.19824V101.5H6.89844V100.5H7.19824V99.5H6.89844V98.5H7.19824V97.5H6.89844V96.5H7.19824V95.5H6.89844V94.5H7.19824V93.5H6.89844V92.5H7.19824V91.5H6.89844V90.5H7.19824V89.5H6.89844V88.5H7.19824V87.5H6.89844V86.5H7.19824V85.5H6.89844V84.5H7.19824V83.5H6.89844V82.5H7.19824V81.5H6.89844V80.5H7.19824V79.5H6.89844V78.5H7.19824V77.5H6.89844V76.5H7.19824V75.5H6.89844V74.5H7.19824V73.5H6.89844V72.5H7.19824V71.5H6.89844V70.5H7.19824V69.5H6.89844V68.5H7.19824V67.5H6.89844V66.5H7.19824V65.5H6.89844V64.5H7.19824V63.5H6.89844V62.5H7.19824V61.5H6.89844V60.5H7.19824V59.5H6.89844V58.5H7.19824V57.5H6.89844V56.5H7.19824V55.5H6.89844V54.5H7.19824V53.5H6.89844V52.5H7.19824V51.5H6.89844V50.5H7.19824V49.5H6.89844V48.5H7.19824V47.5H6.89844V46.5H7.19824V45.5H6.89844V44.5H7.19824V43.5H6.89844V42.5H7.19824V41.5H6.89844V40.5H7.19824V39.5H6.89844V38.5H7.19824V37.5H6.89844V36.5H7.19824V35.5H6.89844V34.5H7.19824V33.5H6.89844V32.5H7.19824V31.5H6.89844V30.5H7.19824V29.5H6.89844V28.5H7.19824V27.5H6.89844V26.5H7.19824V25.5H6.89844V24.5H7.19824V23.5H6.89844V22.5H7.19824V21.5H6.89844V20.5H7.19824V20C7.19824 19.836 7.20888 19.6747 7.22949 19.5166L6.93262 19.4775C6.97864 19.1248 7.0704 18.7864 7.20215 18.4688L7.47949 18.584C7.60414 18.2834 7.76722 18.0027 7.96289 17.748L7.72559 17.5645C7.93826 17.2878 8.18624 17.0398 8.46289 16.8271L8.64648 17.0645C8.90114 16.8688 9.18185 16.7057 9.48242 16.5811L9.36719 16.3037C9.68487 16.172 10.0232 16.0802 10.376 16.0342L10.415 16.3311C10.5731 16.3104 10.7345 16.2998 10.8984 16.2998H11.3984V16H12.3984V16.2998H13.3984V16H14.3984V16.2998H15.3984V16H16.3984V16.2998H17.3984V16H18.3984V16.2998H19.3984V16H20.3984V16.2998H21.3984V16H22.3984V16.2998H23.3984V16H24.3984V16.2998H25.3984V16H26.3984V16.2998H27.3984V16H28.3984V16.2998H29.3984V16H30.3984V16.2998H31.3984V16H32.3984V16.2998H33.3984V16H34.3984V16.2998H35.3984V16H36.3984V16.2998H37.3984V16H38.3984V16.2998H39.3984V16H40.3984V16.2998H41.3984V16H42.3984V16.2998H43.3984V16H44.3984V16.2998H45.3984V16H46.3984V16.2998H47.3984V16H48.3984V16.2998H49.3984V16H50.3984V16.2998H51.3984V16H52.3984V16.2998H53.3984V16H54.3984V16.2998H55.3984V16H56.3984V16.2998H57.3984V16H58.3984V16.2998H59.3984V16H60.3984V16.2998H61.3984V16H62.3984V16.2998H63.3984V16H64.3984V16.2998H65.3984V16H66.3984V16.2998H67.3984V16H68.3984V16.2998H69.3984V16H70.3984V16.2998H71.3984V16H72.3984V16.2998H73.3984V16H74.3984V16.2998H75.3984V16H76.3984V16.2998H77.3984V16H78.3984V16.2998H79.3984V16H80.3984V16.2998H81.3984V16H82.3984V16.2998H83.3984V16H84.3984V16.2998H85.3984V16H86.3984V16.2998H87.3984V16H88.3984V16.2998H89.3984V16H90.3984V16.2998H91.3984V16H92.3984V16.2998H93.3984V16H94.3984V16.2998H95.3984V16H96.3984V16.2998H97.3984V16H98.3984V16.2998H99.3984V16H100.398V16.2998H101.398V16H102.398V16.2998H103.398V16H104.398V16.2998H105.398V16H106.398V16.2998H107.398V16H108.398V16.2998H109.398V16H110.398V16.2998H111.398V16H112.398V16.2998H113.398V16H114.398V16.2998H115.398V16H116.398V16.2998H117.398V16H118.398V16.2998H119.398V16H120.398V16.2998H121.398V16H122.398V16.2998H123.398V16H124.398V16.2998H125.398V16H126.398V16.2998H127.398V16H128.398V16.2998H129.398V16H130.398V16.2998H131.398V16H132.398V16.2998H133.398V16H134.398V16.2998H135.398V16H136.398V16.2998H137.398V16H138.398V16.2998H139.398V16H140.398V16.2998H141.398V16H142.398V16.2998H143.398V16H144.398V16.2998H145.398V16H146.398V16.2998H147.398V16H148.398V16.2998H149.398V16H150.398Z" fill="#E4E4E4" stroke="white" stroke-width="0.6" stroke-dasharray="1 1"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <path d="M6.89844 16H151.949L6.89844 110V16Z" fill="white" fill-opacity="0.24"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </g>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <defs>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <linearGradient id="paint0_linear_6488_4129" x1="80.8984" y1="35" x2="80.8984" y2="160" gradientUnits="userSpaceOnUse">
+Feb 19 17:35:47 raspberrypi python3[2312]:       <stop stop-color="#4A4B4E"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <stop offset="1" stop-color="#ABADB4" stop-opacity="0"/>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </linearGradient>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </defs>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </svg>
+Feb 19 17:35:47 raspberrypi python3[2312]:       <div style="
+Feb 19 17:35:47 raspberrypi python3[2312]:           margin-top: 24px;
+Feb 19 17:35:47 raspberrypi python3[2312]:           max-width: 100%;
+Feb 19 17:35:47 raspberrypi python3[2312]:           width: 540px;
+Feb 19 17:35:47 raspberrypi python3[2312]:           padding: 0 16px;
+Feb 19 17:35:47 raspberrypi python3[2312]:           box-sizing: border-box;
+Feb 19 17:35:47 raspberrypi python3[2312]:         ">
+Feb 19 17:35:47 raspberrypi python3[2312]:         <h2 style="
+Feb 19 17:35:47 raspberrypi python3[2312]:             margin-bottom: 8px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             color: #34322d;
+Feb 19 17:35:47 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-family: 'SF Pro';
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-size: 18px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-weight: 600;
+Feb 19 17:35:47 raspberrypi python3[2312]:             line-height: 24px;
+Feb 19 17:35:47 raspberrypi python3[2312]:           ">
+Feb 19 17:35:47 raspberrypi python3[2312]:           The temporary website is currently unavailable
+Feb 19 17:35:47 raspberrypi python3[2312]:         </h2>
+Feb 19 17:35:47 raspberrypi python3[2312]:         <p style="
+Feb 19 17:35:47 raspberrypi python3[2312]:             color: var(--text-tertiary, #858481);
+Feb 19 17:35:47 raspberrypi python3[2312]:             text-align: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-family: var(--Sans, 'SF Pro');
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-size: 14px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-style: normal;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-weight: var(--Weight-Medium, 500);
+Feb 19 17:35:47 raspberrypi python3[2312]:             line-height: 20px; /* 142.857% */
+Feb 19 17:35:47 raspberrypi python3[2312]:             letter-spacing: -0.154px;
+Feb 19 17:35:47 raspberrypi python3[2312]:           ">
+Feb 19 17:35:47 raspberrypi python3[2312]:           This may be because Manus's computer is asleep or the link has
+Feb 19 17:35:47 raspberrypi python3[2312]:           expired. Please return to the task to try waking it up, or generate a
+Feb 19 17:35:47 raspberrypi python3[2312]:           new link.
+Feb 19 17:35:47 raspberrypi python3[2312]:         </p>
+Feb 19 17:35:47 raspberrypi python3[2312]:         <div style="
+Feb 19 17:35:47 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:47 raspberrypi python3[2312]:             flex-direction: column;
+Feb 19 17:35:47 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             margin-top: 16px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             ">
+Feb 19 17:35:47 raspberrypi python3[2312]:           <button
+Feb 19 17:35:47 raspberrypi python3[2312]:             type="button"
+Feb 19 17:35:47 raspberrypi python3[2312]:             style="
+Feb 19 17:35:47 raspberrypi python3[2312]:             display: flex;
+Feb 19 17:35:47 raspberrypi python3[2312]:             height: 32px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             min-height: 32px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             min-width: 64px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             align-items: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             justify-content: center;
+Feb 19 17:35:47 raspberrypi python3[2312]:             gap: 4px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             white-space: nowrap;
+Feb 19 17:35:47 raspberrypi python3[2312]:             border-radius: 8px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             background-color: var(--Button-primary-black,#1a1a19);
+Feb 19 17:35:47 raspberrypi python3[2312]:             padding-left: 8px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             padding-right: 8px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-size: 13px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             font-weight: 500;
+Feb 19 17:35:47 raspberrypi python3[2312]:             line-height: 18px;
+Feb 19 17:35:47 raspberrypi python3[2312]:             color: var(--text-onblack,#fff);
+Feb 19 17:35:47 raspberrypi python3[2312]:             border:none;
+Feb 19 17:35:47 raspberrypi python3[2312]:             cursor: pointer;
+Feb 19 17:35:47 raspberrypi python3[2312]:             "
+Feb 19 17:35:47 raspberrypi python3[2312]:             onclick="wakeUp()">Wake up</button>
+Feb 19 17:35:47 raspberrypi python3[2312]:         </div>
+Feb 19 17:35:47 raspberrypi python3[2312]:       </div>
+Feb 19 17:35:47 raspberrypi python3[2312]:     </div>
+Feb 19 17:35:47 raspberrypi python3[2312]:   </body>
+Feb 19 17:35:47 raspberrypi python3[2312]:   <script>
+Feb 19 17:35:47 raspberrypi python3[2312]:     function wakeUp() {
+Feb 19 17:35:47 raspberrypi python3[2312]:       const host = 'https://manus.im'
+Feb 19 17:35:47 raspberrypi python3[2312]:       window.location.href = `${host}/sandbox/wakeup?url=${encodeURIComponent(window.location.href)}`
+Feb 19 17:35:47 raspberrypi python3[2312]:     }
+Feb 19 17:35:47 raspberrypi python3[2312]:   </script>
+Feb 19 17:35:47 raspberrypi python3[2312]: </html>
+^C

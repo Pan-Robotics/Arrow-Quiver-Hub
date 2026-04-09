@@ -1,0 +1,11 @@
+SUCCESS! The parser is now working correctly in the browser!
+
+Results:
+- Analysis Complete
+- 00000092.BIN — 17 charts available
+- 177 message types found
+- Date: 09/03/2025, 19:47:36
+- Charts visible: Attitude: Roll & Pitch, Attitude: Yaw, Rate: Roll & Pitch, Rate: Yaw (and more below)
+
+The root cause was the Manus preview proxy compressing the S3 binary response.
+The fix was to download the file via a server-side tRPC endpoint that returns base64-encoded data.

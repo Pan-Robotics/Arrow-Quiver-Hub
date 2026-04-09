@@ -1,0 +1,35 @@
+julius@quiver:~/camera_forwarder $ sudo journalctl -u siyi-camera -f
+Mar 03 11:17:48 quiver python3[5404]: 2026-03-03 11:17:48,561 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:17:48 quiver python3[5404]: 2026-03-03 11:17:48,561 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:17:53 quiver python3[5404]: 2026-03-03 11:17:53,563 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:17:53 quiver python3[5404]: 2026-03-03 11:17:53,564 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:17:58 quiver python3[5404]: 2026-03-03 11:17:58,569 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:17:58 quiver python3[5404]: 2026-03-03 11:17:58,569 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:18:03 quiver python3[5404]: 2026-03-03 11:18:03,574 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:18:03 quiver python3[5404]: 2026-03-03 11:18:03,574 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:18:08 quiver python3[5404]: 2026-03-03 11:18:08,580 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:18:08 quiver python3[5404]: 2026-03-03 11:18:08,580 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:18:13 quiver python3[5404]: 2026-03-03 11:18:13,584 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:18:13 quiver python3[5404]: 2026-03-03 11:18:13,585 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+Mar 03 11:18:18 quiver python3[5404]: 2026-03-03 11:18:18,590 - siyi_camera - INFO - Connecting to Quiver Hub: wss://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer?droneId=quiver_001&type=camera
+Mar 03 11:18:18 quiver python3[5404]: 2026-03-03 11:18:18,590 - siyi_camera - ERROR - WebSocket error: BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+^C
+julius@quiver:~/camera_forwarder $ sudo journalctl -u camera-stream -f
+Mar 03 11:18:19 quiver python3[5405]: Error opening input file rtsp://192.168.144.25:8554/video2.
+Mar 03 11:18:19 quiver python3[5405]: Error opening input files: Server returned 404 Not Found
+Mar 03 11:18:19 quiver python3[5405]: 2026-03-03 11:18:19,654 - camera_stream - WARNING - Reconnect attempt 8/10
+Mar 03 11:18:24 quiver python3[5405]: 2026-03-03 11:18:24,660 - camera_stream - INFO - Connecting to RTSP stream: rtsp://192.168.144.25:8554/video2
+Mar 03 11:18:24 quiver python3[5405]: 2026-03-03 11:18:24,660 - camera_stream - INFO - Starting FFmpeg: ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp -fflags nobuffer -flags low_delay...
+Mar 03 11:18:26 quiver python3[5405]: 2026-03-03 11:18:26,663 - camera_stream - ERROR - FFmpeg failed to start: [rtsp @ 0x555622222fc0] method DESCRIBE failed: 404 Stream Not Found
+Mar 03 11:18:26 quiver python3[5405]: [in#0 @ 0x5556221cd510] Error opening input: Server returned 404 Not Found
+Mar 03 11:18:26 quiver python3[5405]: Error opening input file rtsp://192.168.144.25:8554/video2.
+Mar 03 11:18:26 quiver python3[5405]: Error opening input files: Server returned 404 Not Found
+Mar 03 11:18:26 quiver python3[5405]: 2026-03-03 11:18:26,663 - camera_stream - WARNING - Reconnect attempt 9/10
+Mar 03 11:18:31 quiver python3[5405]: 2026-03-03 11:18:31,663 - camera_stream - INFO - Connecting to RTSP stream: rtsp://192.168.144.25:8554/video2
+Mar 03 11:18:31 quiver python3[5405]: 2026-03-03 11:18:31,664 - camera_stream - INFO - Starting FFmpeg: ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp -fflags nobuffer -flags low_delay...
+Mar 03 11:18:33 quiver python3[5405]: 2026-03-03 11:18:33,666 - camera_stream - ERROR - FFmpeg failed to start: [rtsp @ 0x555668a42fc0] method DESCRIBE failed: 404 Stream Not Found
+Mar 03 11:18:33 quiver python3[5405]: [in#0 @ 0x5556689ed510] Error opening input: Server returned 404 Not Found
+Mar 03 11:18:33 quiver python3[5405]: Error opening input file rtsp://192.168.144.25:8554/video2.
+Mar 03 11:18:33 quiver python3[5405]: Error opening input files: Server returned 404 Not Found
+Mar 03 11:18:33 quiver python3[5405]: 2026-03-03 11:18:33,666 - camera_stream - WARNING - Reconnect attempt 10/10
+Mar 03 11:18:38 quiver python3[5405]: 2026-03-03 11:18:38,672 - camera_stream - ERROR - Max reconnection attempts reached

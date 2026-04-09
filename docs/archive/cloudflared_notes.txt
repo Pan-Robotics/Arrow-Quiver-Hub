@@ -1,0 +1,13 @@
+Cloudflared Quick Tunnel URL Auto-Detection:
+
+Endpoint: http://127.0.0.1:<metrics_port>/quicktunnel
+Response: JSON object with key "hostname" and value being the public URL
+
+The metrics port is random by default (e.g. 60246), but can be set with --metrics flag:
+  cloudflared tunnel --url http://localhost:8080 --metrics 127.0.0.1:33843
+
+So with a fixed metrics port:
+  curl http://127.0.0.1:33843/quicktunnel
+  -> {"hostname": "abc123-something.trycloudflare.com"}
+
+Note: The endpoint path is /quicktunnel (NOT /quicktunnelurl which returns 404)

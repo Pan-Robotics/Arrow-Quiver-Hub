@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flight Log Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        img { max-width: 100%; height: auto; }
+        pre { background-color: #f8f9fa; padding: 15px; border-radius: 5px; }
+        .markdown-content { background-color: #ffffff; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="d-flex justify-content-between mb-4">
+            <h2>Flight Log Analysis</h2>
+            <div>
+                {% if current_user.is_authenticated %}
+                    <span>Welcome, {{ current_user.username }}!</span>
+                    <a href="{{ url_for('logout') }}" class="btn btn-outline-danger ms-2">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="btn btn-primary">Login with GitHub</a>
+                {% endif %}
+            </div>
+        </div>
+        <ul class="nav nav-tabs" id="plotTabs" role="tablist">
+            {% if plot_files['attitude'] %}
+            <li class="nav-item">
+                <a class="nav-link active" id="attitude-tab" data-bs-toggle="tab" href="#attitude" role="tab">Attitude</a>
+            </li>
+            {% endif %}
+            {% if plot_files['rate'] %}
+            <li class="nav-item">
+                <a class="nav-link" id="rate-tab" data-bs-toggle="tab" href="#rate" role="tab">Rate</a>
+            </li>
+            {% endif %}
+            {% if plot_files['altitude'] %}
+            <li class="nav-item">
+                <a class="nav-link" id="altitude-tab" data-bs-toggle="tab" href="#altitude" role="tab">Altitude</a>
+            </li>
+            {% endif %}
+            {% for i in range(4) %}
+            {% if plot_files['esc_' + i|string] %}
+            <li class="nav-item">
+                <a class="nav-link" id="esc{{i}}-tab" data-bs-toggle="tab" href="#esc{{i}}" role="tab">ESC {{i}}</a>
+            </li>
+            {% endif %}
+            {% endfor %}
+            {% if plot_files['battery'] %}
+            <li class="nav-item">
+                <a class="nav-link" id="battery-tab" data-bs-toggle="tab" href="#battery" role="tab">Battery</a>
+            </li>
+            {% endif %}
+            {% if uploaded_files['markdown'] %}
+            <li class="nav-item">
+                <a class="nav-link" id="markdown-tab" data-bs-toggle="tab" href="#markdown" role="tab">Markdown</a>
+            </li>
+            {% endif %}
+            {% if uploaded_files['videos'] %}
+            <li class="nav-item">
+                <a class="nav-link" id="videos-tab" data-bs-toggle="tab" href="#videos" role="tab">Videos</a>
+            </li>
+            {% endif %}
+        </ul>
+        <div class="tab-content" id="plotTabContent">
+            {% if plot_files['attitude'] %}
+            <div class="tab-pane fade show active" id="attitude" role="tabpanel">
+                <img src="{{ url_for('serve_plot', filename='attitude.png') }}" alt="Attitude Plot">
+            </div>
+            {% endif %}
+            {% if plot_files['rate'] %}
+            <div class="tab-pane fade" id="rate" role="tabpanel">
+                <img src="{{ url_for('serve_plot', filename='rate.png') }}" alt="Rate Plot">
+            </div>
+            {% endif %}
+            {% if plot_files['altitude'] %}
+            <div class="tab-pane fade" id="altitude" role="tabpanel">
+                <img src="{{ url_for('serve_plot', filename='altitude.png') }}" alt="Altitude Plot">
+            </div>
+            {% endif %}
+            {% for i in range(4) %}
+            {% if plot_files['esc_' + i|string] %}
+            <div class="tab-pane fade" id="esc{{i}}" role="tabpanel">
+                <img src="{{ url_for('serve_plot', filename='esc_' + i|string + '.png') }}" alt="ESC {{i}} Plot">
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% if plot_files['battery'] %}
+            <div class="tab-pane fade" id="battery" role="tabpanel">
+                <img src="{{ url_for('serve_plot', filename='battery.png') }}" alt="Battery Plot">
+            </div>
+            {% endif %}
+            {% if uploaded_files['markdown'] %}
+            <div class="tab-pane fade" id="markdown" role="tabpanel">
+                <h3>Test Process</h3>
+                <div class="markdown-content">
+                    {{ markdown_content|safe }}
+                </div>
+            </div>
+            {% endif %}
+            {% if uploaded_files['videos'] %}
+            <div class="tab-pane fade" id="videos" role="tabpanel">
+                <h3>Test Videos</h3>
+                <ul>
+                    {% for video in uploaded_files['videos'] %}
+                    <li><a href="{{ url_for('serve_uploaded_file', filename=video.split('/')[-1]) }}" target="_blank">{{ video.split('/')[-1] }}</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+        <a href="{{ url_for('upload_file') }}" class="btn btn-primary mt-3">Back to Upload</a>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+CRITICAL DEBUG FINDINGS:
+
+The resolveMessageKey function resolves BARO -> BARO (bare name), NOT BARO[0].
+This is because result.types contains BOTH "BARO" and "BARO[0]" as keys.
+The resolveMessageKey function checks for direct match first, and "BARO" exists in result.types.
+
+But result.messages does NOT have "BARO" - it only has "BARO[0]" and "BARO[1]".
+
+So the bug is:
+1. resolveMessageKey("BARO", result.types) returns "BARO" (direct match in types)
+2. toChartData looks up result.messages["BARO"] which is undefined
+3. Chart shows "No data available"
+
+The fix: resolveMessageKey should check if the key exists in BOTH types AND messages,
+or alternatively, toChartData should resolve against messages, not types.
+
+Better fix: Change resolveMessageKey to also check against the messages object,
+or change toChartData to resolve against messages directly.
