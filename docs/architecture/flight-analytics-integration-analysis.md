@@ -1,6 +1,6 @@
 # Flight Log Analyser → Quiver Hub Flight Analytics: Integration Analysis
 
-**Author:** Manus AI | **Date:** February 21, 2026
+**Author:** Pan Robotics | **Date:** February 21, 2026
 
 ---
 

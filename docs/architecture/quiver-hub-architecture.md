@@ -1,8 +1,8 @@
 # Quiver Hub — Architecture & Feature Reference
 
-**Version:** February 2026  
+**Version:** April 2026  
 **Author:** Pan Robotics  
-**Status:** Core platform implemented; select modules indicated for future development
+**Status:** Core platform and Logs & OTA pipeline fully implemented; Mission Planner indicated for future development
 
 ---
 
@@ -10,7 +10,7 @@
 
 Quiver Hub is a modular, web-based ground station for managing unmanned aerial vehicle (UAV) data pipelines. It aggregates real-time sensor streams, post-flight analytics, drone configuration, and a developer-extensible app framework into a single-page application. The platform is designed around a **hub-and-spoke model**: a persistent sidebar provides instant access to any installed application, while a pluggable App Builder allows third-party developers to create new data pipeline apps without modifying the core codebase.
 
-The system connects to one or more companion computers (typically Raspberry Pi units mounted on drones) that run Python relay scripts. These scripts push sensor data — LiDAR point clouds, MAVLink telemetry, gimbal camera status, and arbitrary payloads — to Quiver Hub's REST endpoints. The server validates, stores, and broadcasts the data in real time over WebSocket to all connected browser clients. A polling-based job queue enables the reverse direction: the web UI can push files, configuration updates, and commands back to the companion computer.
+The system connects to one or more companion computers (typically Raspberry Pi units mounted on drones) that run Python companion scripts. These scripts push sensor data — LiDAR point clouds, MAVLink/UAVCAN telemetry, gimbal camera status, flight controller logs, system diagnostics, and arbitrary payloads — to Quiver Hub's REST endpoints. The server validates, stores, and broadcasts the data in real time over WebSocket to all connected browser clients. A polling-based job queue enables the reverse direction: the web UI can push files, configuration updates, and commands back to the companion computer.
 
 ### Technology Stack
 
@@ -35,7 +35,7 @@ The architecture consists of three tiers: the browser-based frontend, the Node.j
 │  ┌───────────┐  ┌──────────────────────────────────────────────────┐ │
 │  │  Sidebar   │  │  Active App Window                              │ │
 │  │  (AppBar)  │  │   LidarApp · TelemetryApp · CameraFeedApp      │ │
-│  │            │  │   FlightAnalyticsApp · DroneConfig               │ │
+│  │            │  │   FlightAnalyticsApp · LogsOtaApp · DroneConfig │ │
 │  │  [+] Store │  │   AppRenderer (custom apps)                     │ │
 │  └───────────┘  └──────────────────────────────────────────────────┘ │
 └─────────────────────────────┬────────────────────────────────────────┘
@@ -54,14 +54,17 @@ The architecture consists of three tiers: the browser-based frontend, the Node.j
                               │  REST + WebSocket
 ┌─────────────────────────────┴────────────────────────────────────────┐
 │                Companion Computer (Raspberry Pi)                     │
-│  relay.py → POST /api/rest/{pointcloud,telemetry,camera}/ingest     │
-│  job_poller.py → GET /api/trpc/droneJobs.getPendingJobs             │
+│  raspberry_pi_client.py → Job polling + file upload/config          │
+│  telemetry_forwarder.py → POST /api/rest/telemetry/ingest           │
+│  logs_ota_service.py → FC logs, OTA firmware, diagnostics, log stream│
+│  camera_stream_service.py → go2rtc management + stream registration │
+│  siyi_camera_controller.py → Gimbal control via Socket.IO           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow Summary
 
-The four primary data flows are as follows. First, **companion-to-hub ingestion**: Python relay scripts on the Pi POST sensor data to REST endpoints, authenticated via per-drone API keys. Second, **hub-to-browser broadcast**: the server validates incoming data, stores metadata in MySQL, and broadcasts payloads over Socket.IO to all subscribed browser clients. Third, **browser-to-hub operations**: the React frontend calls tRPC procedures for CRUD operations (drone management, log uploads, app configuration) and receives real-time data via Socket.IO subscriptions. Fourth, **hub-to-companion commands**: the drone jobs system enables reverse communication — the web UI creates jobs (file uploads, config changes), and the Pi polls for pending jobs and executes them.
+The five primary data flows are as follows. First, **companion-to-hub ingestion**: Python relay scripts on the Pi POST sensor data to REST endpoints, authenticated via per-drone API keys. This covers LiDAR point clouds, MAVLink/UAVCAN telemetry, camera status, FC log files, firmware flash progress, and system diagnostics. Second, **hub-to-browser broadcast**: the server validates incoming data, stores metadata in MySQL, and broadcasts payloads over Socket.IO to all subscribed browser clients. Third, **browser-to-hub operations**: the React frontend calls tRPC procedures for CRUD operations (drone management, log uploads, app configuration) and receives real-time data via Socket.IO subscriptions. Fourth, **hub-to-companion commands**: the drone jobs system enables reverse communication — the web UI creates jobs (file uploads, config changes, FC log scans, FC log downloads, firmware flashes), and the Pi polls for pending jobs and executes them. Fifth, **bidirectional log streaming**: the browser requests journalctl output from a specific companion service via Socket.IO; the Hub relays the request to the companion, which spawns a `journalctl -f` subprocess and streams lines back through the Hub to the browser in real-time.
 
 ---
 
@@ -155,9 +158,16 @@ An administration panel for managing drones and their connectivity, also accessi
 | Job History | View all pending, completed, and failed jobs for a drone |
 | Config Script Generation | Generates ready-to-use Python relay configuration snippets |
 
-### 3.7 Logs & OTA Updates (Indicated)
+### 3.7 Logs & OTA Updates
 
-Remote log streaming, system diagnostics, and over-the-air firmware updates. The backend job system (`droneJobs`) already supports the `upload_file` job type, which provides the foundation for OTA file delivery. The UI currently shows a "Coming Soon" placeholder.
+A four-tab interface for flight controller log management, over-the-air firmware updates, companion computer diagnostics, and remote log streaming. The companion script (`logs_ota_service.py`) bridges the flight controller and the Hub using MAVSDK/MAVFTP.
+
+| Feature | Description |
+|---|---|
+| FC Logs | Scan FC SD card via MAVFTP, download `.BIN`/`.log` files to S3, track progress in real-time, send completed logs to Flight Analytics |
+| OTA Firmware Flash | Upload `.abin`/`.apj` firmware, flash to FC via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed) |
+| System Diagnostics | Live CPU, memory, disk, temperature gauges; systemd service status grid; network interface table |
+| Remote Logs | Stream journalctl output from any companion service in a terminal-style viewer |
 
 ### 3.8 Mission Planner (Indicated)
 
@@ -169,7 +179,7 @@ Autonomous flight mission planning with waypoints, geofencing, and return-to-hom
 
 ### 4.1 App Store
 
-A discovery and installation interface for both built-in and custom apps. Built-in apps (Telemetry, Camera Feed, Logs & OTA, Mission Planner, Flight Analytics) can be installed or uninstalled with a single click. Custom apps created through the App Builder appear here once published. Per-user installation state is tracked in the `userApps` database table.
+A discovery and installation interface for both built-in and custom apps. Built-in apps (Telemetry, Camera Feed, Flight Analytics, Logs & OTA) can be installed or uninstalled with a single click. Mission Planner remains indicated for future development. Custom apps created through the App Builder appear here once published. Per-user installation state is tracked in the `userApps` database table.
 
 ### 4.2 App Builder
 
@@ -208,6 +218,9 @@ All client-server communication (except real-time streams and companion computer
 | `drones` | `list`, `register`, `update`, `delete`, `generateApiKey`, `revokeApiKey`, `reactivateApiKey`, `deleteApiKey`, `updateApiKeyDescription`, `testConnection` | Protected |
 | `droneJobs` | `createJob`, `getPendingJobs`, `acknowledgeJob`, `completeJob`, `getAllJobs`, `uploadFile`, `getFile`, `getFiles`, `deleteFile` | Mixed |
 | `flightLogs` | `list`, `getById`, `upload`, `update`, `delete`, `uploadNotes`, `uploadMedia`, `downloadBinary` | Protected |
+| `fcLogs` | `list`, `get`, `requestScan`, `requestDownload`, `sendToAnalytics`, `delete` | Protected |
+| `firmware` | `list`, `get`, `upload`, `requestFlash` | Protected |
+| `diagnostics` | `latest`, `history` | Protected |
 
 ### 5.2 REST API Endpoints
 
@@ -223,6 +236,11 @@ These endpoints are designed for non-tRPC clients, primarily the companion compu
 | `/api/rest/camera/status` | POST | Receive camera and gimbal status |
 | `/api/rest/payload/:appId/ingest` | POST | Receive custom app payload data |
 | `/api/rest/flightlog/upload` | POST | Upload flight log from companion computer |
+| `/api/rest/logs/fc-list` | POST | Report discovered FC log files from MAVFTP scan |
+| `/api/rest/logs/fc-progress` | POST | Update FC log download progress |
+| `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log content (base64) to S3 |
+| `/api/rest/firmware/progress` | POST | Update firmware flash progress and ArduPilot stage |
+| `/api/rest/diagnostics/report` | POST | Submit system diagnostics snapshot (CPU, memory, disk, temp, services) |
 
 ### 5.3 WebSocket Events
 
@@ -242,10 +260,17 @@ Socket.IO handles all real-time data distribution. The server uses room-based ro
 | `camera_response` | Server → Client | Camera command response |
 | `app_data` | Server → Client | Custom app parsed data broadcast |
 | `pointcloud_update` / `telemetry_update` | Server → Client | Lightweight dashboard notifications |
+| `subscribe_logs` / `unsubscribe_logs` | Client → Server | Join or leave a drone's logs room |
+| `fc_log_progress` | Server → Client | FC log download progress update |
+| `firmware_progress` | Server → Client | Firmware flash progress and stage update |
+| `diagnostics` | Server → Client | Live system diagnostics snapshot |
+| `log_stream_request` | Client → Server → Pi | Start or stop remote journalctl stream |
+| `log_stream_line` | Pi → Server | Buffered log lines from companion journalctl |
+| `log_stream` | Server → Client | Relayed log lines for browser display |
 
 ### 5.4 Database Schema
 
-The database uses 12 tables organized around four domains: user management, drone fleet, custom apps, and flight data.
+The database uses 15 tables organized around five domains: user management, drone fleet, custom apps, flight data, and logs/OTA.
 
 | Table | Purpose | Key Fields |
 |---|---|---|
@@ -261,6 +286,9 @@ The database uses 12 tables organized around four domains: user management, dron
 | `droneJobs` | Hub-to-Pi job queue | droneId, type, payload, status (pending / in_progress / completed / failed) |
 | `droneFiles` | Uploaded files for drone delivery | fileId, filename, storageKey, url, droneId |
 | `flightLogs` | Flight log metadata | droneId, filename, storageKey, url, format (bin / log), uploadSource (manual / api) |
+| `fcLogs` | FC SD card log files | droneId, remotePath, filename, fileSize, status (discovered / downloading / uploading / completed / failed), storageKey, url |
+| `firmwareUpdates` | OTA firmware uploads and flash status | droneId, filename, fileSize, storageKey, url, status (uploaded / queued / transferring / flashing / verifying / completed / failed), flashStage |
+| `systemDiagnostics` | Companion computer health snapshots | droneId, cpuPercent, memoryPercent, diskPercent, cpuTempC, uptimeSeconds, services (JSON), network (JSON) |
 
 ### 5.5 File Storage (S3)
 
@@ -272,6 +300,8 @@ All binary data is stored in S3-compatible object storage. The database holds on
 | `flight-logs/{droneId}/{nanoid}-{filename}` | ArduPilot `.BIN` or `.log` flight log files |
 | `flight-logs/{droneId}/notes/{nanoid}-notes.md` | Markdown notes attached to flight logs |
 | `flight-logs/{droneId}/media/{nanoid}-{filename}` | Media files (images, video) attached to flight logs |
+| `fc-logs/{droneId}/{nanoid}-{filename}` | FC SD card log files downloaded via MAVFTP |
+| `firmware/{droneId}/{nanoid}-{filename}` | Firmware files (`.abin`, `.apj`) uploaded for OTA flash |
 
 ---
 
@@ -279,27 +309,32 @@ All binary data is stored in S3-compatible object storage. The database holds on
 
 ### 6.1 Data Ingestion (Pi → Hub)
 
-Python relay scripts running on the Pi POST sensor data to REST endpoints at a configurable interval. Each request includes an `api_key` and `drone_id` for authentication. The Drone Configuration page generates ready-to-use Python configuration snippets for each registered drone.
+Five Python companion scripts run on the Raspberry Pi, each responsible for a specific data pipeline. All REST requests include an `api_key` and `drone_id` for authentication.
 
-| Relay Function | Endpoint | Payload |
+| Script | Endpoint(s) | Payload |
 |---|---|---|
-| LiDAR relay | `/api/rest/pointcloud/ingest` | Polar scan points (angle, distance, quality, x, y) and statistics |
-| Telemetry relay | `/api/rest/telemetry/ingest` | MAVLink attitude, position, GPS, battery (FC and UAVCAN) |
-| Camera relay | `/api/rest/camera/status` | Gimbal angles, recording state, connection status |
-| Flight log upload | `/api/rest/flightlog/upload` | Base64-encoded `.BIN` files (up to 100 MB) |
-| Custom payload | `/api/rest/payload/{appId}/ingest` | Arbitrary JSON matching the app's parser schema |
+| `raspberry_pi_client.py` | Job polling via tRPC | Job execution, file upload, config update |
+| `telemetry_forwarder.py` | `/api/rest/telemetry/ingest` | MAVLink attitude, position, GPS, battery (FC + UAVCAN via DroneCAN) |
+| `logs_ota_service.py` | `/api/rest/logs/fc-list`, `fc-progress`, `fc-upload`, `/api/rest/firmware/progress`, `/api/rest/diagnostics/report` | FC log files, firmware flash stages, system diagnostics |
+| `camera_stream_service.py` | `/api/rest/camera/register-stream` | WebRTC signaling URL (go2rtc + Tailscale funnel) |
+| `siyi_camera_controller.py` | Socket.IO `camera_status` | Gimbal angles, recording state, connection status |
+
+Additionally, the LiDAR relay (part of the main relay script on the Feather companion computer) POSTs to `/api/rest/pointcloud/ingest`, and custom app payloads POST to `/api/rest/payload/{appId}/ingest`.
 
 ### 6.2 Job Execution (Hub → Pi)
 
 A polling-based job queue enables the Hub to push tasks to the companion computer. Jobs follow a four-state lifecycle: `pending` (created by the web UI), `in_progress` (acknowledged by the Pi), then either `completed` or `failed`.
 
-| Job Type | Description |
-|---|---|
-| `upload_file` | Download a file from S3 to a target path on the Pi; supports gzip compression for Python files |
-| `update_config` | Update configuration files on the Pi |
-| `restart_service` | Restart a service on the Pi |
+| Job Type | Handler | Description |
+|---|---|---|
+| `upload_file` | `raspberry_pi_client.py` | Download a file from S3 to a target path on the Pi; supports gzip compression for Python files |
+| `update_config` | `raspberry_pi_client.py` | Update configuration files on the Pi |
+| `restart_service` | `raspberry_pi_client.py` | Restart a service on the Pi |
+| `scan_fc_logs` | `logs_ota_service.py` | Scan FC SD card via MAVFTP and report discovered log files |
+| `download_fc_log` | `logs_ota_service.py` | Download a specific FC log via MAVFTP and upload to Hub S3 |
+| `flash_firmware` | `logs_ota_service.py` | Download firmware from S3, upload to FC via MAVFTP, monitor flash stages |
 
-The Pi polls `droneJobs.getPendingJobs` at a regular interval, acknowledges each job, executes it, and reports completion or failure back to the Hub.
+Both `raspberry_pi_client.py` and `logs_ota_service.py` poll `droneJobs.getPendingJobs` at regular intervals, acknowledge each job, execute it, and report completion or failure back to the Hub.
 
 ---
 
@@ -357,7 +392,7 @@ Authentication operates on two separate planes. **User authentication** flows th
 | App Management | **Implemented** | Edit, delete, version history, rollback for custom apps |
 | REST API (Pi Integration) | **Implemented** | Point cloud, telemetry, camera, custom payload, and flight log endpoints |
 | Drone Job Queue | **Implemented** | Two-way Hub-to-Pi communication with file delivery |
-| Logs & OTA Updates | **Indicated** | Placeholder UI present; job system provides the backend foundation |
+| Logs & OTA Updates | **Implemented** | FC log scan/download via MAVFTP, OTA firmware flash, system diagnostics, remote log streaming, Send to Flight Analytics |
 | Mission Planner | **Indicated** | Placeholder UI present; Google Maps component available in codebase |
 | Crosshair Sync | **Indicated** | Hover-linked cursors across Flight Analytics charts |
 | PARM Table View | **Indicated** | Searchable ArduPilot parameter table from DataFlash logs |

@@ -1141,3 +1141,8 @@
 - [x] Create install_telemetry_forwarder.sh script for Pi deployment
 - [x] Audit and organize all files in the project filesystem
 - [x] Find and move ALL project-related files from /home/ubuntu/ into the project
+- [x] Update all project docs and READMEs to match current system state
+- [x] Update main README.md with current architecture, apps, companion scripts
+- [x] Consolidate 5 companion_scripts READMEs into single COMPANION_SERVICES.md
+- [x] Update docs/ files (architecture doc, LOGS_OTA_PIPELINE, flight-analytics-integration)
+- [x] Create docs/README.md index for easy navigation

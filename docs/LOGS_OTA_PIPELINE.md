@@ -105,7 +105,7 @@ The diagnostics snapshot is sent to `POST /api/rest/diagnostics/report`, which i
 
 ### 4. Remote Log Streaming
 
-The Remote Logs tab provides a live terminal view of journalctl output from any systemd service running on the companion computer. When the user selects a service (e.g., `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`) and clicks **Start Streaming**, the browser emits a `subscribe_logs` Socket.IO event followed by a `log_stream_request` event with `action: "start"`.
+The Remote Logs tab provides a live terminal view of journalctl output from any systemd service running on the companion computer. When the user selects a service (e.g., `telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`) and clicks **Start Streaming**, the browser emits a `subscribe_logs` Socket.IO event followed by a `log_stream_request` event with `action: "start"`.
 
 The Hub relays the request to the companion script via Socket.IO. The companion spawns `journalctl -f -u <service> -n <lines> --no-pager -o short-iso` as an async subprocess and reads lines in a buffered loop (flushing every 500ms or every 20 lines). Lines are emitted back to the Hub as `log_stream_line` events, which the Hub broadcasts to the browser's `logs:<droneId>` room as `log_stream` events. The browser renders them in a scrollable terminal-style container with auto-scroll.
 
@@ -191,6 +191,7 @@ These are used by the browser frontend. All require authentication (`protectedPr
 | `fcLogs` | `requestScan` | Mutation | Create a `scan_fc_logs` job |
 | `fcLogs` | `requestDownload` | Mutation | Create a `download_fc_log` job |
 | `fcLogs` | `delete` | Mutation | Delete an FC log record |
+| `fcLogs` | `sendToAnalytics` | Mutation | Create a flightLogs record from a completed FC log (reuses S3 URL) |
 | `firmware` | `list` | Query | List firmware updates for a drone |
 | `firmware` | `get` | Query | Get a single firmware update |
 | `firmware` | `upload` | Mutation | Upload firmware file (base64) to S3 |
@@ -225,7 +226,7 @@ The companion script is a single-file Python 3 asyncio application (~1200 lines)
 
 **`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub; `handle_flash_firmware()` downloads firmware from S3, uploads it to the FC as `ardupilot.abin`, and polls for the ArduPilot rename stage sequence.
 
-**`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services via `systemctl is-active`.
+**`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`, `go2rtc`, `tailscale-funnel`) via `systemctl is-active`.
 
 **`RemoteLogStreamer`** manages `journalctl -f` subprocess streams. When the browser requests a log stream for a service, the streamer spawns the subprocess and reads lines in a buffered async loop, emitting batches via Socket.IO every 500ms.
 
@@ -256,13 +257,13 @@ pip install --break-system-packages mavsdk requests psutil python-socketio[async
 
 The frontend is a single React component (~950 lines) with four tabs, each implemented as a sub-component:
 
-**FC Logs Tab** displays a table of discovered log files with columns for filename, remote path, file size, status, and actions. The "Scan FC Logs" button triggers a scan job. Each log row shows a download button (for `discovered` status), a progress bar (for `downloading`/`uploading`), or a download link (for `completed`). Real-time progress updates arrive via Socket.IO `fc_log_progress` events.
+**FC Logs Tab** displays a table of discovered log files with columns for filename, remote path, file size, status, and actions. The "Scan FC Logs" button triggers a scan job. Each log row shows a download button (for `discovered` status), a progress bar (for `downloading`/`uploading`), or a download link and a "Send to Flight Analytics" button (for `completed`). The Send to Flight Analytics button checks whether the Flight Analytics app is installed — if not, a toast prompts the user to install it from the App Store first. If installed, it creates a `flightLogs` record reusing the same S3 URL (zero re-upload), so the log appears immediately in Flight Analytics for parsing. Real-time progress updates arrive via Socket.IO `fc_log_progress` events.
 
 **OTA Updates Tab** shows a table of firmware uploads with status badges reflecting the flash pipeline stages. An "Upload Firmware" dialog accepts `.abin` or `.apj` files (max 50 MB) and includes a safety warning about the risks of OTA firmware updates. The "Flash to FC" button initiates the flash job. Progress is shown via a progress bar that updates in real-time through `firmware_progress` WebSocket events.
 
 **Diagnostics Tab** presents four gauge cards (CPU, Memory, Disk, Temperature) with color-coded thresholds (green < 60%, yellow < 85%, red >= 85%). Below the gauges, a services status grid shows each monitored systemd service with an icon indicating active/inactive/failed state. A network interfaces table displays IP addresses and cumulative RX/TX bytes. Data refreshes every 10 seconds via both tRPC polling and WebSocket `diagnostics` events.
 
-**Remote Logs Tab** provides a terminal-style log viewer. A dropdown selects the target service (`logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`), and Start/Stop buttons control the stream. Log lines appear in a monospace, dark-background container with auto-scroll. A "Clear" button resets the buffer. Lines arrive via Socket.IO `log_stream` events.
+**Remote Logs Tab** provides a terminal-style log viewer. A dropdown selects the target service (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`), and Start/Stop buttons control the stream. Log lines appear in a monospace, dark-background container with auto-scroll. A "Clear" button resets the buffer. Lines arrive via Socket.IO `log_stream` events.
 
 ---
 
@@ -307,4 +308,7 @@ sudo systemctl stop logs-ota          # Stop service
 | `websocket.ts` | `server/` | WebSocket broadcast functions |
 | `routers.ts` | `server/` | tRPC routers (fcLogs, firmware, diagnostics) |
 | `schema.ts` | `drizzle/` | Database table definitions |
+| `telemetry_forwarder.py` | `companion_scripts/` | MAVLink + UAVCAN telemetry forwarder (runs on Pi) |
+| `telemetry-forwarder.service` | `companion_scripts/` | Systemd unit file for telemetry forwarder |
+| `install_telemetry_forwarder.sh` | `companion_scripts/` | Interactive install script for telemetry forwarder |
 | `logs-ota.test.ts` | `server/` | 82 vitest tests covering all components |

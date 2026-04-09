@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** January 2026  
-**Author:** Manus AI
+**Author:** Pan Robotics
 
 ---
 
@@ -167,7 +167,7 @@ Focus on **Level 4** for API specifications and **Level 5** for implementation e
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | January 2026 | Manus AI | Initial documentation series release |
+| 1.0 | January 2026 | Pan Robotics | Initial documentation series release |
 
 ---
 

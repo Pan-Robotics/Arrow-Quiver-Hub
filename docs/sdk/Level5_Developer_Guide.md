@@ -3,7 +3,7 @@
 
 **Document Version:** 1.0  
 **Date:** January 2026  
-**Author:** Manus AI  
+**Author:** Pan Robotics  
 **Classification:** Tutorial
 
 ---
@@ -1295,7 +1295,7 @@ The SDK's modular architecture and standards-based protocols ensure that payload
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | January 2026 | Manus AI | Initial release |
+| 1.0 | January 2026 | Pan Robotics | Initial release |
 
 **Related Documents**
 - Level 1: Executive Overview
