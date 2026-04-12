@@ -1146,3 +1146,4 @@
 - [x] Consolidate 5 companion_scripts READMEs into single COMPANION_SERVICES.md
 - [x] Update docs/ files (architecture doc, LOGS_OTA_PIPELINE, flight-analytics-integration)
 - [x] Create docs/README.md index for easy navigation
+- [x] Analyze artefact integrity, job allow-listing, and job reliability/permissions models
