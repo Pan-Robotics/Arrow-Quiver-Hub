@@ -74,9 +74,9 @@ When the user clicks **Download** on a specific log, a `download_fc_log` job is 
 
 ### 2. OTA Firmware Flash
 
-The user uploads a firmware file (`.abin` or `.apj`, max 50 MB) through the OTA Updates tab. The file is base64-encoded and sent to `trpc.firmware.upload`, which stores it in S3 and creates a `firmwareUpdates` record with status `uploaded`. When the user clicks **Flash to FC**, a `flash_firmware` job is created containing the S3 URL.
+The user uploads a firmware file (`.abin` or `.apj`, max 50 MB) through the OTA Updates tab. The file is base64-encoded and sent to `trpc.firmware.upload`, which stores it in S3, **computes a SHA-256 hash** of the file content, and creates a `firmwareUpdates` record with status `uploaded` and the hash stored in the `sha256Hash` column. When the user clicks **Flash to FC**, a `flash_firmware` job is created containing the S3 URL and the `sha256Hash` in the job payload.
 
-The companion script picks up the job, downloads the firmware from S3, removes any existing `ardupilot*.abin` files from the FC's `/APM/` directory, and uploads the new firmware as `ardupilot.abin` via MAVFTP. ArduPilot then processes the firmware through a well-defined rename sequence that the script monitors by polling for file existence:
+The companion script picks up the job, **acknowledges it with a mutex lock** (sending its companion identifier as `lockedBy` to prevent double-execution), downloads the firmware from S3, **verifies the SHA-256 hash** against the server-provided value (aborting with `hash_verification_failed` if there is a mismatch), removes any existing `ardupilot*.abin` files from the FC's `/APM/` directory, and uploads the new firmware as `ardupilot.abin` via MAVFTP. After the flash completes (success or failure), the **downloaded temp file is automatically cleaned up**. ArduPilot then processes the firmware through a well-defined rename sequence that the script monitors by polling for file existence:
 
 | Stage File | Meaning | Progress |
 |------------|---------|----------|
@@ -86,6 +86,18 @@ The companion script picks up the job, downloads the firmware from S3, removes a
 | `ardupilot-flashed.abin` | Flash complete, FC will reboot | 100% |
 
 Each stage transition is reported via `POST /api/rest/firmware/progress` and broadcast to the browser as `firmware_progress` WebSocket events. If the FC reboots during the flash stage (connection lost at stage index >= 2), the script assumes success. The entire process has a 5-minute timeout.
+
+### Job Reliability
+
+The job pipeline includes several reliability mechanisms managed by the Hub server:
+
+| Mechanism | Description |
+|-----------|-------------|
+| **Mutex Lock** | Job acknowledgement uses an atomic compare-and-swap — only the first companion to acknowledge a pending job acquires the lock. The `lockedBy` column records the companion identifier (e.g., `logs_ota@raspberrypi`). |
+| **Timeout Reaper** | A server-side interval (every 60s) checks for `in_progress` jobs that have exceeded their `timeoutSeconds` window. Stuck jobs are reset to `pending` with an incremented `retryCount`. |
+| **Retry Counting** | Each job has `retryCount` / `maxRetries` (default 3). If retries are exhausted, the job is permanently marked as `failed`. |
+| **Expiry** | Jobs can have an `expiresAt` timestamp. Pending jobs past their expiry are marked as `expired` by the reaper. |
+| **Artefact Cleanup** | Downloaded firmware files are deleted in a `finally` block after flash completes or fails, preventing temp file accumulation on the Pi. |
 
 ### 3. System Diagnostics
 
@@ -237,7 +249,7 @@ The companion script is a single-file Python 3 asyncio application (~1200 lines)
 
 **`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports.
 
-**`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub; `handle_flash_firmware()` downloads firmware from S3, uploads it to the FC as `ardupilot.abin`, and polls for the ArduPilot rename stage sequence.
+**`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
 
 **`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`, `go2rtc`, `tailscale-funnel`) via `systemctl is-active`.
 
@@ -256,6 +268,7 @@ The companion script is a single-file Python 3 asyncio application (~1200 lines)
 | `--poll-interval` | `5` | Job polling interval (seconds) |
 | `--diagnostics-interval` | `10` | Diagnostics reporting interval (seconds) |
 | `--no-fc` | `false` | Run without FC (diagnostics + log streaming only) |
+| `--allow-non-root` | `false` | Suppress non-root warning (some features may not work) |
 | `--debug` | `false` | Enable debug logging |
 
 ### Dependencies
@@ -291,7 +304,7 @@ chmod +x install_logs_ota.sh
 sudo ./install_logs_ota.sh
 ```
 
-The installer prompts for the Hub URL, drone ID, API key, and FC connection type (serial, UDP, or no-FC mode). It installs Python dependencies, copies the script, generates a systemd service file with the configured parameters, and enables/starts the service.
+The installer prompts for the Hub URL, drone ID, API key, FC connection type (serial, UDP, or no-FC mode), and permission level (run as root for full functionality, or as service user with group membership). It installs Python dependencies, copies the script, generates a systemd service file with security hardening (`ProtectSystem=strict`, `PrivateTmp=true`, `NoNewPrivileges=true`), and enables/starts the service.
 
 ### Systemd Service
 
