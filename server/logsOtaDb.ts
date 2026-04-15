@@ -59,7 +59,7 @@ export async function upsertFcLog(log: InsertFcLog) {
  */
 export async function updateFcLog(
   id: number,
-  updates: Partial<Pick<InsertFcLog, "status" | "progress" | "storageKey" | "url" | "errorMessage" | "downloadedAt" | "fileSize">>
+  updates: Partial<Pick<InsertFcLog, "status" | "progress" | "storageKey" | "url" | "errorMessage" | "downloadedAt" | "fileSize" | "sha256Hash">>
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

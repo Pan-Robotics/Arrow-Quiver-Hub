@@ -130,6 +130,7 @@ Three tables support the pipeline, all defined in `drizzle/schema.ts`:
 | `progress` | `int` | Download progress (0–100) |
 | `storageKey` | `varchar(512)` | S3 storage key |
 | `url` | `varchar(1024)` | Public S3 URL |
+| `sha256Hash` | `varchar(128)` | SHA-256 hash of log file |
 | `errorMessage` | `text` | Error details if failed |
 | `discoveredAt` | `timestamp` | When the log was first seen |
 | `downloadedAt` | `timestamp` | When download completed |
@@ -151,7 +152,19 @@ Three tables support the pipeline, all defined in `drizzle/schema.ts`:
 | `initiatedBy` | `int` | User ID who uploaded |
 | `createdAt` | `timestamp` | Upload time |
 | `startedAt` | `timestamp` | Flash start time |
+| `sha256Hash` | `varchar(128)` | SHA-256 hash of firmware file (computed at upload, verified before flash) |
 | `completedAt` | `timestamp` | Flash completion time |
+
+**`droneJobs`** — The job queue table now includes reliability columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `retryCount` | `int` (default 0) | Number of times this job has been retried |
+| `maxRetries` | `int` (default 3) | Maximum retry attempts before permanent failure |
+| `expiresAt` | `timestamp` (nullable) | Job expiry time — pending jobs past this time are marked expired |
+| `lockedBy` | `varchar(128)` (nullable) | Companion identifier that holds the mutex lock |
+| `lockedAt` | `timestamp` (nullable) | When the lock was acquired |
+| `timeoutSeconds` | `int` (default varies) | Maximum execution time before the reaper resets the job |
 
 **`systemDiagnostics`** — Stores periodic health snapshots from the companion computer.
 

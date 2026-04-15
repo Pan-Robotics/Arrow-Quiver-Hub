@@ -6,10 +6,11 @@
 #
 # This service provides:
 #   - FC log scanning and download via MAVFTP (MAVSDK)
-#   - OTA firmware upload to FC via MAVFTP
+#   - OTA firmware upload to FC via MAVFTP with SHA-256 integrity verification
 #   - System diagnostics reporting (CPU, memory, disk, temp, services)
 #   - Remote log streaming (journalctl → browser)
 #   - Socket.IO real-time progress updates
+#   - Mutex-locked job acknowledgement to prevent double-execution
 #
 # Prerequisites:
 #   - Raspberry Pi 4 or 5 with Raspberry Pi OS (64-bit)
@@ -144,6 +145,31 @@ echo -e "${GREEN}  ✓ Script copied to $INSTALL_DIR/logs_ota_service.py${NC}"
 echo ""
 echo -e "${GREEN}[3/4] Creating systemd service...${NC}"
 
+# Ask about running as root vs service user
+echo ""
+echo -e "${YELLOW}Permissions:${NC}"
+echo "  The service needs elevated permissions for:"
+echo "    - journalctl log streaming"
+echo "    - systemctl service status queries"
+echo "    - Serial port access (if not in dialout group)"
+echo ""
+echo "  Options:"
+echo "    1) Run as root (recommended for full functionality)"
+echo "    2) Run as service user (add to dialout + systemd-journal groups)"
+read -p "Choose [1]: " PERM_CHOICE
+PERM_CHOICE=${PERM_CHOICE:-1}
+
+if [ "$PERM_CHOICE" = "2" ]; then
+    # Add user to required groups
+    usermod -aG dialout "$SERVICE_USER" 2>/dev/null || true
+    usermod -aG systemd-journal "$SERVICE_USER" 2>/dev/null || true
+    echo -e "${GREEN}  ✓ Added $SERVICE_USER to dialout and systemd-journal groups${NC}"
+    echo -e "${YELLOW}  Note: Group changes take effect after next login or reboot${NC}"
+    RUN_AS_ROOT=false
+else
+    RUN_AS_ROOT=true
+fi
+
 # Build ExecStart command
 EXEC_CMD="/usr/bin/python3 ${INSTALL_DIR}/logs_ota_service.py"
 EXEC_CMD+=" --hub-url ${HUB_URL}"
@@ -161,6 +187,10 @@ fi
 EXEC_CMD+=" --poll-interval 5"
 EXEC_CMD+=" --diagnostics-interval 10"
 
+if [ "$RUN_AS_ROOT" = "false" ]; then
+    EXEC_CMD+=" --allow-non-root"
+fi
+
 cat > /etc/systemd/system/logs-ota.service << EOF
 [Unit]
 Description=Quiver Hub – Logs & OTA Service
@@ -170,8 +200,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${SERVICE_USER}
-Group=${SERVICE_USER}
+$(if [ "$RUN_AS_ROOT" = "false" ]; then echo "User=${SERVICE_USER}"; echo "Group=${SERVICE_USER}"; fi)
 WorkingDirectory=/home/${SERVICE_USER}
 ExecStart=${EXEC_CMD}
 Restart=always
@@ -184,6 +213,12 @@ SyslogIdentifier=logs-ota
 
 # Environment
 Environment=PYTHONUNBUFFERED=1
+
+# Security hardening
+ProtectSystem=strict
+ReadWritePaths=/tmp /home/${SERVICE_USER}
+PrivateTmp=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

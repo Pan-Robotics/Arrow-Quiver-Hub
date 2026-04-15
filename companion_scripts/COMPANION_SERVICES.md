@@ -25,7 +25,7 @@ All services are designed to run as the `alexd` user (configurable during instal
 
 ### Overview
 
-A polling-based job queue client that enables two-way communication between the Quiver Hub web UI and the Raspberry Pi. The Hub creates jobs (file uploads, config changes, service restarts), and the Pi client polls for pending jobs, executes them, and reports completion.
+A polling-based job queue client that enables two-way communication between the Quiver Hub web UI and the Raspberry Pi. The Hub creates jobs (file uploads, config changes, service restarts), and the Pi client polls for pending jobs, executes them, and reports completion. Job acknowledgement uses a **mutex lock** with a companion identifier to prevent double-execution when multiple companions poll the same drone.
 
 ### Job Types
 
@@ -42,6 +42,7 @@ A polling-based job queue client that enables two-way communication between the 
 --drone-id       Unique identifier for this drone (required)
 --api-key        API key for authentication (required)
 --poll-interval  How often to poll for jobs in seconds (default: 5)
+--companion-id   Unique companion identifier for mutex locking (default: hub_client@<hostname>)
 --debug          Enable debug logging
 ```
 
@@ -68,10 +69,11 @@ DRONE_ID=quiver_001
 
 1. Web UI creates a job via `droneJobs.createJob` tRPC mutation
 2. Pi client polls `droneJobs.getPendingJobs` every 5 seconds
-3. Pi acknowledges the job (`droneJobs.acknowledgeJob`)
-4. Pi executes the job (download file, write config, restart service)
-5. Pi reports completion or failure (`droneJobs.completeJob`)
-6. Web UI shows updated job status in the Drone Configuration page
+3. Pi acknowledges the job with mutex lock (`droneJobs.acknowledgeJob` + `lockedBy` companion ID)
+4. If the job is already locked by another companion, the client skips it
+5. Pi executes the job (download file, write config, restart service)
+6. Pi reports completion or failure (`droneJobs.completeJob`)
+7. Web UI shows updated job status in the Drone Configuration page
 
 ---
 
@@ -134,13 +136,15 @@ UPDATE_RATE=2               # Hz
 
 A comprehensive companion service that bridges the flight controller and the Hub for four functions: FC log management, OTA firmware updates, system diagnostics, and remote log streaming. It uses MAVSDK/MAVFTP for flight controller communication and Socket.IO for real-time bidirectional data.
 
+**Security features:** SHA-256 artefact integrity verification before firmware flash, mutex-locked job acknowledgement, automatic artefact cleanup after flash, and superuser permission checks at startup.
+
 ### Features
 
 | Feature | Description |
 |---|---|
 | FC Log Scan | List log files on the FC SD card via MAVFTP directory listing |
 | FC Log Download | Download `.BIN`/`.log` files from the FC via MAVFTP, upload to Hub S3 |
-| OTA Firmware Flash | Download firmware from Hub S3, upload to FC as `ardupilot.abin` via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed) |
+| OTA Firmware Flash | Download firmware from Hub S3, **verify SHA-256 hash**, upload to FC as `ardupilot.abin` via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed), **clean up temp file** |
 | System Diagnostics | Collect CPU, memory, disk, temperature, network, and systemd service status every 10 seconds |
 | Remote Log Streaming | Stream journalctl output from any companion service to the browser in real-time |
 
@@ -150,7 +154,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 |---|---|---|
 | `scan_fc_logs` | FC Logs tab → "Scan FC Logs" button | Lists `/APM/LOGS/` directory and reports discovered files |
 | `download_fc_log` | FC Logs tab → download button on a log row | Downloads the file to a temp directory, then uploads base64 content to Hub |
-| `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, uploads to FC, monitors rename stages |
+| `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, **verifies SHA-256 hash** against server-computed value, uploads to FC, monitors rename stages, cleans up temp file |
 
 ### CLI Arguments
 
@@ -162,6 +166,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 --poll-interval    Job polling interval in seconds (default: 5)
 --diag-interval    Diagnostics reporting interval in seconds (default: 10)
 --no-fc            Run without flight controller connection (diagnostics + log streaming only)
+--allow-non-root   Allow running as non-root (some features may not work)
 --debug            Enable debug logging
 ```
 
@@ -172,7 +177,7 @@ chmod +x install_logs_ota.sh
 sudo ./install_logs_ota.sh
 ```
 
-The installer prompts for the FC connection type (serial, UDP, or no-FC mode), installs `mavsdk`, `aiohttp`, `psutil`, and `python-socketio`, then creates the systemd service.
+The installer prompts for the FC connection type (serial, UDP, or no-FC mode) and permission level (run as root for full functionality, or as service user with group membership). It installs `mavsdk`, `aiohttp`, `psutil`, and `python-socketio`, then creates the systemd service with security hardening (`ProtectSystem=strict`, `PrivateTmp=true`, `NoNewPrivileges=true`).
 
 ### Monitored Services
 
@@ -420,9 +425,14 @@ sudo journalctl -u siyi-camera -f
 
 All services follow these security practices:
 
-- Services run as a non-root user (`alexd`) with minimal privileges
+- **Mutex-locked job acknowledgement:** Both `raspberry_pi_client.py` and `logs_ota_service.py` send a `lockedBy` companion identifier when acknowledging jobs. The server uses an atomic compare-and-swap (only update if status is still `pending`) to prevent double-execution.
+- **SHA-256 artefact integrity:** Firmware uploads are hashed server-side at upload time. The companion verifies the hash after downloading from S3 and before flashing to the flight controller. A mismatch aborts the flash with a `hash_verification_failed` error.
+- **Artefact cleanup:** Downloaded firmware temp files are deleted in a `finally` block after flash completes or fails, preventing stale artefacts from accumulating on the Pi.
+- **Job timeout reaper:** The Hub server runs a 60-second interval reaper that resets stuck `in_progress` jobs back to `pending` (with retry counting) or marks them as permanently failed after `maxRetries` is exceeded.
+- **Job expiry:** Pending jobs with an `expiresAt` timestamp are automatically expired by the reaper if they are never picked up.
+- **Superuser check:** `logs_ota_service.py` warns at startup if not running as root (needed for journalctl, systemctl, serial port access). Use `--allow-non-root` to suppress.
+- **Systemd hardening:** Install scripts configure `ProtectSystem=strict`, `PrivateTmp=true`, `NoNewPrivileges=true`, and restricted `ReadWritePaths`.
 - API keys are stored in `forwarder.env` with restricted file permissions
-- Systemd security hardening: `ProtectSystem=full`, `ProtectHome=read-only`, `NoNewPrivileges=true`
 - All Hub communication uses HTTPS
 - API keys should be rotated regularly via the Quiver Hub web UI
 

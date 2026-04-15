@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { initializeWebSocket } from "../websocket";
 import restApiRouter from "../rest-api";
+import { startJobReaper } from "../droneJobsDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -66,6 +67,9 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+
+    // Start the job reliability reaper (runs every 60s)
+    startJobReaper(60_000);
   });
 }
 

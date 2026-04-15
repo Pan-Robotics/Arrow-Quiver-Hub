@@ -33,7 +33,7 @@ import type { PointCloudMessage, TelemetryMessage } from "./websocket";
 import { executeParser, validateParserCode } from "./parserExecutor";
 import { extractSchema } from "./schemaExtractor";
 import { createCustomApp, getAllCustomApps, getCustomAppByAppId, installAppForUser, uninstallAppForUser, getUserInstalledApps, updateCustomApp, createAppVersion, getAppVersions, getAppVersion, rollbackAppToVersion, deleteCustomApp } from "./customAppDb";
-import { createDroneJob, getPendingJobsForDrone, acknowledgeJob, completeJob, getAllJobsForDrone, createDroneFile, getDroneFile, getDroneFiles, deleteDroneFile } from "./droneJobsDb";
+import { createDroneJob, getPendingJobsForDrone, acknowledgeJob, completeJob, getAllJobsForDrone, getJobById, createDroneFile, getDroneFile, getDroneFiles, deleteDroneFile } from "./droneJobsDb";
 import {
   getFcLogsForDrone,
   getFcLogById,
@@ -47,6 +47,7 @@ import {
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { gzipSync } from "zlib";
+import { createHash } from "crypto";
 
 export const appRouter = router({
   system: systemRouter,
@@ -1040,9 +1041,14 @@ export const appRouter = router({
         return { jobs };
       }),
 
-    // Acknowledge a job (mark as in progress)
+    // Acknowledge a job (mark as in progress) with mutex lock
     acknowledgeJob: publicProcedure
-      .input(z.object({ jobId: z.number(), apiKey: z.string(), droneId: z.string() }))
+      .input(z.object({
+        jobId: z.number(),
+        apiKey: z.string(),
+        droneId: z.string(),
+        lockedBy: z.string().optional(), // companion identifier for mutex
+      }))
       .mutation(async ({ input }) => {
         // Validate API key
         const apiKeyRecord = await validateApiKey(input.apiKey);
@@ -1050,7 +1056,10 @@ export const appRouter = router({
           throw new Error("Invalid API key");
         }
 
-        await acknowledgeJob(input.jobId);
+        const locked = await acknowledgeJob(input.jobId, input.lockedBy);
+        if (!locked) {
+          return { success: false, message: "Job already locked by another companion" };
+        }
         return { success: true };
       }),
 
@@ -1397,6 +1406,9 @@ export const appRouter = router({
           type: "scan_fc_logs",
           payload: { logPath: "/APM/LOGS" },
           createdBy: ctx.user.id,
+          timeoutSeconds: 120, // scan should complete within 2 minutes
+          maxRetries: 3,
+          expiresAt: new Date(Date.now() + 1 * 60 * 60 * 1000), // expires after 1h
         });
         return { success: true, message: "FC log scan job created" };
       }),
@@ -1417,6 +1429,9 @@ export const appRouter = router({
             remotePath: input.remotePath,
           },
           createdBy: ctx.user.id,
+          timeoutSeconds: 900, // large logs can take up to 15 minutes to download
+          maxRetries: 2,
+          expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // expires after 4h
         });
         return { success: true, message: "FC log download job created" };
       }),
@@ -1498,6 +1513,9 @@ export const appRouter = router({
           throw new Error("Firmware file too large. Maximum size is 50MB.");
         }
 
+        // Compute SHA-256 hash of the firmware binary for artefact integrity
+        const sha256Hash = createHash("sha256").update(buffer).digest("hex");
+
         const fileKey = `firmware/${input.droneId}/${nanoid()}-${input.filename}`;
         const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
 
@@ -1509,9 +1527,10 @@ export const appRouter = router({
           url,
           status: "uploaded",
           initiatedBy: ctx.user.id,
+          sha256Hash,
         });
 
-        return { success: true, updateId, url, fileSize: buffer.length };
+        return { success: true, updateId, url, fileSize: buffer.length, sha256Hash };
       }),
 
     // Request the Pi to flash firmware to the FC
@@ -1532,8 +1551,12 @@ export const appRouter = router({
             updateId: input.updateId,
             firmwareUrl: update.url,
             filename: update.filename,
+            sha256Hash: update.sha256Hash || null,
           },
           createdBy: ctx.user.id,
+          timeoutSeconds: 600, // firmware flash can take up to 10 minutes
+          maxRetries: 1, // only retry once for firmware flash (safety)
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // expires after 24h
         });
 
         return { success: true, message: "Firmware flash job created" };

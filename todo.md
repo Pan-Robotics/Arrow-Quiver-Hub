@@ -1147,3 +1147,24 @@
 - [x] Update docs/ files (architecture doc, LOGS_OTA_PIPELINE, flight-analytics-integration)
 - [x] Create docs/README.md index for easy navigation
 - [x] Analyze artefact integrity, job allow-listing, and job reliability/permissions models
+
+## Artefact Integrity & Job Reliability Implementation
+- [x] Add sha256Hash column to firmwareUpdates and fcLogs tables
+- [x] Compute SHA-256 hash on firmware upload (server-side, routers.ts)
+- [x] Include sha256Hash in flash_firmware job payload
+- [x] Verify SHA-256 hash on companion before flashing (logs_ota_service.py)
+- [x] Add job reliability columns (retryCount, maxRetries, expiresAt, timeoutSeconds, lockedBy, lockedAt)
+- [x] Implement server-side timeout reaper (60s interval in droneJobsDb.ts, wired into server startup)
+- [x] Add retry logic with max retries (reaper resets stuck jobs, increments retryCount)
+- [x] Add job expiry (reaper marks expired pending jobs)
+- [x] Add mutex lock on acknowledge (atomic compare-and-swap, lockedBy companion ID)
+- [x] Update logs_ota_service.py: SHA-256 verification, mutex lock, artefact cleanup, superuser check
+- [x] Update raspberry_pi_client.py: mutex lock with companion identifier
+- [x] Add artefact cleanup (delete firmware temp file in finally block after flash)
+- [x] Update install_logs_ota.sh: root/non-root permission choice, systemd security hardening
+- [x] Update COMPANION_SERVICES.md with security features
+- [x] Update LOGS_OTA_PIPELINE.md with SHA-256, mutex, reliability, schema changes
+- [x] Update JOB_SECURITY_ANALYSIS.md with implementation status
+- [ ] Update frontend to show hash, retry count, expiry status
+- [ ] Implement job allow-listing (z.enum for job types)
+- [ ] Implement role-based job permissions (admin-only for destructive operations)

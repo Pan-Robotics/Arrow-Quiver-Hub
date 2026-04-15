@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -35,7 +36,8 @@ logger = logging.getLogger(__name__)
 class QuiverHubClient:
     """Client for communicating with Quiver Hub server"""
     
-    def __init__(self, server_url: str, drone_id: str, api_key: str, poll_interval: int = 5):
+    def __init__(self, server_url: str, drone_id: str, api_key: str, poll_interval: int = 5,
+                 companion_id: Optional[str] = None):
         """
         Initialize the Quiver Hub client
         
@@ -44,14 +46,17 @@ class QuiverHubClient:
             drone_id: Unique identifier for this drone (e.g., quiver_001)
             api_key: API key for authentication
             poll_interval: How often to poll for jobs in seconds (default: 5)
+            companion_id: Unique identifier for this companion instance (default: hub_client@<hostname>)
         """
         self.server_url = server_url.rstrip('/')
         self.drone_id = drone_id
         self.api_key = api_key
         self.poll_interval = poll_interval
+        self.companion_id = companion_id or f"hub_client@{platform.node()}"
         self.session = requests.Session()
         
         logger.info(f"Initialized Quiver Hub client for drone: {drone_id}")
+        logger.info(f"Companion ID: {self.companion_id}")
         logger.info(f"Server: {server_url}")
         logger.info(f"Poll interval: {poll_interval}s")
     
@@ -90,13 +95,14 @@ class QuiverHubClient:
     
     def acknowledge_job(self, job_id: int) -> bool:
         """
-        Acknowledge a job (mark as in progress)
+        Acknowledge a job with mutex lock (mark as in progress).
+        Sends companion_id as lockedBy to prevent double-execution.
         
         Args:
             job_id: ID of the job to acknowledge
             
         Returns:
-            True if successful, False otherwise
+            True if successfully locked, False if already locked by another companion or on error
         """
         try:
             url = urljoin(self.server_url, '/api/trpc/droneJobs.acknowledgeJob')
@@ -104,14 +110,21 @@ class QuiverHubClient:
                 'json': {
                     'jobId': job_id,
                     'apiKey': self.api_key,
-                    'droneId': self.drone_id
+                    'droneId': self.drone_id,
+                    'lockedBy': self.companion_id
                 }
             }
             
             response = self.session.post(url, json=payload, timeout=10)
             response.raise_for_status()
             
-            logger.info(f"Acknowledged job {job_id}")
+            data = response.json()
+            success = data.get('result', {}).get('data', {}).get('json', {}).get('success', False)
+            if not success:
+                logger.warning(f"Job {job_id} already locked by another companion, skipping")
+                return False
+            
+            logger.info(f"Acknowledged job {job_id} (locked by {self.companion_id})")
             return True
             
         except requests.exceptions.RequestException as e:
@@ -393,6 +406,12 @@ Examples:
         help='Enable debug logging'
     )
     
+    parser.add_argument(
+        '--companion-id',
+        default=None,
+        help='Unique companion identifier for mutex locking (default: hub_client@<hostname>)'
+    )
+    
     args = parser.parse_args()
     
     # Set log level
@@ -404,7 +423,8 @@ Examples:
         server_url=args.server,
         drone_id=args.drone_id,
         api_key=args.api_key,
-        poll_interval=args.poll_interval
+        poll_interval=args.poll_interval,
+        companion_id=args.companion_id
     )
     
     client.run()

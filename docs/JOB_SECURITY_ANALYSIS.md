@@ -270,26 +270,28 @@ If more granular permissions are needed in the future (e.g., per-drone access, p
 
 ---
 
-## 6. Implementation Priority
+## 6. Implementation Status
 
-The three models should be implemented in the following order, based on risk mitigation value and implementation effort:
+The following table tracks the implementation status of each security model:
 
-| Priority | Model | Effort | Risk Addressed |
-|----------|-------|--------|----------------|
-| **1** | Job allow-listing (Zod enum + typed payloads) | Small (1-2 hours) | Prevents undefined job types and malformed payloads from entering the queue |
-| **2** | Artefact integrity (SHA-256 hash on firmware) | Medium (3-4 hours) | Prevents corrupted firmware from being flashed to the FC |
-| **3** | Job reliability (timeout reaper, retry, expiry, mutex) | Medium (4-6 hours) | Prevents stuck jobs, handles transient failures, avoids stale execution |
-| **4** | Job permissions (role-based job creation) | Small (1-2 hours) | Restricts destructive operations to admin users |
-
-The total implementation effort is approximately 10-14 hours of development time. The allow-listing and permissions changes are purely server-side (no companion script changes needed). The artefact integrity model requires changes to both the server (hash storage) and the companion script (hash verification). The reliability model requires schema changes, a new server-side reaper process, and companion script updates to respect expiry timestamps.
+| Priority | Model | Status | Implementation Details |
+|----------|-------|--------|------------------------|
+| **1** | Job allow-listing (Zod enum + typed payloads) | **Planned** | Not yet implemented. The `createJob` mutation still accepts `z.string()` for the type field. |
+| **2** | Artefact integrity (SHA-256 hash on firmware) | **Implemented** | SHA-256 computed at upload time (`routers.ts`), stored in `firmwareUpdates.sha256Hash`, included in `flash_firmware` job payload. Companion script verifies hash after S3 download, aborts with `hash_verification_failed` if mismatch. `fcLogs` table also has `sha256Hash` column. |
+| **3** | Job reliability (timeout reaper, retry, expiry, mutex) | **Implemented** | Schema columns added (`retryCount`, `maxRetries`, `expiresAt`, `lockedBy`, `lockedAt`, `timeoutSeconds`). Server-side reaper runs every 60s (`droneJobsDb.ts`). Mutex lock via atomic compare-and-swap on acknowledge. Both `logs_ota_service.py` and `raspberry_pi_client.py` send `lockedBy` companion identifier. Artefact cleanup in `finally` block. Superuser check at startup. |
+| **4** | Job permissions (role-based job creation) | **Planned** | Not yet implemented. The existing `role` field on `users` table supports the two-tier model described in Section 5.4. |
 
 ---
 
 ## 7. Summary
 
-All three security models are applicable to the Quiver Hub job pipeline. The **job allow-listing model** is the lowest-hanging fruit — replacing `z.string()` with `z.enum()` in the `createJob` mutation immediately closes the open input surface. The **artefact integrity model** is the highest-impact change — SHA-256 verification of firmware files before flashing provides a critical safety net against corrupted updates. The **job reliability model** addresses operational concerns that will compound as the fleet scales — stuck jobs, missing retries, and stale execution are all preventable with modest schema and logic changes. The **permissions model** is a natural extension of the existing role system and should be implemented alongside the allow-listing changes.
+Two of the four security models have been fully implemented:
 
-The recommended approach is to implement all four changes in a single development sprint, starting with the allow-listing (which constrains the input surface) and ending with the reliability improvements (which require the most testing). Each change is independently deployable and backward-compatible with existing companion scripts — the companion scripts already filter by known job types, so the server-side allow-list simply formalizes what is already enforced at the edge.
+The **artefact integrity model** is now live — SHA-256 hashes are computed at firmware upload time, stored in the database, included in the job payload, and verified by the companion script before any firmware is flashed to the flight controller. A hash mismatch aborts the flash with a clear error message (`hash_verification_failed`), and the downloaded temp file is cleaned up regardless of outcome.
+
+The **job reliability model** is now live — the server-side timeout reaper runs every 60 seconds, resetting stuck jobs back to pending (with retry counting) or marking them as permanently failed after `maxRetries` is exceeded. Pending jobs with expired `expiresAt` timestamps are automatically expired. Job acknowledgement uses an atomic mutex lock with a companion identifier (`lockedBy`) to prevent double-execution. Both `logs_ota_service.py` and `raspberry_pi_client.py` send their companion ID when acknowledging jobs. The `logs_ota_service.py` script also includes a superuser check at startup and automatic artefact cleanup in a `finally` block.
+
+The **job allow-listing model** and **permissions model** remain planned for a future sprint. The allow-listing change (replacing `z.string()` with `z.enum()`) is a straightforward hardening measure that can be implemented independently. The permissions model maps naturally onto the existing `role` field on the `users` table.
 
 ---
 

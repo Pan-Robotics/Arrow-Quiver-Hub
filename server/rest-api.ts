@@ -16,6 +16,7 @@ import { nanoid } from "nanoid";
 import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastCameraStream, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./payloadIngest";
+import { createHash } from "crypto";
 import {
   upsertFcLog,
   updateFcLog,
@@ -908,6 +909,9 @@ router.post("/logs/fc-upload", async (req: Request, res: Response) => {
       });
     }
 
+    // Compute SHA-256 hash for artefact integrity
+    const sha256Hash = createHash("sha256").update(buffer).digest("hex");
+
     // Upload to S3
     const fileKey = `fc-logs/${drone_id}/${nanoid()}-${filename}`;
     const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
@@ -920,6 +924,7 @@ router.post("/logs/fc-upload", async (req: Request, res: Response) => {
       url,
       fileSize: file_size || buffer.length,
       downloadedAt: new Date(),
+      sha256Hash,
     });
 
     // Also create a flight log entry for the Flight Analytics app

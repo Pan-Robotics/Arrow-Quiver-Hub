@@ -32,6 +32,7 @@ Dependencies:
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -148,13 +149,19 @@ class HubClient:
             return result.get("jobs", [])
         return []
 
-    def acknowledge_job(self, job_id: int) -> bool:
-        result = self._trpc_mutation("droneJobs.acknowledgeJob", {
+    def acknowledge_job(self, job_id: int, locked_by: Optional[str] = None) -> bool:
+        """Acknowledge a job with mutex lock. Returns False if already locked by another companion."""
+        data: dict = {
             "jobId": job_id,
             "apiKey": self.api_key,
             "droneId": self.drone_id,
-        })
-        return result is not None
+        }
+        if locked_by:
+            data["lockedBy"] = locked_by
+        result = self._trpc_mutation("droneJobs.acknowledgeJob", data)
+        if result is None:
+            return False
+        return result.get("success", False)
 
     def complete_job(self, job_id: int, success: bool, error_message: Optional[str] = None) -> bool:
         data: dict = {
@@ -573,6 +580,31 @@ class LogsOtaJobHandler:
                 file_size = os.path.getsize(tmp_path)
                 logger.info(f"Downloaded firmware: {file_size} bytes")
 
+                # ── SHA-256 Artefact Integrity Check ──
+                expected_hash = payload.get("sha256Hash")
+                if expected_hash:
+                    actual_hash = hashlib.sha256(resp.content).hexdigest()
+                    if actual_hash != expected_hash:
+                        error_msg = (
+                            f"SHA-256 mismatch! Expected: {expected_hash[:16]}... "
+                            f"Got: {actual_hash[:16]}... "
+                            f"Firmware may be corrupted — aborting flash."
+                        )
+                        logger.error(error_msg)
+                        self.hub.report_firmware_progress(
+                            update_id, "failed", 0,
+                            flash_stage="hash_verification_failed",
+                            error_message=error_msg
+                        )
+                        return False, error_msg
+                    logger.info(f"SHA-256 verified: {actual_hash[:16]}...")
+                    self.hub.report_firmware_progress(
+                        update_id, "transferring", 8,
+                        flash_stage="hash_verified"
+                    )
+                else:
+                    logger.warning("No SHA-256 hash in job payload — skipping integrity check")
+
                 # ── Step 2: Remove any existing ardupilot*.abin files ──
                 self.hub.report_firmware_progress(update_id, "transferring", 10,
                                                    flash_stage="preparing")
@@ -680,10 +712,13 @@ class LogsOtaJobHandler:
                 return True, None
 
             finally:
+                # ── Artefact Cleanup: delete downloaded firmware temp file ──
                 try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                        logger.info(f"Cleaned up firmware temp file: {tmp_path}")
+                except OSError as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file {tmp_path}: {cleanup_err}")
 
         except Exception as e:
             error_msg = f"Firmware flash failed: {e}"
@@ -1016,9 +1051,10 @@ class LogsOtaService:
 
                     logger.info(f"Processing job {job_id}: {job_type}")
 
-                    # Acknowledge
-                    if not self.hub.acknowledge_job(job_id):
-                        logger.error(f"Failed to acknowledge job {job_id}")
+                    # Acknowledge with mutex lock (companion identifier)
+                    companion_id = f"logs_ota@{platform.node()}"
+                    if not self.hub.acknowledge_job(job_id, locked_by=companion_id):
+                        logger.warning(f"Job {job_id} already locked by another companion, skipping")
                         continue
 
                     # Check FC connection for MAVFTP jobs
@@ -1168,11 +1204,26 @@ Examples:
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging")
 
+    parser.add_argument("--allow-non-root", action="store_true",
+                        help="Allow running as non-root (some features may not work)")
+
     args = parser.parse_args()
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logging.getLogger("mavsdk").setLevel(logging.DEBUG)
+
+    # Superuser check — needed for journalctl, systemctl, and serial port access
+    if os.geteuid() != 0 and not args.allow_non_root:
+        logger.warning(
+            "Running as non-root user. Some features may not work:\n"
+            "  - journalctl log streaming (requires root or systemd-journal group)\n"
+            "  - systemctl service status (requires root or polkit)\n"
+            "  - Serial port access (requires dialout group)\n"
+            "  - Filesystem operations in /tmp (usually fine)\n"
+            "Use --allow-non-root to suppress this warning, "
+            "or run with: sudo python3 logs_ota_service.py ..."
+        )
 
     # Validate dependencies
     if not requests:

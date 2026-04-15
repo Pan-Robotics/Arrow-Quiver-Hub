@@ -190,8 +190,8 @@ export const droneJobs = mysqlTable("droneJobs", {
   type: varchar("type", { length: 64 }).notNull(),
   /** Job payload (JSON) - contains type-specific data */
   payload: json("payload").notNull(),
-  /** Job status: pending, in_progress, completed, failed */
-  status: mysqlEnum("status", ["pending", "in_progress", "completed", "failed"]).default("pending").notNull(),
+  /** Job status: pending, in_progress, completed, failed, expired */
+  status: mysqlEnum("status", ["pending", "in_progress", "completed", "failed", "expired"]).default("pending").notNull(),
   /** Error message if job failed */
   errorMessage: text("errorMessage"),
   /** When job was created */
@@ -202,6 +202,18 @@ export const droneJobs = mysqlTable("droneJobs", {
   completedAt: timestamp("completedAt"),
   /** User ID who created this job */
   createdBy: int("createdBy").notNull(),
+
+  // ─── Job Reliability Fields ───────────────────────────────────────────
+  /** Number of times this job has been retried after timeout/failure */
+  retryCount: int("retryCount").default(0).notNull(),
+  /** Maximum number of retries before marking as permanently failed */
+  maxRetries: int("maxRetries").default(3).notNull(),
+  /** Timeout in seconds — if acknowledged but not completed within this window, reaper resets it */
+  timeoutSeconds: int("timeoutSeconds").default(300).notNull(),
+  /** When this job expires and should no longer be executed (stale guard) */
+  expiresAt: timestamp("expiresAt"),
+  /** Companion identifier that locked this job (mutex — prevents double-execution) */
+  lockedBy: varchar("lockedBy", { length: 128 }),
 });
 
 export type DroneJob = typeof droneJobs.$inferSelect;
@@ -300,6 +312,8 @@ export const fcLogs = mysqlTable("fcLogs", {
   discoveredAt: timestamp("discoveredAt").defaultNow().notNull(),
   /** When download completed */
   downloadedAt: timestamp("downloadedAt"),
+  /** SHA-256 hash of the downloaded file (computed after upload to S3) */
+  sha256Hash: varchar("sha256Hash", { length: 64 }),
 });
 
 export type FcLog = typeof fcLogs.$inferSelect;
@@ -337,6 +351,8 @@ export const firmwareUpdates = mysqlTable("firmwareUpdates", {
   startedAt: timestamp("startedAt"),
   /** When the flash completed */
   completedAt: timestamp("completedAt"),
+  /** SHA-256 hash of the firmware binary (computed at upload, verified before flash) */
+  sha256Hash: varchar("sha256Hash", { length: 64 }),
 });
 
 export type FirmwareUpdate = typeof firmwareUpdates.$inferSelect;
