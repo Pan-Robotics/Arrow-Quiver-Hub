@@ -286,6 +286,11 @@ class WebRTCStreamingService:
         self.public_url = public_url  # Override: skip Tailscale detection
         self.skip_funnel_setup = skip_funnel_setup
         self._stream_registered = False
+        self._last_registration_attempt = 0.0  # epoch timestamp
+        self._registration_retry_interval = 30.0  # seconds between retries
+        self._registration_heartbeat_interval = 300.0  # re-register every 5 min as heartbeat
+        self._last_heartbeat = 0.0  # epoch timestamp of last successful heartbeat
+        self._detected_webrtc_url: Optional[str] = None  # cached URL for retries
         
         # go2rtc process
         self.go2rtc_process: Optional[subprocess.Popen] = None
@@ -418,7 +423,11 @@ class WebRTCStreamingService:
         return url
     
     def _register_stream_with_hub(self, webrtc_url: str):
-        """Register the WebRTC stream URL with Quiver Hub."""
+        """Register the WebRTC stream URL with Quiver Hub.
+        
+        Called periodically by the run() loop when the stream is healthy
+        but not yet registered. Sets _stream_registered = True on success.
+        """
         if not self.hub_url or not self.drone_id or not self.api_key:
             logger.debug("Hub registration skipped: missing hub_url, drone_id, or api_key")
             return
@@ -432,19 +441,40 @@ class WebRTCStreamingService:
             rest_base = rest_base.rstrip("/ws").rstrip("/")
             register_url = f"{rest_base}/api/rest/camera/stream-register"
             
+            logger.info(f"Registering stream with Hub: POST {register_url}")
+            
             response = requests.post(register_url, json={
                 "api_key": self.api_key,
                 "drone_id": self.drone_id,
                 "webrtc_url": webrtc_url,
             }, timeout=10)
             
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"Stream registered with Hub. WebRTC URL: {webrtc_url}")
-                self._stream_registered = True
+            # Check content-type to avoid parsing HTML as JSON
+            content_type = response.headers.get("content-type", "")
+            
+            if response.status_code == 200 and "application/json" in content_type:
+                try:
+                    data = response.json()
+                    if data.get("success"):
+                        logger.info(f"Stream registered with Hub. WebRTC URL: {webrtc_url}")
+                        self._stream_registered = True
+                        self._last_heartbeat = time.time()
+                    else:
+                        logger.warning(f"Hub returned success=false: {data.get('error', 'unknown')}")
+                except ValueError:
+                    logger.warning(f"Hub returned 200 but invalid JSON. Content-Type: {content_type}")
             else:
-                logger.warning(f"Stream registration failed ({response.status_code}): {response.text}")
+                # Log truncated response body for debugging (avoid flooding logs with HTML)
+                body_preview = response.text[:200].replace('\n', ' ').strip()
+                logger.warning(
+                    f"Stream registration failed (HTTP {response.status_code}, "
+                    f"Content-Type: {content_type}): {body_preview}..."
+                )
                 
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"Hub unreachable for stream registration (will retry): {e}")
+        except requests.exceptions.Timeout:
+            logger.warning("Stream registration timed out (will retry)")
         except Exception as e:
             logger.error(f"Failed to register stream with Hub: {e}")
     
@@ -509,16 +539,34 @@ class WebRTCStreamingService:
                 
                 if not self.stream_healthy and was_healthy:
                     logger.warning("Stream became unhealthy, restarting go2rtc...")
+                    self._stream_registered = False
+                    self._detected_webrtc_url = None
                     self._stop_go2rtc()
                     self.reconnect_count += 1
                     await asyncio.sleep(2)
                     continue
                 
-                # Register with Hub when stream first becomes healthy
-                if self.stream_healthy and not was_healthy:
-                    webrtc_url = self._detect_webrtc_url()
-                    if webrtc_url:
-                        self._register_stream_with_hub(webrtc_url)
+                # Register with Hub when stream is healthy
+                if self.stream_healthy:
+                    # Detect URL on first healthy transition
+                    if not was_healthy or self._detected_webrtc_url is None:
+                        self._detected_webrtc_url = self._detect_webrtc_url()
+                    
+                    # Register (or retry registration) if not yet registered
+                    if self._detected_webrtc_url and not self._stream_registered:
+                        now = time.time()
+                        if now - self._last_registration_attempt >= self._registration_retry_interval:
+                            self._last_registration_attempt = now
+                            self._register_stream_with_hub(self._detected_webrtc_url)
+                    
+                    # Periodic heartbeat re-registration (handles server restarts
+                    # that wipe the in-memory registry)
+                    elif self._detected_webrtc_url and self._stream_registered:
+                        now = time.time()
+                        if now - self._last_heartbeat >= self._registration_heartbeat_interval:
+                            logger.debug("Sending heartbeat re-registration to Hub")
+                            self._stream_registered = False  # force re-register
+                            self._last_registration_attempt = 0.0  # allow immediate attempt
                 
                 await asyncio.sleep(2)
                 
@@ -548,6 +596,8 @@ class WebRTCStreamingService:
             "go2rtc_running": self.go2rtc_process is not None and self.go2rtc_process.poll() is None,
             "reconnect_count": self.reconnect_count,
             "registered": self._stream_registered,
+            "webrtc_url": self._detected_webrtc_url,
+            "last_registration_attempt": self._last_registration_attempt,
         }
 
 

@@ -1168,3 +1168,12 @@
 - [ ] Update frontend to show hash, retry count, expiry status
 - [ ] Implement job allow-listing (z.enum for job types)
 - [ ] Implement role-based job permissions (admin-only for destructive operations)
+
+## Camera Stream WebRTC Display Bug
+- [x] Diagnose root cause: _register_stream_with_hub() is one-shot, fails silently when Hub is unreachable, never retries
+- [x] Add retry logic: retry registration every 30s while stream is healthy but not registered
+- [x] Add heartbeat re-registration: re-register every 5 min to handle server restarts (in-memory registry wipe)
+- [x] Reset _stream_registered and _detected_webrtc_url when stream becomes unhealthy
+- [x] Improve _register_stream_with_hub error handling: content-type check, truncated body logging, specific exception types
+- [x] Add webrtc_url and last_registration_attempt to get_status() output
+- [ ] siyi-camera Socket.IO connection errors to Hub (separate issue — same stale URL problem)
