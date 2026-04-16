@@ -745,6 +745,97 @@ router.get("/camera/stream-status/:droneId", (req: Request, res: Response) => {
   });
 });
 
+/**
+ * POST /api/rest/camera/whep-proxy/:droneId
+ * Server-side WHEP proxy — relays SDP offer/answer between the browser and
+ * the go2rtc instance on the companion (via Tailscale).
+ *
+ * The browser cannot reach the Tailscale URL directly (different network /
+ * CORS), so the Hub server acts as a signaling relay. Only the SDP text is
+ * proxied; actual WebRTC media flows peer-to-peer after ICE completes.
+ *
+ * Request:
+ *   Content-Type: application/sdp
+ *   Body: SDP offer string
+ *
+ * Response:
+ *   Content-Type: application/sdp
+ *   Body: SDP answer string from go2rtc
+ */
+router.post("/camera/whep-proxy/:droneId", async (req: Request, res: Response) => {
+  const { droneId } = req.params;
+
+  try {
+    const entry = webrtcStreamRegistry.get(droneId);
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        error: `No active stream registered for drone ${droneId}`,
+      });
+    }
+
+    // Read the raw SDP offer from the request body
+    // Express may have already parsed it as text if content-type is application/sdp
+    let sdpOffer: string;
+    if (typeof req.body === "string") {
+      sdpOffer = req.body;
+    } else if (Buffer.isBuffer(req.body)) {
+      sdpOffer = req.body.toString("utf-8");
+    } else {
+      // Body parser may have parsed as JSON — try to get raw
+      sdpOffer = JSON.stringify(req.body);
+    }
+
+    if (!sdpOffer || sdpOffer.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing or invalid SDP offer in request body",
+      });
+    }
+
+    console.log(`[WHEP Proxy] Relaying SDP offer for ${droneId} to ${entry.webrtcUrl} (${sdpOffer.length} bytes)`);
+
+    // Forward the SDP offer to the go2rtc WHEP endpoint on the companion
+    const upstreamResponse = await fetch(entry.webrtcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/sdp" },
+      body: sdpOffer,
+      signal: AbortSignal.timeout(10000), // 10s timeout
+    });
+
+    if (!upstreamResponse.ok) {
+      const errorText = await upstreamResponse.text().catch(() => "(no body)");
+      console.error(`[WHEP Proxy] Upstream returned ${upstreamResponse.status}: ${errorText.slice(0, 200)}`);
+      return res.status(502).json({
+        success: false,
+        error: `go2rtc returned ${upstreamResponse.status}`,
+        detail: errorText.slice(0, 500),
+      });
+    }
+
+    const sdpAnswer = await upstreamResponse.text();
+    console.log(`[WHEP Proxy] Got SDP answer for ${droneId} (${sdpAnswer.length} bytes)`);
+
+    res.setHeader("Content-Type", "application/sdp");
+    return res.status(200).send(sdpAnswer);
+  } catch (error: any) {
+    // Distinguish timeout from other errors
+    if (error?.name === "TimeoutError" || error?.code === "UND_ERR_CONNECT_TIMEOUT") {
+      console.error(`[WHEP Proxy] Timeout reaching go2rtc for ${droneId}`);
+      return res.status(504).json({
+        success: false,
+        error: "Timeout reaching go2rtc on companion",
+      });
+    }
+    console.error(`[WHEP Proxy] Error for ${droneId}:`, error);
+    return res.status(502).json({
+      success: false,
+      error: "Failed to reach go2rtc on companion",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 // ─── FC Log Management ─────────────────────────────────────────────────────
 
 /**

@@ -1177,3 +1177,10 @@
 - [x] Improve _register_stream_with_hub error handling: content-type check, truncated body logging, specific exception types
 - [x] Add webrtc_url and last_registration_attempt to get_status() output
 - [ ] siyi-camera Socket.IO connection errors to Hub (separate issue — same stale URL problem)
+
+## Camera Stream WHEP Proxy Fix
+- [x] Fix "Failed to fetch" in connectWebRTC — browser can't reach go2rtc Tailscale URL directly (CORS/network)
+- [x] Implement server-side WHEP proxy endpoint (POST /api/rest/camera/whep-proxy/:droneId)
+- [x] Add express.text() body parser for application/sdp content type
+- [x] Update frontend connectWebRTC to use proxy instead of direct fetch
+- [x] connectWebRTC now takes droneId instead of raw URL

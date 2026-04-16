@@ -39,6 +39,8 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Parse raw text bodies (needed for SDP in WHEP proxy)
+  app.use(express.text({ type: ["application/sdp", "text/plain"], limit: "1mb" }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // REST API for external integrations

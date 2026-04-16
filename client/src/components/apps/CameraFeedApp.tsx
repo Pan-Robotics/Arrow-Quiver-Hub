@@ -104,7 +104,7 @@ type GimbalCommand =
  * Connect to a go2rtc WebRTC stream using the WHEP-like signaling API.
  */
 async function connectWebRTC(
-  webrtcUrl: string,
+  droneId: string,
   videoElement: HTMLVideoElement,
   onConnected: () => void,
   onDisconnected: (reason: string) => void,
@@ -172,8 +172,8 @@ async function connectWebRTC(
     };
   });
 
-  // Send offer to go2rtc WHEP endpoint
-  const response = await fetch(webrtcUrl, {
+  // Send offer via server-side WHEP proxy (browser cannot reach Tailscale directly)
+  const response = await fetch(`/api/rest/camera/whep-proxy/${droneId}`, {
     method: "POST",
     headers: { "Content-Type": "application/sdp" },
     body: pc.localDescription?.sdp,
@@ -522,6 +522,8 @@ export default function CameraFeedApp() {
   }, [selectedDrone]);
 
   // WebRTC connection - connect/disconnect when webrtcUrl changes
+  // The webrtcUrl is still used as a trigger (non-null = stream is registered),
+  // but the actual signaling goes through the server-side WHEP proxy.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -539,7 +541,7 @@ export default function CameraFeedApp() {
       framesPerSecond: null, resolution: null, codec: null, transportType: null,
     });
 
-    if (!webrtcUrl) {
+    if (!webrtcUrl || !selectedDrone) {
       return;
     }
 
@@ -549,7 +551,7 @@ export default function CameraFeedApp() {
     let cancelled = false;
 
     connectWebRTC(
-      webrtcUrl,
+      selectedDrone,
       video,
       () => {
         // onConnected
@@ -591,7 +593,7 @@ export default function CameraFeedApp() {
         pcRef.current = null;
       }
     };
-  }, [webrtcUrl]);
+  }, [webrtcUrl, selectedDrone]);
 
   // Send command to camera via WebSocket
   const sendCommand = useCallback((command: GimbalCommand) => {
