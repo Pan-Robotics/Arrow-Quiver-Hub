@@ -58,7 +58,6 @@ import {
   Play,
   Square,
   ArrowDown,
-  ExternalLink,
   BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -286,7 +285,14 @@ function FcLogsTab({
 
   const handleDownload = (log: FcLog) => {
     if (log.url) {
-      window.open(log.url, "_blank");
+      // Trigger a proper file download with the original filename
+      const a = document.createElement("a");
+      a.href = log.url;
+      a.download = log.filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } else {
       downloadMutation.mutate({
         droneId,
@@ -412,12 +418,12 @@ function FcLogsTab({
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
-                                  onClick={() => window.open(log.url!, "_blank")}
+                                  onClick={() => handleDownload(log)}
                                 >
-                                  <ExternalLink size={14} />
+                                  <Download size={14} />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>Download from cloud</TooltipContent>
+                              <TooltipContent>Download to PC</TooltipContent>
                             </Tooltip>
                           </>
                         ) : log.status === "discovered" || log.status === "failed" ? (

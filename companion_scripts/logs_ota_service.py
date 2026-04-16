@@ -370,12 +370,31 @@ class MavFtpClient:
         try:
             logger.info(f"Downloading {remote_path} → {local_path}")
             
-            # MAVSDK download with progress reporting
-            progress = await self.system.ftp.download(
-                remote_path, local_path
-            )
+            # Ensure the destination directory exists
+            os.makedirs(os.path.dirname(local_path) or '.', exist_ok=True)
             
-            # The download is complete when we get here
+            # MAVSDK download() is an async generator that yields ProgressData
+            # It requires: remote_file_path, local_dir, use_burst
+            local_dir = os.path.dirname(local_path) or '.'
+            
+            async for progress_data in self.system.ftp.download(
+                remote_path, local_dir, use_burst=True
+            ):
+                if progress_callback and progress_data:
+                    await progress_callback(
+                        progress_data.bytes_transferred,
+                        progress_data.total_bytes
+                    )
+            
+            # MAVSDK downloads to local_dir using the remote filename
+            # Check if the file landed with the original remote filename
+            remote_filename = os.path.basename(remote_path)
+            downloaded_path = os.path.join(local_dir, remote_filename)
+            
+            # If the caller wants a different local name, rename
+            if downloaded_path != local_path and os.path.exists(downloaded_path):
+                os.rename(downloaded_path, local_path)
+            
             if os.path.exists(local_path):
                 file_size = os.path.getsize(local_path)
                 logger.info(f"Download complete: {file_size} bytes")
@@ -383,7 +402,7 @@ class MavFtpClient:
                     await progress_callback(file_size, file_size)
                 return True
             else:
-                logger.error("Download completed but file not found")
+                logger.error(f"Download completed but file not found at {local_path}")
                 return False
 
         except Exception as e:

@@ -1189,3 +1189,11 @@
 - [x] Fix 'ListDirectoryData' object is not iterable error in logs_ota_service.py
 - [x] Handle MAVSDK FTP list_directory response format correctly (access .dirs and .files attributes)
 - [x] Note: MAVFTP list_directory does not return file sizes, size is always 0
+
+## FC Log Download Fixes & Features
+- [x] Fix Ftp.download() missing 'use_burst' positional argument — now uses async generator with use_burst=True
+- [x] Fix MAVSDK download path handling — downloads to local_dir, then renames to caller's expected path
+- [x] FC→Pi→S3→browser download flow already wired (companion uploads to S3, frontend gets URL)
+- [x] Download button now triggers proper file download with filename (anchor tag with download attr)
+- [x] "Send to Flight Analysis" button already present (BarChart3 icon, sendToAnalytics mutation)
+- [x] Removed unused ExternalLink import
