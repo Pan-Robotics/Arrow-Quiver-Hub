@@ -1197,3 +1197,16 @@
 - [x] Download button now triggers proper file download with filename (anchor tag with download attr)
 - [x] "Send to Flight Analysis" button already present (BarChart3 icon, sendToAnalytics mutation)
 - [x] Removed unused ExternalLink import
+
+## Connection Indicator Unification
+- [x] Audit all app components for connection indicator variants (LidarApp, TelemetryApp, CameraFeedApp, LogsOtaApp, AppRenderer)
+- [x] Build unified ConnectionStatus widget + useLastDataTimestamp hook (components/ui/ConnectionStatus.tsx)
+- [x] Replace LidarApp: Activity icon → ConnectionStatus with markDataReceived on pointcloud events
+- [x] Replace TelemetryApp: Badge → ConnectionStatus with markDataReceived on telemetry events
+- [x] Replace CameraFeedApp: Badge with Wifi/WifiOff → ConnectionStatus with streamActive state
+- [x] Replace LogsOtaApp: Badge with Wifi/WifiOff → ConnectionStatus with data event tracking
+- [x] Replace AppRenderer: dot+text → ConnectionStatus with markDataReceived on all data events
+- [x] Fix connection logic: "Connected" only shown when data received within staleness window
+- [x] Four states: disconnected, connecting, connected, stale — with distinct colors and icons
+- [x] Register connection_status as app UI maker widget in UIBuilder.tsx and AppRenderer.tsx
+- [x] Update failing test (logs-ota.test.ts)

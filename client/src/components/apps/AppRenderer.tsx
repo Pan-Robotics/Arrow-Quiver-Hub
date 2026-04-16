@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Loader2, AlertCircle } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
 import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
 import PointCloudCanvas2D from "@/components/widgets/PointCloudCanvas2D";
 import LineChartWidget from "@/components/widgets/LineChartWidget";
@@ -142,6 +143,7 @@ export default function AppRenderer({ appId }: AppRendererProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   // Ref to accumulate data from multiple streams without stale closure issues
   const liveDataRef = useRef<Record<string, any>>({});
+  const { lastDataAt, markDataReceived } = useLastDataTimestamp();
   
   // Load app configuration
   const { data: apps } = trpc.appBuilder.listApps.useQuery({ publishedOnly: false });
@@ -288,6 +290,7 @@ export default function AppRenderer({ appId }: AppRendererProps) {
       } else if (message.appId === appId) {
         liveDataRef.current = message.data;
         setLiveData(message.data);
+        markDataReceived();
       }
     });
 
@@ -305,6 +308,7 @@ export default function AppRenderer({ appId }: AppRendererProps) {
         newSocket.on(eventName, (message: any) => {
           console.log(`[AppRenderer] Received ${eventName} stream data`);
           applyStreamData(eventName, message, normalizedConfig.fieldMappings);
+          markDataReceived();
         });
       }
     }
@@ -551,6 +555,22 @@ export default function AppRenderer({ appId }: AppRendererProps) {
           />
         );
 
+      case "connection_status":
+        return (
+          <Card key={widget.id} className="p-6">
+            <div className="flex items-center justify-center">
+              <ConnectionStatus
+                socketConnected={socket?.connected ?? false}
+                lastDataAt={lastDataAt}
+                label={config.label}
+                staleThresholdSeconds={config.staleThreshold || 15}
+                size={config.size || "md"}
+                detail={config.detail}
+              />
+            </div>
+          </Card>
+        );
+
       default:
         return (
           <Card key={widget.id} className="p-6">
@@ -568,14 +588,13 @@ export default function AppRenderer({ appId }: AppRendererProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">{app.name}</h1>
         <p className="text-muted-foreground">{app.description}</p>
-        <div className="mt-2 flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${socket?.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
-          <span className="text-xs text-muted-foreground">
-            {socket?.connected ? 'Connected' : 'Disconnected'}
-            {normalizedConfig && normalizedConfig.streams.length > 1 && (
-              <> · {normalizedConfig.streams.length} streams</>
-            )}
-          </span>
+        <div className="mt-2">
+          <ConnectionStatus
+            socketConnected={socket?.connected ?? false}
+            lastDataAt={lastDataAt}
+            size="sm"
+            detail={normalizedConfig && normalizedConfig.streams.length > 1 ? `${normalizedConfig.streams.length} streams` : undefined}
+          />
         </div>
       </div>
 

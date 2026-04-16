@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { useDroneSelection } from '@/hooks/useDroneSelection';
+import { ConnectionStatus, useLastDataTimestamp } from '@/components/ui/ConnectionStatus';
 
 interface TelemetryData {
   attitude: {
@@ -57,7 +58,7 @@ interface TelemetryData {
 export default function TelemetryApp() {
   const { selectedDrone, setSelectedDrone, drones, isLoading: dronesLoading } = useDroneSelection("telemetry");
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
-  const [connected, setConnected] = useState(false);
+  const { lastDataAt, markDataReceived, reset: resetDataTimestamp } = useLastDataTimestamp();
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
 
@@ -66,7 +67,7 @@ export default function TelemetryApp() {
 
     // Reset state when switching drones
     setTelemetry(null);
-    setConnected(false);
+    resetDataTimestamp();
     setLastUpdate(null);
 
     // Connect to WebSocket
@@ -77,19 +78,18 @@ export default function TelemetryApp() {
 
     newSocket.on('connect', () => {
       console.log('[Telemetry] WebSocket connected');
-      setConnected(true);
       newSocket.emit('subscribe', selectedDrone);
     });
 
     newSocket.on('disconnect', () => {
       console.log('[Telemetry] WebSocket disconnected');
-      setConnected(false);
     });
 
     newSocket.on('telemetry', (data: { drone_id: string; timestamp: string; telemetry: TelemetryData }) => {
       if (data.drone_id === selectedDrone) {
         setTelemetry(data.telemetry);
         setLastUpdate(new Date());
+        markDataReceived();
       }
     });
 
@@ -153,9 +153,11 @@ export default function TelemetryApp() {
               <div className="text-sm text-muted-foreground">No drones registered</div>
             )}
 
-            <Badge variant={connected ? 'default' : 'secondary'}>
-              {connected ? '● Connected' : '○ Disconnected'}
-            </Badge>
+            <ConnectionStatus
+              socketConnected={socket?.connected ?? false}
+              lastDataAt={lastDataAt}
+              staleThresholdSeconds={10}
+            />
             {lastUpdate && (
               <span className="text-sm text-muted-foreground">
                 Last update: {lastUpdate.toLocaleTimeString()}
@@ -173,7 +175,7 @@ export default function TelemetryApp() {
           </Alert>
         )}
 
-        {selectedDrone && !connected && (
+        {selectedDrone && lastDataAt == null && (
           <Alert>
             <Activity className="h-4 w-4" />
             <AlertDescription>

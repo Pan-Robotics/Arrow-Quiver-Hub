@@ -361,8 +361,8 @@ describe("Logs & OTA Updates - Frontend Component", () => {
   });
 
   it("shows connection status badge", () => {
-    expect(source).toContain("Connected");
-    expect(source).toContain("Offline");
+    expect(source).toContain("ConnectionStatus");
+    expect(source).toContain("socketConnected");
   });
 });
 

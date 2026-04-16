@@ -61,6 +61,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1101,6 +1102,7 @@ export default function LogsOtaApp() {
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [activeTab, setActiveTab] = useState("fc-logs");
+  const { lastDataAt, markDataReceived, reset: resetDataTimestamp } = useLastDataTimestamp();
 
   // Check if Flight Analytics app is installed
   const { data: installedApps } = trpc.appBuilder.getUserApps.useQuery();
@@ -1113,6 +1115,8 @@ export default function LogsOtaApp() {
   useEffect(() => {
     if (!selectedDrone) return;
 
+    resetDataTimestamp();
+
     const socketInstance = io({
       path: "/socket.io/",
       transports: ["websocket"],
@@ -1124,6 +1128,12 @@ export default function LogsOtaApp() {
 
     socketInstance.on("disconnect", () => {
       // Will auto-reconnect
+    });
+
+    // Track any data events to mark connection as truly active
+    const dataEvents = ["fc_log_progress", "firmware_progress", "diagnostics", "log_stream_data"];
+    dataEvents.forEach(evt => {
+      socketInstance.on(evt, () => markDataReceived());
     });
 
     setSocket(socketInstance);
@@ -1175,25 +1185,12 @@ export default function LogsOtaApp() {
             <div className="text-sm text-muted-foreground">No drones registered</div>
           )}
 
-          {/* Socket status */}
-          <Badge
-            variant="outline"
-            className={`gap-1 ${
-              socket?.connected ? "text-green-400 border-green-400/30" : "text-muted-foreground"
-            }`}
-          >
-            {socket?.connected ? (
-              <>
-                <Wifi size={12} />
-                Connected
-              </>
-            ) : (
-              <>
-                <WifiOff size={12} />
-                Offline
-              </>
-            )}
-          </Badge>
+          {/* Connection status */}
+          <ConnectionStatus
+            socketConnected={socket?.connected ?? false}
+            lastDataAt={lastDataAt}
+            staleThresholdSeconds={30}
+          />
         </div>
       </div>
 

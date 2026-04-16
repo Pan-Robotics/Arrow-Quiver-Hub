@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PointCloudCanvas from "@/components/widgets/PointCloudCanvas";
 import PointCloudCanvas2D from "@/components/widgets/PointCloudCanvas2D";
-import { Loader2, Radio, Activity, Play, Square, Box, Grid2x2 } from "lucide-react";
+import { Loader2, Radio, Play, Square, Box, Grid2x2 } from "lucide-react";
+import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
 import { useDroneSelection } from "@/hooks/useDroneSelection";
 import { io, Socket } from "socket.io-client";
 
@@ -139,7 +140,7 @@ function convertTo3D(points: Point[]): Point3D[] {
 
 export default function LidarApp() {
   const { selectedDrone, setSelectedDrone, drones, isLoading } = useDroneSelection("lidar");
-  const [connected, setConnected] = useState(false);
+  const { lastDataAt, markDataReceived, reset: resetDataTimestamp } = useLastDataTimestamp();
   const [latestData, setLatestData] = useState<PointCloudData | null>(null);
   const [points3D, setPoints3D] = useState<Point3D[]>([]);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -164,7 +165,7 @@ export default function LidarApp() {
         demoIntervalRef.current = null;
       }
       setDemoMode(false);
-      setConnected(false);
+      resetDataTimestamp();
       setLatestData(null);
       setPoints3D([]);
       demoScanCountRef.current = 0;
@@ -180,7 +181,7 @@ export default function LidarApp() {
       }
 
       setDemoMode(true);
-      setConnected(true);
+      markDataReceived();
       setSelectedDrone("demo_drone");
 
       // Generate scans at 10Hz (every 100ms)
@@ -218,7 +219,6 @@ export default function LidarApp() {
 
       socketInstance.on("connect", () => {
         console.log("WebSocket connected");
-        setConnected(true);
         socketInstance!.emit("subscribe", selectedDrone);
         // Clear polling if WebSocket connects
         if (pollingIntervalRef.current) {
@@ -230,7 +230,6 @@ export default function LidarApp() {
 
       socketInstance.on("disconnect", () => {
         console.log("WebSocket disconnected");
-        setConnected(false);
         startPolling();
       });
 
@@ -238,12 +237,12 @@ export default function LidarApp() {
         if (data.drone_id === selectedDrone) {
           setLatestData(data);
           setPoints3D(convertTo3D(data.points));
+          markDataReceived();
         }
       });
 
       socketInstance.on("connect_error", (error) => {
         console.warn("WebSocket connection error, falling back to polling:", error);
-        setConnected(false);
         startPolling();
       });
 
@@ -272,7 +271,7 @@ export default function LidarApp() {
               if (result.success && result.data) {
                 setLatestData(result.data);
                 setPoints3D(convertTo3D(result.data.points));
-                setConnected(true);
+                markDataReceived();
               }
             } else if (response.status === 404) {
               // No data yet — don't mark as disconnected, just waiting
@@ -392,10 +391,12 @@ export default function LidarApp() {
             <Card className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Activity className={connected ? "text-green-500" : "text-red-500"} size={20} />
-                  <span className="text-sm font-medium">
-                    {demoMode ? "Demo Mode" : connected ? "Connected" : "Disconnected"}
-                  </span>
+                  <ConnectionStatus
+                    socketConnected={demoMode || (socket?.connected ?? false)}
+                    lastDataAt={lastDataAt}
+                    label={demoMode ? "Demo Mode" : undefined}
+                    staleThresholdSeconds={10}
+                  />
                   {demoMode && (
                     <span className="text-xs bg-yellow-500/20 text-yellow-600 px-2 py-0.5 rounded-full">
                       Simulated Data

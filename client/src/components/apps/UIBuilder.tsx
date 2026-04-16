@@ -18,7 +18,8 @@ import {
   Map, 
   Video, 
   Square,
-  MousePointer2
+  MousePointer2,
+  Wifi
 } from "lucide-react";
 
 interface Widget {
@@ -46,6 +47,7 @@ const WIDGET_TYPES = [
   { value: "map", label: "Map", icon: Map, description: "Geographic map" },
   { value: "video", label: "Video", icon: Video, description: "Video stream" },
   { value: "canvas", label: "Canvas", icon: Square, description: "Custom canvas" },
+  { value: "connection_status", label: "Connection Status", icon: Wifi, description: "Live connection indicator" },
 ];
 
 export default function UIBuilder({ dataSchema, initialUiSchema, onSave, onCancel }: UIBuilderProps) {

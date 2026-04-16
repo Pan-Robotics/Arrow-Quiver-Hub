@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { useDroneSelection } from "@/hooks/useDroneSelection";
+import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
 
 // Camera status interface
 interface CameraStatus {
@@ -701,20 +702,12 @@ export default function CameraFeedApp() {
             </div>
             {/* Stream status badge */}
             {selectedDrone && (
-              <Badge 
-                variant="outline" 
-                className={`text-xs ${
-                  status.streamActive 
-                    ? "border-green-600 text-green-400" 
-                    : "border-zinc-600 text-zinc-400"
-                }`}
-              >
-                {status.streamActive ? (
-                  <><Wifi size={12} className="mr-1" /> WebRTC Live</>
-                ) : (
-                  <><WifiOff size={12} className="mr-1" /> No Stream</>
-                )}
-              </Badge>
+              <ConnectionStatus
+                socketConnected={socket?.connected ?? false}
+                lastDataAt={status.streamActive ? Date.now() : null}
+                label={status.streamActive ? "WebRTC Live" : "No Stream"}
+                staleThresholdSeconds={15}
+              />
             )}
           </div>
           <div className="flex items-center gap-3">
