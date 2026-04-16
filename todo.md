@@ -1184,3 +1184,8 @@
 - [x] Add express.text() body parser for application/sdp content type
 - [x] Update frontend connectWebRTC to use proxy instead of direct fetch
 - [x] connectWebRTC now takes droneId instead of raw URL
+
+## FC Log Scan Bug
+- [x] Fix 'ListDirectoryData' object is not iterable error in logs_ota_service.py
+- [x] Handle MAVSDK FTP list_directory response format correctly (access .dirs and .files attributes)
+- [x] Note: MAVFTP list_directory does not return file sizes, size is always 0

@@ -309,7 +309,14 @@ class MavFtpClient:
         """
         List files in a directory on the FC SD card.
         
-        Returns list of dicts: [{"name": "00000042.BIN", "size": 1234567, "type": "file"}, ...]
+        MAVSDK's list_directory() returns a ListDirectoryData object with:
+          - .dirs:  list of directory name strings
+          - .files: list of file name strings
+        
+        We normalise this into a flat list of dicts for downstream consumers:
+          [{"name": "00000042.BIN", "size": 0, "type": "file"}, ...]
+        
+        Note: MAVFTP list_directory does not return file sizes; size is always 0.
         """
         if not self.connected:
             raise RuntimeError("Not connected to FC")
@@ -317,29 +324,31 @@ class MavFtpClient:
         try:
             result = await self.system.ftp.list_directory(remote_path)
             entries = []
-            for entry in result:
-                # MAVSDK returns entries like "Ffilename\tsize" for files
-                # and "Ddirname" for directories
-                entry_str = str(entry)
-                if entry_str.startswith("F"):
-                    # File entry: "Ffilename\tsize"
-                    parts = entry_str[1:].split("\t")
-                    name = parts[0]
-                    size = int(parts[1]) if len(parts) > 1 else 0
+
+            # result is a ListDirectoryData(dirs=[...], files=[...])
+            # Access .dirs and .files attributes
+            dirs_list = getattr(result, 'dirs', None) or []
+            files_list = getattr(result, 'files', None) or []
+
+            for dir_name in dirs_list:
+                name = str(dir_name).strip()
+                if name and name not in ('.', '..'):
                     entries.append({
                         "name": name,
-                        "size": size,
-                        "type": "file",
-                    })
-                elif entry_str.startswith("D"):
-                    entries.append({
-                        "name": entry_str[1:].split("\t")[0],
                         "size": 0,
                         "type": "directory",
                     })
-                elif entry_str.startswith("S"):
-                    # Skip entry (. and ..)
-                    pass
+
+            for file_name in files_list:
+                name = str(file_name).strip()
+                if name:
+                    entries.append({
+                        "name": name,
+                        "size": 0,
+                        "type": "file",
+                    })
+
+            logger.info(f"Listed {remote_path}: {len(dirs_list)} dirs, {len(files_list)} files")
             return entries
         except Exception as e:
             logger.error(f"Failed to list directory {remote_path}: {e}")
