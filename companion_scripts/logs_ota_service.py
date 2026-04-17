@@ -3,19 +3,28 @@
 Quiver Hub – Logs & OTA Service (Companion Computer)
 
 Runs on the Raspberry Pi companion computer and provides:
-  1. FC log scanning   – list .BIN/.log files on the FC SD card via MAVFTP
-  2. FC log download   – download a specific log via MAVFTP → upload to Hub S3
+  1. FC log sync       – background sync .BIN files from FC via ArduPilot net_webserver HTTP
+  2. FC log serving    – serve locally-cached logs to Hub for user download
   3. OTA firmware flash – download .abin from Hub → push to FC via MAVFTP
   4. System diagnostics – CPU, memory, disk, temp, services → report to Hub
   5. Remote log stream  – journalctl -f → Socket.IO to browser
 
 Architecture:
-  Pi ←→ FC (serial/Ethernet via MAVSDK/MAVFTP)
-  Pi ←→ Hub (REST API + Socket.IO for real-time progress)
+  Pi ←HTTP→ FC (ArduPilot net_webserver on port 8080 for log download)
+  Pi ←MAVSDK→ FC (serial/Ethernet for firmware flash + arm state)
+  Pi ←REST/WS→ Hub (REST API + Socket.IO for real-time progress)
+
+FC Log Pipeline (new — avoids blocking MAVLink/TCP):
+  1. FCLogSyncer runs a background loop while drone is DISARMED
+  2. Parses HTML directory listing from GET http://<fc_ip>:8080/mnt/APM/LOGS/
+  3. Downloads new .BIN files via HTTP to local store (/var/lib/quiver/fc_logs/)
+  4. Maintains a JSON manifest for incremental sync (If-Modified-Since)
+  5. scan_fc_logs job → reads from local manifest (instant, no FC access)
+  6. download_fc_log job → reads from local store → uploads to Hub S3
 
 Job types handled (polled from Hub droneJobs queue):
-  - scan_fc_logs     → list /APM/LOGS on FC SD card
-  - download_fc_log  → download a specific .BIN file from FC
+  - scan_fc_logs     → list locally-cached logs from manifest
+  - download_fc_log  → serve a cached .BIN file from local store → Hub S3
   - flash_firmware   → upload .abin to FC and monitor flash stages
 
 Usage:
@@ -37,11 +46,13 @@ import json
 import logging
 import os
 import platform
+import re
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
@@ -245,6 +256,476 @@ class HubClient:
             **diag,
         })
         return result is not None and result.get("success", False)
+
+
+# ─── FC Log Directory HTML Parser ──────────────────────────────────────────
+
+class _FCLogDirParser(HTMLParser):
+    """
+    Parse the HTML directory listing returned by ArduPilot net_webserver.
+    Extracts filename, size, and modification time from the HTML table rows.
+    
+    Expected HTML row format:
+      <tr><td><a href="00000042.BIN">00000042.BIN</a></td><td>2026-04-16 12:34</td><td>1234567</td></tr>
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.entries: List[Dict[str, Any]] = []
+        self._in_td = False
+        self._in_a = False
+        self._current_href: Optional[str] = None
+        self._row_cells: List[str] = []
+        self._current_text = ""
+
+    def handle_starttag(self, tag: str, attrs: list):
+        if tag == "tr":
+            self._row_cells = []
+        elif tag == "td":
+            self._in_td = True
+            self._current_text = ""
+        elif tag == "a" and self._in_td:
+            self._in_a = True
+            for name, value in attrs:
+                if name == "href":
+                    self._current_href = value
+
+    def handle_endtag(self, tag: str):
+        if tag == "td" and self._in_td:
+            self._in_td = False
+            self._row_cells.append(self._current_text.strip())
+            self._current_text = ""
+        elif tag == "a":
+            self._in_a = False
+        elif tag == "tr" and len(self._row_cells) >= 3:
+            name = self._row_cells[0]
+            modtime = self._row_cells[1]
+            size_str = self._row_cells[2]
+            # Skip header row and parent directory
+            if name in ("Name", "..", ".", ""):
+                self._current_href = None
+                return
+            # Parse size
+            size = 0
+            if size_str and size_str != "0":
+                try:
+                    if size_str.upper().endswith("M"):
+                        size = int(size_str[:-1]) * 1_000_000
+                    else:
+                        size = int(size_str)
+                except ValueError:
+                    pass
+            is_dir = name.endswith("/")
+            self.entries.append({
+                "name": name.rstrip("/"),
+                "size": size,
+                "type": "directory" if is_dir else "file",
+                "modtime": modtime,
+                "href": self._current_href or name,
+            })
+            self._current_href = None
+
+    def handle_data(self, data: str):
+        if self._in_td:
+            self._current_text += data
+
+
+def parse_fc_log_directory(html: str) -> List[Dict[str, Any]]:
+    """Parse ArduPilot net_webserver directory listing HTML into structured entries."""
+    parser = _FCLogDirParser()
+    parser.feed(html)
+    return parser.entries
+
+
+# ─── FC Log Syncer (HTTP-based) ────────────────────────────────────────────
+
+class FCLogSyncer:
+    """
+    Background syncer that downloads FC log files from the ArduPilot
+    net_webserver over HTTP and stores them locally on the companion computer.
+    
+    This avoids blocking the MAVLink TCP connection (which MAVFTP does)
+    and provides fast local access for the dashboard.
+    
+    Safety: Only syncs when the drone is DISARMED.
+    
+    Local store layout:
+      {log_store_dir}/
+        manifest.json          – sync state for each file
+        00000042.BIN           – cached log file
+        00000043.BIN
+        ...
+    
+    Manifest entry format:
+      {
+        "filename": "00000042.BIN",
+        "remote_size": 1234567,
+        "remote_modtime": "2026-04-16 12:34",
+        "local_size": 1234567,
+        "synced": true,
+        "synced_at": "2026-04-16T13:00:00Z",
+        "sha256": "abc123..."
+      }
+    """
+
+    DEFAULT_FC_WEBSERVER_URL = "http://192.168.144.20:8080"
+    DEFAULT_LOG_STORE_DIR = "/var/lib/quiver/fc_logs"
+    LOGS_PATH = "/mnt/APM/LOGS/"
+    MANIFEST_FILE = "manifest.json"
+    SYNC_INTERVAL = 60  # seconds between sync cycles
+    DOWNLOAD_CHUNK_SIZE = 65536  # 64KB chunks for streaming download
+
+    def __init__(self, fc_webserver_url: str = None,
+                 log_store_dir: str = None,
+                 mavsdk_system=None):
+        self.fc_url = (fc_webserver_url or self.DEFAULT_FC_WEBSERVER_URL).rstrip("/")
+        self.log_store_dir = Path(log_store_dir or self.DEFAULT_LOG_STORE_DIR)
+        self.mavsdk_system = mavsdk_system  # For arm-state checks
+        self._manifest: Dict[str, dict] = {}
+        self._syncing = False
+        self._last_sync_time: Optional[float] = None
+        self._last_sync_error: Optional[str] = None
+        self._armed = False  # Assume disarmed until we know
+        self._arm_state_known = False
+
+    def _ensure_store_dir(self):
+        """Create the local store directory if it doesn't exist."""
+        self.log_store_dir.mkdir(parents=True, exist_ok=True)
+
+    def _manifest_path(self) -> Path:
+        return self.log_store_dir / self.MANIFEST_FILE
+
+    def _load_manifest(self):
+        """Load the sync manifest from disk."""
+        path = self._manifest_path()
+        if path.exists():
+            try:
+                with open(path, "r") as f:
+                    self._manifest = json.load(f)
+                logger.debug(f"Loaded manifest: {len(self._manifest)} entries")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load manifest, starting fresh: {e}")
+                self._manifest = {}
+        else:
+            self._manifest = {}
+
+    def _save_manifest(self):
+        """Persist the sync manifest to disk."""
+        try:
+            with open(self._manifest_path(), "w") as f:
+                json.dump(self._manifest, f, indent=2)
+        except OSError as e:
+            logger.error(f"Failed to save manifest: {e}")
+
+    async def _check_arm_state(self) -> bool:
+        """
+        Check if the drone is armed via MAVSDK telemetry.
+        Returns True if DISARMED (safe to sync), False if ARMED.
+        """
+        if self.mavsdk_system is None:
+            # No MAVSDK connection — assume disarmed (allow sync)
+            return True
+        try:
+            async for armed in self.mavsdk_system.telemetry.armed():
+                self._armed = armed
+                self._arm_state_known = True
+                return not armed  # Return True if disarmed
+        except Exception as e:
+            logger.debug(f"Arm state check failed: {e}")
+            # If we can't check, be conservative — don't sync
+            if not self._arm_state_known:
+                return True  # First time, assume disarmed
+            return not self._armed  # Use last known state
+
+    async def _fetch_directory_listing(self) -> Optional[List[Dict[str, Any]]]:
+        """Fetch and parse the FC log directory listing via HTTP."""
+        url = f"{self.fc_url}{self.LOGS_PATH}"
+        try:
+            if not requests:
+                logger.error("requests library not installed")
+                return None
+            # Use a short timeout — FC webserver can be slow
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" not in content_type:
+                logger.warning(f"Unexpected content-type from FC: {content_type}")
+                return None
+            entries = parse_fc_log_directory(resp.text)
+            # Filter to only .BIN and .log files
+            log_entries = [
+                e for e in entries
+                if e["type"] == "file" and (
+                    e["name"].upper().endswith(".BIN") or
+                    e["name"].lower().endswith(".log")
+                )
+            ]
+            logger.info(f"FC webserver: found {len(log_entries)} log file(s) "
+                        f"(of {len(entries)} total entries)")
+            return log_entries
+        except requests.exceptions.ConnectionError:
+            logger.debug(f"FC webserver not reachable at {url}")
+            return None
+        except requests.exceptions.Timeout:
+            logger.debug(f"FC webserver timeout at {url}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to fetch FC log directory: {e}")
+            return None
+
+    async def _download_log_file(self, entry: Dict[str, Any]) -> bool:
+        """
+        Download a single log file from the FC webserver to local store.
+        Uses streaming to handle large files without excessive memory.
+        """
+        filename = entry["name"]
+        url = f"{self.fc_url}{self.LOGS_PATH}{entry['href']}"
+        local_path = self.log_store_dir / filename
+        tmp_path = self.log_store_dir / f".{filename}.tmp"
+
+        try:
+            logger.info(f"Downloading {filename} from FC webserver...")
+            resp = requests.get(url, stream=True, timeout=300)
+            resp.raise_for_status()
+
+            total_size = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            sha256 = hashlib.sha256()
+
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=self.DOWNLOAD_CHUNK_SIZE):
+                    if chunk:
+                        f.write(chunk)
+                        sha256.update(chunk)
+                        downloaded += len(chunk)
+
+                        # Check arm state periodically (every ~1MB)
+                        if downloaded % (1024 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
+                            if not await self._check_arm_state():
+                                logger.warning(
+                                    f"Drone ARMED during download of {filename}, "
+                                    f"aborting for safety ({downloaded}/{total_size} bytes)")
+                                try:
+                                    tmp_path.unlink()
+                                except OSError:
+                                    pass
+                                return False
+
+            # Rename tmp to final
+            tmp_path.rename(local_path)
+            file_size = local_path.stat().st_size
+            file_hash = sha256.hexdigest()
+
+            logger.info(f"Downloaded {filename}: {file_size} bytes, "
+                        f"SHA-256: {file_hash[:16]}...")
+
+            # Update manifest
+            self._manifest[filename] = {
+                "filename": filename,
+                "remote_size": entry.get("size", 0) or file_size,
+                "remote_modtime": entry.get("modtime", ""),
+                "local_size": file_size,
+                "synced": True,
+                "synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "sha256": file_hash,
+            }
+            self._save_manifest()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to download {filename}: {e}")
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            return False
+
+    def _needs_sync(self, entry: Dict[str, Any]) -> bool:
+        """
+        Determine if a remote file needs to be downloaded.
+        Checks: not in manifest, size mismatch, or modtime changed.
+        """
+        filename = entry["name"]
+        existing = self._manifest.get(filename)
+        if not existing:
+            return True
+        if not existing.get("synced"):
+            return True
+        # Check if local file actually exists
+        local_path = self.log_store_dir / filename
+        if not local_path.exists():
+            return True
+        # Check size mismatch (if remote reports size > 0)
+        remote_size = entry.get("size", 0)
+        if remote_size > 0 and existing.get("local_size", 0) != remote_size:
+            return True
+        # Check modtime change
+        remote_modtime = entry.get("modtime", "")
+        if remote_modtime and existing.get("remote_modtime") != remote_modtime:
+            return True
+        return False
+
+    async def sync_once(self) -> Dict[str, Any]:
+        """
+        Run a single sync cycle:
+          1. Check arm state (skip if armed)
+          2. Fetch directory listing from FC webserver
+          3. Download any new/changed files
+          4. Update manifest
+        
+        Returns a summary dict.
+        """
+        self._syncing = True
+        summary = {
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "fc_reachable": False,
+            "armed": self._armed,
+            "files_found": 0,
+            "files_synced": 0,
+            "files_skipped": 0,
+            "files_failed": 0,
+            "error": None,
+        }
+
+        try:
+            # Safety check
+            if not await self._check_arm_state():
+                summary["armed"] = True
+                summary["error"] = "Drone is ARMED — skipping sync for safety"
+                logger.info(summary["error"])
+                return summary
+
+            summary["armed"] = False
+
+            # Fetch directory listing
+            entries = await self._fetch_directory_listing()
+            if entries is None:
+                summary["error"] = "FC webserver not reachable"
+                return summary
+
+            summary["fc_reachable"] = True
+            summary["files_found"] = len(entries)
+
+            # Update manifest with discovered files (even if not downloading)
+            for entry in entries:
+                filename = entry["name"]
+                if filename not in self._manifest:
+                    self._manifest[filename] = {
+                        "filename": filename,
+                        "remote_size": entry.get("size", 0),
+                        "remote_modtime": entry.get("modtime", ""),
+                        "local_size": 0,
+                        "synced": False,
+                        "synced_at": None,
+                        "sha256": None,
+                    }
+
+            # Download new/changed files
+            for entry in entries:
+                if not self._needs_sync(entry):
+                    summary["files_skipped"] += 1
+                    continue
+
+                # Re-check arm state before each download
+                if not await self._check_arm_state():
+                    summary["armed"] = True
+                    summary["error"] = "Drone ARMED during sync — stopping"
+                    logger.warning(summary["error"])
+                    break
+
+                if await self._download_log_file(entry):
+                    summary["files_synced"] += 1
+                else:
+                    summary["files_failed"] += 1
+
+            self._save_manifest()
+            self._last_sync_time = time.time()
+            self._last_sync_error = summary.get("error")
+
+        except Exception as e:
+            summary["error"] = str(e)
+            logger.error(f"Sync cycle failed: {e}")
+            self._last_sync_error = str(e)
+        finally:
+            self._syncing = False
+
+        return summary
+
+    async def run_sync_loop(self, running_flag):
+        """
+        Background loop that periodically syncs FC logs.
+        
+        Args:
+            running_flag: callable that returns True while the service is running
+        """
+        self._ensure_store_dir()
+        self._load_manifest()
+
+        logger.info(f"FCLogSyncer started — store: {self.log_store_dir}, "
+                    f"FC: {self.fc_url}")
+
+        while running_flag():
+            try:
+                summary = await self.sync_once()
+                if summary.get("error"):
+                    logger.debug(f"Sync summary: {summary}")
+                elif summary["files_synced"] > 0:
+                    logger.info(
+                        f"Sync complete: {summary['files_synced']} new, "
+                        f"{summary['files_skipped']} up-to-date, "
+                        f"{summary['files_failed']} failed")
+                else:
+                    logger.debug(f"Sync: all {summary['files_skipped']} files up-to-date")
+            except Exception as e:
+                logger.error(f"Sync loop error: {e}")
+
+            await asyncio.sleep(self.SYNC_INTERVAL)
+
+    def get_cached_logs(self) -> List[Dict[str, Any]]:
+        """
+        Return the list of all known logs from the manifest.
+        Used by scan_fc_logs job handler (instant, no FC access needed).
+        """
+        logs = []
+        for filename, entry in sorted(self._manifest.items()):
+            if filename.upper().endswith(".BIN") or filename.lower().endswith(".log"):
+                local_path = self.log_store_dir / filename
+                logs.append({
+                    "remote_path": f"/APM/LOGS/{filename}",
+                    "filename": filename,
+                    "file_size": entry.get("local_size", 0) or entry.get("remote_size", 0),
+                    "synced": entry.get("synced", False) and local_path.exists(),
+                    "synced_at": entry.get("synced_at"),
+                    "sha256": entry.get("sha256"),
+                    "remote_modtime": entry.get("remote_modtime", ""),
+                })
+        return logs
+
+    def get_local_file_path(self, filename: str) -> Optional[Path]:
+        """
+        Return the local path for a cached log file, or None if not synced.
+        """
+        entry = self._manifest.get(filename)
+        if not entry or not entry.get("synced"):
+            return None
+        path = self.log_store_dir / filename
+        return path if path.exists() else None
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return syncer status for diagnostics."""
+        total = len(self._manifest)
+        synced = sum(1 for e in self._manifest.values() if e.get("synced"))
+        return {
+            "fc_webserver_url": self.fc_url,
+            "log_store_dir": str(self.log_store_dir),
+            "total_logs": total,
+            "synced_logs": synced,
+            "pending_logs": total - synced,
+            "syncing": self._syncing,
+            "last_sync_time": self._last_sync_time,
+            "last_sync_error": self._last_sync_error,
+            "armed": self._armed,
+        }
 
 
 # ─── MAVFTP Operations ──────────────────────────────────────────────────────
@@ -464,22 +945,53 @@ class MavFtpClient:
 class LogsOtaJobHandler:
     """
     Handles scan_fc_logs, download_fc_log, and flash_firmware jobs.
+    
+    When an FCLogSyncer is available, scan and download operations use the
+    local cache (fast, no FC access needed). Falls back to MAVFTP if the
+    syncer is not available or the file isn't cached yet.
     """
 
-    def __init__(self, hub: HubClient, ftp: MavFtpClient, log_path: str = "/APM/LOGS"):
+    def __init__(self, hub: HubClient, ftp: MavFtpClient,
+                 log_syncer: Optional['FCLogSyncer'] = None,
+                 log_path: str = "/APM/LOGS"):
         self.hub = hub
         self.ftp = ftp
+        self.log_syncer = log_syncer
         self.log_path = log_path
 
     async def handle_scan_fc_logs(self, job: dict) -> Tuple[bool, Optional[str]]:
         """
-        Scan the FC SD card for .BIN/.log files and report them to the Hub.
+        Report available FC log files to the Hub.
+        
+        Primary: reads from FCLogSyncer local manifest (instant, no FC access).
+        Fallback: MAVFTP list_directory (slow, blocks MAVLink).
         """
         payload = job.get("payload", {})
-        scan_path = payload.get("logPath", self.log_path)
 
         try:
-            logger.info(f"Scanning FC logs at {scan_path}")
+            # ── Primary: local cache via FCLogSyncer ──
+            if self.log_syncer:
+                cached_logs = self.log_syncer.get_cached_logs()
+                if cached_logs:
+                    logger.info(f"Scan from local cache: {len(cached_logs)} log file(s)")
+                    self.hub.report_fc_log_list(cached_logs)
+                    return True, None
+                else:
+                    logger.info("Local cache empty, triggering sync...")
+                    summary = await self.log_syncer.sync_once()
+                    cached_logs = self.log_syncer.get_cached_logs()
+                    if cached_logs:
+                        logger.info(f"After sync: {len(cached_logs)} log file(s)")
+                        self.hub.report_fc_log_list(cached_logs)
+                        return True, None
+                    elif summary.get("error"):
+                        logger.warning(f"Sync failed: {summary['error']}, "
+                                       f"falling back to MAVFTP")
+                    # Fall through to MAVFTP
+
+            # ── Fallback: MAVFTP ──
+            scan_path = payload.get("logPath", self.log_path)
+            logger.info(f"Scanning FC logs via MAVFTP at {scan_path}")
             entries = await self.ftp.list_directory(scan_path)
 
             log_files = []
@@ -494,7 +1006,7 @@ class LogsOtaJobHandler:
                         "file_size": entry.get("size", 0),
                     })
 
-            logger.info(f"Found {len(log_files)} log file(s)")
+            logger.info(f"Found {len(log_files)} log file(s) via MAVFTP")
 
             if log_files:
                 self.hub.report_fc_log_list(log_files)
@@ -508,7 +1020,10 @@ class LogsOtaJobHandler:
 
     async def handle_download_fc_log(self, job: dict) -> Tuple[bool, Optional[str]]:
         """
-        Download a specific FC log file and upload it to the Hub.
+        Serve a specific FC log file to the Hub.
+        
+        Primary: reads from FCLogSyncer local store (fast, no FC access).
+        Fallback: MAVFTP download (slow, blocks MAVLink).
         """
         payload = job.get("payload", {})
         log_id = payload.get("logId")
@@ -520,29 +1035,49 @@ class LogsOtaJobHandler:
         filename = remote_path.split("/")[-1]
 
         try:
-            # Report downloading status
+            # ── Primary: serve from local cache ──
+            if self.log_syncer:
+                local_path = self.log_syncer.get_local_file_path(filename)
+                if local_path:
+                    logger.info(f"Serving {filename} from local cache: {local_path}")
+                    self.hub.report_fc_log_progress(log_id, "uploading", 50)
+
+                    file_size = local_path.stat().st_size
+                    with open(local_path, "rb") as f:
+                        content = f.read()
+
+                    url = self.hub.upload_fc_log(log_id, filename, content, file_size)
+
+                    if url:
+                        logger.info(f"Uploaded {filename} to Hub from cache: {url}")
+                        return True, None
+                    else:
+                        error_msg = "Failed to upload cached log to Hub"
+                        self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
+                        return False, error_msg
+                else:
+                    logger.info(f"{filename} not in local cache, "
+                                f"falling back to MAVFTP")
+
+            # ── Fallback: MAVFTP download ──
             self.hub.report_fc_log_progress(log_id, "downloading", 0)
 
-            # Download to temp file
             with tempfile.NamedTemporaryFile(suffix=f"_{filename}", delete=False) as tmp:
                 tmp_path = tmp.name
 
             try:
                 async def progress_cb(downloaded: int, total: int):
                     if total > 0:
-                        pct = min(int(downloaded / total * 80), 80)  # 0-80% for download
+                        pct = min(int(downloaded / total * 80), 80)
                         self.hub.report_fc_log_progress(log_id, "downloading", pct)
 
                 await self.ftp.download_file(remote_path, tmp_path, progress_cb)
 
-                # Read the downloaded file
                 file_size = os.path.getsize(tmp_path)
-                logger.info(f"Downloaded {filename}: {file_size} bytes")
+                logger.info(f"Downloaded {filename} via MAVFTP: {file_size} bytes")
 
-                # Report uploading status
                 self.hub.report_fc_log_progress(log_id, "uploading", 85)
 
-                # Read file content and upload to Hub
                 with open(tmp_path, "rb") as f:
                     content = f.read()
 
@@ -557,7 +1092,6 @@ class LogsOtaJobHandler:
                     return False, error_msg
 
             finally:
-                # Clean up temp file
                 try:
                     os.unlink(tmp_path)
                 except OSError:
@@ -979,7 +1513,8 @@ class RemoteLogStreamer:
 class LogsOtaService:
     """
     Main service orchestrator. Manages:
-      - MAVSDK connection to FC
+      - FC log background sync (HTTP via ArduPilot net_webserver)
+      - MAVSDK connection to FC (for firmware flash)
       - Job polling from Hub
       - System diagnostics reporting
       - Socket.IO connection for real-time events
@@ -988,10 +1523,17 @@ class LogsOtaService:
 
     def __init__(self, hub_url: str, drone_id: str, api_key: str,
                  fc_connection: str, poll_interval: int = 5,
-                 diagnostics_interval: int = 10):
+                 diagnostics_interval: int = 10,
+                 fc_webserver_url: str = None,
+                 log_store_dir: str = None):
         self.hub = HubClient(hub_url, drone_id, api_key)
         self.ftp = MavFtpClient(fc_connection)
-        self.job_handler = LogsOtaJobHandler(self.hub, self.ftp)
+        self.log_syncer = FCLogSyncer(
+            fc_webserver_url=fc_webserver_url,
+            log_store_dir=log_store_dir,
+        )
+        self.job_handler = LogsOtaJobHandler(self.hub, self.ftp,
+                                              log_syncer=self.log_syncer)
         self.diagnostics = DiagnosticsCollector()
         self.drone_id = drone_id
         self.hub_url = hub_url
@@ -1137,12 +1679,19 @@ class LogsOtaService:
         logger.info(f"  Drone ID:    {self.drone_id}")
         logger.info(f"  Hub URL:     {self.hub_url}")
         logger.info(f"  FC:          {self.ftp.connection_string}")
+        logger.info(f"  FC Web:      {self.log_syncer.fc_url}")
+        logger.info(f"  Log Store:   {self.log_syncer.log_store_dir}")
         logger.info(f"  Poll:        {self.poll_interval}s")
         logger.info(f"  Diagnostics: {self.diagnostics_interval}s")
         logger.info("=" * 60)
 
         # Connect to FC (non-blocking — jobs will retry if not connected)
         asyncio.create_task(self._initial_fc_connect())
+
+        # Pass MAVSDK system to log syncer for arm-state checks
+        # (done after FC connect attempt so system is initialized)
+        if self.ftp.system:
+            self.log_syncer.mavsdk_system = self.ftp.system
 
         # Set up Socket.IO for real-time features
         await self._setup_socketio()
@@ -1151,6 +1700,9 @@ class LogsOtaService:
         tasks = [
             asyncio.create_task(self._job_poll_loop()),
             asyncio.create_task(self._diagnostics_loop()),
+            asyncio.create_task(
+                self.log_syncer.run_sync_loop(lambda: self.running)
+            ),
         ]
 
         try:
@@ -1173,6 +1725,10 @@ class LogsOtaService:
                 return
             logger.info(f"FC connection attempt {attempt + 1}/{max_retries}...")
             if await self.connect_fc():
+                # Pass MAVSDK system to log syncer for arm-state checks
+                if self.ftp.system:
+                    self.log_syncer.mavsdk_system = self.ftp.system
+                    logger.info("MAVSDK system passed to FCLogSyncer for arm-state guard")
                 return
             await asyncio.sleep(retry_delay)
         logger.warning("Could not connect to FC after retries. "
@@ -1229,6 +1785,14 @@ Examples:
                         help="Diagnostics reporting interval in seconds (default: 10)")
     parser.add_argument("--no-fc", action="store_true",
                         help="Run without FC connection (diagnostics + log streaming only)")
+    parser.add_argument("--fc-webserver-url",
+                        default="http://192.168.144.10:8080",
+                        help="ArduPilot net_webserver URL for HTTP log download "
+                             "(default: http://192.168.144.10:8080)")
+    parser.add_argument("--log-store-dir",
+                        default="/var/lib/quiver/fc_logs",
+                        help="Local directory to cache FC log files "
+                             "(default: /var/lib/quiver/fc_logs)")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging")
 
@@ -1265,6 +1829,8 @@ Examples:
         fc_connection=args.fc_connection if not args.no_fc else "",
         poll_interval=args.poll_interval,
         diagnostics_interval=args.diagnostics_interval,
+        fc_webserver_url=args.fc_webserver_url,
+        log_store_dir=args.log_store_dir,
     )
 
     # Handle signals

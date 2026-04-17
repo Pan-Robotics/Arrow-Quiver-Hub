@@ -1210,3 +1210,28 @@
 - [x] Four states: disconnected, connecting, connected, stale — with distinct colors and icons
 - [x] Register connection_status as app UI maker widget in UIBuilder.tsx and AppRenderer.tsx
 - [x] Update failing test (logs-ota.test.ts)
+
+## FC Log Pipeline Redesign (HTTP via ArduPilot net_webserver)
+- [x] Replace MAVFTP-based log download with HTTP-based download via ArduPilot net_webserver
+- [x] Implement FCLogSyncer class in logs_ota_service.py:
+  - [x] Parse HTML directory listing from GET /mnt/APM/LOGS/
+  - [x] Download .BIN files via HTTP to local store on Pi (/var/lib/quiver/fc_logs/)
+  - [x] Use If-Modified-Since for incremental sync (only new/changed files)
+  - [x] Arm-state safety guard: only download when drone is disarmed (via MAVSDK telemetry)
+  - [x] Track sync state (filename, size, mtime, synced flag) in local JSON manifest
+  - [x] Background sync loop (60s interval, configurable)
+- [x] Update handle_scan_fc_logs: primary=local cache, fallback=MAVFTP
+- [x] Update handle_download_fc_log: primary=local store, fallback=MAVFTP
+- [ ] Add REST endpoint or tRPC procedure for local log inventory
+- [ ] Update server-side to proxy log downloads from Pi local store to S3 to browser
+- [ ] Update frontend FC Logs tab:
+  - [ ] Show local store sync status (synced/pending/downloading)
+  - [ ] Show file sizes from local store
+  - [ ] Download button serves from local store (fast, no FC blocking)
+  - [ ] Send to Flight Analysis button works from local store
+- [x] Add --fc-webserver-url CLI arg (default http://192.168.144.10:8080)
+- [x] Add --log-store-dir CLI arg (default /var/lib/quiver/fc_logs/)
+- [x] Wire FCLogSyncer into LogsOtaService main loop (run_sync_loop)
+- [x] Pass MAVSDK system to FCLogSyncer after FC connection for arm-state checks
+- [ ] Write tests for new FCLogSyncer class
+- [ ] Update COMPANION_SERVICES.md and LOGS_OTA_PIPELINE.md docs
