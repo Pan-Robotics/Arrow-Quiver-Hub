@@ -1242,3 +1242,16 @@
 - [x] Extract _upload_local_file_to_hub helper to avoid duplication
 - [x] On-demand HTTP download also caches to local store + updates manifest for future instant access
 - [x] MAVFTP only used if FC webserver is unreachable (ConnectionError/Timeout)
+
+## Logs-OTA Install Script & Service File
+- [x] Create new install_logs_ota.sh with interactive prompts for all arguments
+- [x] Create systemd service template (logs-ota.service) with all CLI args
+- [x] Support all args: --hub-url, --drone-id, --api-key, --fc-connection, --fc-webserver-url, --log-store-dir
+- [x] Include dependency installation, directory creation, permissions setup
+- [x] Support --allow-non-root option for non-root installs
+- [x] Add --uninstall mode
+- [x] Add upgrade detection (re-run to update in place)
+- [x] Add TCP connection option (option 2)
+- [x] Add post-install health check (systemctl is-active)
+- [x] API key input hidden (read -sp)
+- [x] Update tests for variable-based systemctl commands

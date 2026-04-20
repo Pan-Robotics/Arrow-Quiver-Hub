@@ -503,12 +503,12 @@ describe("Logs & OTA Updates - Install Script", () => {
 
   it("creates systemd service and enables it", () => {
     expect(source).toContain("systemctl daemon-reload");
-    expect(source).toContain("systemctl enable logs-ota.service");
-    expect(source).toContain("systemctl start logs-ota.service");
+    expect(source).toContain("systemctl enable ${SERVICE_NAME}.service");
+    expect(source).toContain("systemctl start ${SERVICE_NAME}.service");
   });
 
   it("shows useful commands after installation", () => {
-    expect(source).toContain("systemctl status logs-ota");
-    expect(source).toContain("journalctl -u logs-ota -f");
+    expect(source).toContain("systemctl status ${SERVICE_NAME}");
+    expect(source).toContain("journalctl -u ${SERVICE_NAME} -f");
   });
 });

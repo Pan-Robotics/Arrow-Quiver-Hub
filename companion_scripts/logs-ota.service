@@ -1,3 +1,15 @@
+# =============================================================================
+# Quiver Hub – Logs & OTA Service (systemd unit file)
+# =============================================================================
+# This is a TEMPLATE. Replace all *_PLACEHOLDER values before use.
+# The install_logs_ota.sh script generates this file automatically with
+# your actual values — you should not need to edit this manually.
+#
+# To install:  sudo ./install_logs_ota.sh
+# To update:   sudo ./install_logs_ota.sh  (re-run, it upgrades in place)
+# To remove:   sudo ./install_logs_ota.sh --uninstall
+# =============================================================================
+
 [Unit]
 Description=Quiver Hub – Logs & OTA Service
 Documentation=https://github.com/Pan-Robotics/Feather-Companion-Computer
@@ -6,14 +18,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=alexd
-Group=alexd
-WorkingDirectory=/home/alexd
-ExecStart=/usr/bin/python3 /home/alexd/companion_scripts/logs_ota_service.py \
+# User=SERVICE_USER_PLACEHOLDER
+# Group=SERVICE_USER_PLACEHOLDER
+WorkingDirectory=/home/SERVICE_USER_PLACEHOLDER
+ExecStart=/usr/bin/python3 /home/SERVICE_USER_PLACEHOLDER/companion_scripts/logs_ota_service.py \
     --hub-url HUB_URL_PLACEHOLDER \
     --drone-id DRONE_ID_PLACEHOLDER \
     --api-key API_KEY_PLACEHOLDER \
     --fc-connection FC_CONNECTION_PLACEHOLDER \
+    --fc-webserver-url http://192.168.144.10:8080 \
+    --log-store-dir /var/lib/quiver/fc_logs \
     --poll-interval 5 \
     --diagnostics-interval 10
 Restart=always
@@ -26,6 +40,12 @@ SyslogIdentifier=logs-ota
 
 # Environment
 Environment=PYTHONUNBUFFERED=1
+
+# Security hardening
+ProtectSystem=strict
+ReadWritePaths=/tmp /home/SERVICE_USER_PLACEHOLDER /var/lib/quiver/fc_logs
+PrivateTmp=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
