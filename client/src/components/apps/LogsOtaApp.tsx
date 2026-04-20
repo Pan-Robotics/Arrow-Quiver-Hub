@@ -59,6 +59,7 @@ import {
   Square,
   ArrowDown,
   BarChart3,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
@@ -230,13 +231,24 @@ function FcLogsTab({
     { refetchInterval: 10000 }
   );
 
+  // Track which log IDs are pending auto-download-to-PC after companion finishes
+  const pendingBrowserDownloads = useRef<Set<number>>(new Set());
+  // Track which log IDs are currently being saved to PC
+  const [savingToPc, setSavingToPc] = useState<Set<number>>(new Set());
+
   const scanMutation = trpc.fcLogs.requestScan.useMutation({
     onSuccess: () => toast.success("FC log scan requested"),
     onError: (e) => toast.error(`Scan failed: ${e.message}`),
   });
 
   const downloadMutation = trpc.fcLogs.requestDownload.useMutation({
-    onSuccess: () => toast.success("Log download started"),
+    onSuccess: (_data, variables) => {
+      toast.success("Downloading log from FC...", {
+        description: "The companion is fetching the log. It will auto-save to your PC when ready.",
+      });
+      // Mark this log for auto-download once it reaches "completed" state
+      pendingBrowserDownloads.current.add(variables.logId);
+    },
     onError: (e) => toast.error(`Download failed: ${e.message}`),
   });
 
@@ -268,13 +280,52 @@ function FcLogsTab({
     sendToAnalyticsMutation.mutate({ id: log.id });
   };
 
-  // Listen for real-time progress updates
+  /**
+   * Trigger a browser file download via the server-side proxy.
+   * The proxy streams the file from S3 with Content-Disposition: attachment,
+   * so the browser shows a native "Save As" dialog.
+   */
+  const triggerBrowserDownload = useCallback((logId: number, filename: string) => {
+    setSavingToPc((prev) => new Set(prev).add(logId));
+    // Use a hidden iframe/anchor to trigger the download via the proxy endpoint
+    const a = document.createElement("a");
+    a.href = `/api/rest/logs/fc-download/${logId}`;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    // Clean up after a short delay
+    setTimeout(() => {
+      document.body.removeChild(a);
+      setSavingToPc((prev) => {
+        const next = new Set(prev);
+        next.delete(logId);
+        return next;
+      });
+    }, 2000);
+  }, []);
+
+  // Listen for real-time progress updates & auto-trigger browser download
   useEffect(() => {
     if (!socket) return;
 
     const handleProgress = (data: LogProgressEvent) => {
-      if (data.drone_id === droneId) {
-        utils.fcLogs.list.invalidate();
+      if (data.drone_id !== droneId) return;
+
+      utils.fcLogs.list.invalidate();
+
+      // Auto-trigger browser download when a pending log reaches "completed"
+      if (
+        data.status === "completed" &&
+        data.url &&
+        pendingBrowserDownloads.current.has(data.logId)
+      ) {
+        pendingBrowserDownloads.current.delete(data.logId);
+        const filename = data.filename || `fc_log_${data.logId}.BIN`;
+        toast.success(`"${filename}" ready — saving to PC`, {
+          description: "Your browser should prompt a file download.",
+        });
+        triggerBrowserDownload(data.logId, filename);
       }
     };
 
@@ -282,25 +333,23 @@ function FcLogsTab({
     return () => {
       socket.off("fc_log_progress", handleProgress);
     };
-  }, [socket, droneId, utils]);
+  }, [socket, droneId, utils, triggerBrowserDownload]);
 
-  const handleDownload = (log: FcLog) => {
-    if (log.url) {
-      // Trigger a proper file download with the original filename
-      const a = document.createElement("a");
-      a.href = log.url;
-      a.download = log.filename;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } else {
-      downloadMutation.mutate({
-        droneId,
-        logId: log.id,
-        remotePath: log.remotePath,
-      });
-    }
+  /**
+   * Handle the download button click.
+   * - Completed logs: immediately trigger browser download via proxy.
+   * - Discovered/failed logs: dispatch companion job, then auto-download when done.
+   */
+  const handleDownloadFromFC = (log: FcLog) => {
+    downloadMutation.mutate({
+      droneId,
+      logId: log.id,
+      remotePath: log.remotePath,
+    });
+  };
+
+  const handleSaveToPC = (log: FcLog) => {
+    triggerBrowserDownload(log.id, log.filename);
   };
 
   return (
@@ -309,7 +358,7 @@ function FcLogsTab({
         <div>
           <h3 className="text-lg font-semibold text-foreground">Flight Controller Logs</h3>
           <p className="text-sm text-muted-foreground">
-            Scan and download .BIN log files from the FC SD card via MAVFTP
+            Scan and download .BIN log files from the FC SD card
           </p>
         </div>
         <Button
@@ -389,6 +438,7 @@ function FcLogsTab({
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {/* Completed logs: Save to PC + Send to Analytics */}
                         {log.status === "completed" && log.url ? (
                           <>
                             <Tooltip>
@@ -418,29 +468,58 @@ function FcLogsTab({
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => handleDownload(log)}
+                                  className="h-8 w-8 text-blue-400 hover:text-blue-300"
+                                  onClick={() => handleSaveToPC(log)}
+                                  disabled={savingToPc.has(log.id)}
                                 >
-                                  <Download size={14} />
+                                  {savingToPc.has(log.id) ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Save size={14} />
+                                  )}
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>Download to PC</TooltipContent>
+                              <TooltipContent>Save to PC</TooltipContent>
                             </Tooltip>
                           </>
                         ) : log.status === "discovered" || log.status === "failed" ? (
+                          /* Discovered/failed logs: Download from FC (then auto-save to PC) */
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                onClick={() => handleDownload(log)}
-                                disabled={downloadMutation.isPending}
+                                onClick={() => handleDownloadFromFC(log)}
+                                disabled={downloadMutation.isPending || pendingBrowserDownloads.current.has(log.id)}
                               >
-                                <Download size={14} />
+                                {pendingBrowserDownloads.current.has(log.id) ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Download size={14} />
+                                )}
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Download from FC</TooltipContent>
+                            <TooltipContent>
+                              {pendingBrowserDownloads.current.has(log.id)
+                                ? "Downloading from FC..."
+                                : "Download from FC & save to PC"}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (log.status === "downloading" || log.status === "uploading") ? (
+                          /* In-progress logs: show spinner */
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled
+                              >
+                                <Loader2 size={14} className="animate-spin" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Download in progress...</TooltipContent>
                           </Tooltip>
                         ) : null}
                         <Tooltip>

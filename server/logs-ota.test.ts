@@ -512,3 +512,139 @@ describe("Logs & OTA Updates - Install Script", () => {
     expect(source).toContain("journalctl -u ${SERVICE_NAME} -f");
   });
 });
+
+// ─── FC Log Download Proxy Endpoint ────────────────────────────────────────
+
+describe("FC Log Download Proxy - REST API", () => {
+  const source = fs.readFileSync("./server/rest-api.ts", "utf-8");
+
+  it("has GET /logs/fc-download/:logId endpoint", () => {
+    expect(source).toContain('"/logs/fc-download/:logId"');
+    expect(source).toContain("router.get");
+  });
+
+  it("authenticates via session cookie using sdk.authenticateRequest", () => {
+    expect(source).toContain("sdk.authenticateRequest(req)");
+    expect(source).toContain("Authentication required");
+  });
+
+  it("validates logId is a number", () => {
+    expect(source).toContain('parseInt(req.params.logId, 10)');
+    expect(source).toContain("Invalid log ID");
+  });
+
+  it("looks up the FC log by ID", () => {
+    expect(source).toContain("getFcLogById(logId)");
+    expect(source).toContain("FC log not found");
+  });
+
+  it("rejects logs that are not yet completed", () => {
+    expect(source).toContain('fcLog.status !== "completed"');
+    expect(source).toContain("FC log has not been downloaded yet");
+  });
+
+  it("sets Content-Disposition: attachment header with filename", () => {
+    expect(source).toContain("Content-Disposition");
+    expect(source).toContain("attachment");
+    expect(source).toContain("safeFilename");
+  });
+
+  it("sets Content-Type to application/octet-stream", () => {
+    // The download proxy should force binary download
+    expect(source).toContain('"application/octet-stream"');
+  });
+
+  it("forwards Content-Length from upstream", () => {
+    expect(source).toContain('upstream.headers.get("content-length")');
+    expect(source).toContain('"Content-Length"');
+  });
+
+  it("streams the S3 response body to the browser", () => {
+    expect(source).toContain("upstream.body");
+    expect(source).toContain("reader.read()");
+    expect(source).toContain("res.write(value)");
+    expect(source).toContain("res.end()");
+  });
+
+  it("sanitizes filename to prevent header injection", () => {
+    expect(source).toContain("safeFilename");
+    expect(source).toContain(".replace(/[^a-zA-Z0-9._-]/g");
+  });
+
+  it("has a 2 minute timeout for large file downloads", () => {
+    expect(source).toContain("AbortSignal.timeout(120_000)");
+  });
+
+  it("handles upstream S3 errors gracefully", () => {
+    expect(source).toContain("upstream.ok");
+    expect(source).toContain("Storage returned");
+  });
+
+  it("imports sdk from _core/sdk", () => {
+    expect(source).toContain('import { sdk } from "./_core/sdk"');
+  });
+});
+
+// ─── Frontend Download-to-PC Flow ──────────────────────────────────────────
+
+describe("FC Log Download to PC - Frontend", () => {
+  const source = fs.readFileSync("./client/src/components/apps/LogsOtaApp.tsx", "utf-8");
+
+  it("has triggerBrowserDownload function using the proxy endpoint", () => {
+    expect(source).toContain("triggerBrowserDownload");
+    expect(source).toContain("/api/rest/logs/fc-download/");
+  });
+
+  it("tracks pending browser downloads with a ref", () => {
+    expect(source).toContain("pendingBrowserDownloads");
+    expect(source).toContain("useRef<Set<number>>");
+  });
+
+  it("tracks savingToPc state for UI feedback", () => {
+    expect(source).toContain("savingToPc");
+    expect(source).toContain("setSavingToPc");
+  });
+
+  it("has separate handleDownloadFromFC for discovered logs", () => {
+    expect(source).toContain("handleDownloadFromFC");
+    expect(source).toContain("downloadMutation.mutate");
+  });
+
+  it("has handleSaveToPC for completed logs", () => {
+    expect(source).toContain("handleSaveToPC");
+    expect(source).toContain("triggerBrowserDownload(log.id, log.filename)");
+  });
+
+  it("auto-triggers browser download when companion finishes", () => {
+    expect(source).toContain('data.status === "completed"');
+    expect(source).toContain("pendingBrowserDownloads.current.has(data.logId)");
+    expect(source).toContain("triggerBrowserDownload(data.logId");
+  });
+
+  it("shows toast when download from FC starts", () => {
+    expect(source).toContain("Downloading log from FC...");
+    expect(source).toContain("auto-save to your PC when ready");
+  });
+
+  it("shows toast when log is ready for browser download", () => {
+    expect(source).toContain("saving to PC");
+    expect(source).toContain("prompt a file download");
+  });
+
+  it("uses Save icon for the save-to-PC button", () => {
+    expect(source).toContain("Save");
+    expect(source).toContain("Save to PC");
+  });
+
+  it("shows spinner for in-progress downloads", () => {
+    expect(source).toContain("Download in progress...");
+  });
+
+  it("shows Download from FC tooltip for discovered logs", () => {
+    expect(source).toContain("Download from FC & save to PC");
+  });
+
+  it("marks pending downloads in the downloadMutation onSuccess", () => {
+    expect(source).toContain("pendingBrowserDownloads.current.add(variables.logId)");
+  });
+});

@@ -1262,3 +1262,10 @@
 - [x] Install multer for server-side multipart parsing
 - [x] Rewrite companion upload_fc_log to use multipart (no base64 overhead, ~33% faster)
 - [x] Companion falls back to base64 JSON if multipart endpoint unavailable (backward compat)
+
+## Download FC Logs to Local PC
+- [x] Add server-side download proxy endpoint (GET /api/rest/logs/fc-download/:logId) with Content-Disposition: attachment header
+- [x] Update frontend download button: completed logs use proxy endpoint for reliable browser download
+- [x] Handle discovered/failed logs: dispatch download job to companion, then auto-trigger browser download when S3 URL is ready
+- [x] Add download progress toast feedback (downloading from FC → uploading to Hub → ready for download)
+- [x] Write tests for the download proxy endpoint

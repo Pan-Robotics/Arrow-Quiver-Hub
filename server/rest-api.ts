@@ -18,6 +18,7 @@ import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadca
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./payloadIngest";
 import { createHash } from "crypto";
+import { sdk } from "./_core/sdk";
 
 // Multer for multipart file uploads (FC logs, firmware, etc.)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
@@ -1154,6 +1155,108 @@ router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Requ
       error: "Internal server error",
       message: error instanceof Error ? error.message : "Unknown error",
     });
+  }
+});
+
+// ─── FC Log Download Proxy (Browser → S3) ────────────────────────────────
+
+/**
+ * GET /api/rest/logs/fc-download/:logId
+ * Authenticated download proxy for FC log files.
+ * Fetches the file from S3 and streams it to the browser with
+ * Content-Disposition: attachment so the browser triggers a "Save As" dialog.
+ *
+ * Authentication: session cookie (same as tRPC protectedProcedure).
+ * If the log is not yet downloaded (status != completed), returns 404.
+ */
+router.get("/logs/fc-download/:logId", async (req: Request, res: Response) => {
+  try {
+    // Authenticate via session cookie (same mechanism as tRPC protectedProcedure)
+    let user;
+    try {
+      user = await sdk.authenticateRequest(req);
+    } catch {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+
+    const logId = parseInt(req.params.logId, 10);
+    if (isNaN(logId)) {
+      return res.status(400).json({ success: false, error: "Invalid log ID" });
+    }
+
+    const fcLog = await getFcLogById(logId);
+    if (!fcLog) {
+      return res.status(404).json({ success: false, error: "FC log not found" });
+    }
+
+    if (fcLog.status !== "completed" || !fcLog.url) {
+      return res.status(404).json({
+        success: false,
+        error: "FC log has not been downloaded yet",
+        status: fcLog.status,
+      });
+    }
+
+    // Fetch the file from S3
+    const upstream = await fetch(fcLog.url, {
+      signal: AbortSignal.timeout(120_000), // 2 min timeout for large files
+    });
+
+    if (!upstream.ok) {
+      console.error(`[FC Download] S3 returned ${upstream.status} for log ${logId}`);
+      return res.status(502).json({
+        success: false,
+        error: `Storage returned ${upstream.status}`,
+      });
+    }
+
+    // Sanitize filename for Content-Disposition
+    const safeFilename = fcLog.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+    res.setHeader("Content-Type", "application/octet-stream");
+
+    // Forward Content-Length if available
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) {
+      res.setHeader("Content-Length", contentLength);
+    }
+
+    // Stream the body to the browser
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+      pump().catch((err) => {
+        console.error(`[FC Download] Stream error for log ${logId}:`, err);
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, error: "Stream interrupted" });
+        } else {
+          res.end();
+        }
+      });
+    } else {
+      // Fallback: buffer the whole response (shouldn't happen with fetch)
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader("Content-Length", buffer.length);
+      res.end(buffer);
+    }
+  } catch (error) {
+    console.error("Error in /api/rest/logs/fc-download:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+    res.end();
   }
 });
 
