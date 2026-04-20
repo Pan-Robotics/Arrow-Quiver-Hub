@@ -1235,3 +1235,10 @@
 - [x] Pass MAVSDK system to FCLogSyncer after FC connection for arm-state checks
 - [ ] Write tests for new FCLogSyncer class
 - [ ] Update COMPANION_SERVICES.md and LOGS_OTA_PIPELINE.md docs
+
+## Fix: Scan/Download Still Using MAVFTP (On-Demand HTTP)
+- [x] Rewrite handle_scan_fc_logs: 1) on-demand HTTP listing, 2) local cache, 3) MAVFTP fallback
+- [x] Rewrite handle_download_fc_log: 1) local cache, 2) on-demand HTTP download (streams to local store + uploads), 3) MAVFTP fallback
+- [x] Extract _upload_local_file_to_hub helper to avoid duplication
+- [x] On-demand HTTP download also caches to local store + updates manifest for future instant access
+- [x] MAVFTP only used if FC webserver is unreachable (ConnectionError/Timeout)

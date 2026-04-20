@@ -963,35 +963,69 @@ class LogsOtaJobHandler:
         """
         Report available FC log files to the Hub.
         
-        Primary: reads from FCLogSyncer local manifest (instant, no FC access).
-        Fallback: MAVFTP list_directory (slow, blocks MAVLink).
+        Strategy (in order):
+          1. On-demand HTTP directory listing from FC webserver (fast, no MAVLink)
+          2. Local manifest cache (instant, if previously synced)
+          3. MAVFTP list_directory (slow, last resort)
         """
         payload = job.get("payload", {})
 
         try:
-            # ── Primary: local cache via FCLogSyncer ──
+            # ── 1. On-demand HTTP listing from FC webserver ──
+            if self.log_syncer:
+                logger.info("Scanning FC logs via HTTP (on-demand)...")
+                entries = await self.log_syncer._fetch_directory_listing()
+                if entries is not None:
+                    # Update manifest with discovered files
+                    self.log_syncer._ensure_store_dir()
+                    self.log_syncer._load_manifest()
+                    for entry in entries:
+                        fn = entry["name"]
+                        if fn not in self.log_syncer._manifest:
+                            self.log_syncer._manifest[fn] = {
+                                "filename": fn,
+                                "remote_size": entry.get("size", 0),
+                                "remote_modtime": entry.get("modtime", ""),
+                                "local_size": 0,
+                                "synced": False,
+                                "synced_at": None,
+                                "sha256": None,
+                            }
+                    self.log_syncer._save_manifest()
+
+                    log_files = []
+                    for entry in entries:
+                        fn = entry["name"]
+                        local_path = self.log_syncer.log_store_dir / fn
+                        cached = self.log_syncer._manifest.get(fn, {})
+                        log_files.append({
+                            "remote_path": f"/APM/LOGS/{fn}",
+                            "filename": fn,
+                            "file_size": entry.get("size", 0) or cached.get("local_size", 0),
+                            "synced": cached.get("synced", False) and local_path.exists(),
+                            "synced_at": cached.get("synced_at"),
+                            "sha256": cached.get("sha256"),
+                            "remote_modtime": entry.get("modtime", ""),
+                        })
+
+                    logger.info(f"Found {len(log_files)} log file(s) via HTTP")
+                    if log_files:
+                        self.hub.report_fc_log_list(log_files)
+                    return True, None
+                else:
+                    logger.info("FC webserver unreachable, trying local cache...")
+
+            # ── 2. Local manifest cache ──
             if self.log_syncer:
                 cached_logs = self.log_syncer.get_cached_logs()
                 if cached_logs:
                     logger.info(f"Scan from local cache: {len(cached_logs)} log file(s)")
                     self.hub.report_fc_log_list(cached_logs)
                     return True, None
-                else:
-                    logger.info("Local cache empty, triggering sync...")
-                    summary = await self.log_syncer.sync_once()
-                    cached_logs = self.log_syncer.get_cached_logs()
-                    if cached_logs:
-                        logger.info(f"After sync: {len(cached_logs)} log file(s)")
-                        self.hub.report_fc_log_list(cached_logs)
-                        return True, None
-                    elif summary.get("error"):
-                        logger.warning(f"Sync failed: {summary['error']}, "
-                                       f"falling back to MAVFTP")
-                    # Fall through to MAVFTP
 
-            # ── Fallback: MAVFTP ──
+            # ── 3. Fallback: MAVFTP (slow, last resort) ──
             scan_path = payload.get("logPath", self.log_path)
-            logger.info(f"Scanning FC logs via MAVFTP at {scan_path}")
+            logger.info(f"Scanning FC logs via MAVFTP at {scan_path} (slow fallback)")
             entries = await self.ftp.list_directory(scan_path)
 
             log_files = []
@@ -1022,8 +1056,10 @@ class LogsOtaJobHandler:
         """
         Serve a specific FC log file to the Hub.
         
-        Primary: reads from FCLogSyncer local store (fast, no FC access).
-        Fallback: MAVFTP download (slow, blocks MAVLink).
+        Strategy (in order):
+          1. Local cache (instant, file already on Pi)
+          2. On-demand HTTP download from FC webserver (fast, no MAVLink blocking)
+          3. MAVFTP download (slow, last resort)
         """
         payload = job.get("payload", {})
         log_id = payload.get("logId")
@@ -1035,31 +1071,90 @@ class LogsOtaJobHandler:
         filename = remote_path.split("/")[-1]
 
         try:
-            # ── Primary: serve from local cache ──
+            # ── 1. Serve from local cache (instant) ──
             if self.log_syncer:
                 local_path = self.log_syncer.get_local_file_path(filename)
                 if local_path:
                     logger.info(f"Serving {filename} from local cache: {local_path}")
-                    self.hub.report_fc_log_progress(log_id, "uploading", 50)
+                    return await self._upload_local_file_to_hub(
+                        log_id, filename, local_path)
 
-                    file_size = local_path.stat().st_size
-                    with open(local_path, "rb") as f:
-                        content = f.read()
+            # ── 2. On-demand HTTP download from FC webserver ──
+            if self.log_syncer and requests:
+                logger.info(f"Downloading {filename} via HTTP from FC webserver...")
+                self.hub.report_fc_log_progress(log_id, "downloading", 5)
 
-                    url = self.hub.upload_fc_log(log_id, filename, content, file_size)
+                fc_url = f"{self.log_syncer.fc_url}{self.log_syncer.LOGS_PATH}{filename}"
+                try:
+                    resp = requests.get(fc_url, stream=True, timeout=300)
+                    resp.raise_for_status()
 
-                    if url:
-                        logger.info(f"Uploaded {filename} to Hub from cache: {url}")
-                        return True, None
-                    else:
-                        error_msg = "Failed to upload cached log to Hub"
-                        self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
-                        return False, error_msg
-                else:
-                    logger.info(f"{filename} not in local cache, "
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    sha256 = hashlib.sha256()
+
+                    # Stream to local store (cache for future use)
+                    self.log_syncer._ensure_store_dir()
+                    tmp_path = self.log_syncer.log_store_dir / f".{filename}.tmp"
+                    final_path = self.log_syncer.log_store_dir / filename
+
+                    with open(tmp_path, "wb") as f:
+                        for chunk in resp.iter_content(
+                                chunk_size=self.log_syncer.DOWNLOAD_CHUNK_SIZE):
+                            if chunk:
+                                f.write(chunk)
+                                sha256.update(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    pct = min(int(downloaded / total_size * 70), 70)
+                                    self.hub.report_fc_log_progress(
+                                        log_id, "downloading", pct)
+
+                    # Rename tmp to final and update manifest
+                    tmp_path.rename(final_path)
+                    file_size = final_path.stat().st_size
+                    file_hash = sha256.hexdigest()
+
+                    logger.info(f"Downloaded {filename} via HTTP: {file_size} bytes, "
+                                f"SHA-256: {file_hash[:16]}...")
+
+                    # Update manifest so future requests serve from cache
+                    self.log_syncer._manifest[filename] = {
+                        "filename": filename,
+                        "remote_size": total_size or file_size,
+                        "remote_modtime": resp.headers.get("Last-Modified", ""),
+                        "local_size": file_size,
+                        "synced": True,
+                        "synced_at": time.strftime(
+                            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "sha256": file_hash,
+                    }
+                    self.log_syncer._save_manifest()
+
+                    # Upload to Hub from the newly cached file
+                    return await self._upload_local_file_to_hub(
+                        log_id, filename, final_path)
+
+                except requests.exceptions.ConnectionError:
+                    logger.info(f"FC webserver unreachable for {filename}, "
                                 f"falling back to MAVFTP")
+                except requests.exceptions.Timeout:
+                    logger.info(f"FC webserver timeout for {filename}, "
+                                f"falling back to MAVFTP")
+                except requests.exceptions.HTTPError as e:
+                    logger.warning(f"HTTP error downloading {filename}: {e}, "
+                                   f"falling back to MAVFTP")
+                finally:
+                    # Clean up tmp file on failure
+                    try:
+                        tmp_p = self.log_syncer.log_store_dir / f".{filename}.tmp"
+                        if tmp_p.exists():
+                            tmp_p.unlink()
+                    except OSError:
+                        pass
 
-            # ── Fallback: MAVFTP download ──
+            # ── 3. Fallback: MAVFTP download (slow, last resort) ──
+            logger.info(f"Downloading {filename} via MAVFTP (slow fallback)...")
             self.hub.report_fc_log_progress(log_id, "downloading", 0)
 
             with tempfile.NamedTemporaryFile(suffix=f"_{filename}", delete=False) as tmp:
@@ -1100,6 +1195,26 @@ class LogsOtaJobHandler:
         except Exception as e:
             error_msg = f"FC log download failed: {e}"
             logger.error(error_msg)
+            self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
+            return False, error_msg
+
+    async def _upload_local_file_to_hub(
+            self, log_id: int, filename: str, local_path: Path
+    ) -> Tuple[bool, Optional[str]]:
+        """Helper: read a local file and upload it to the Hub via REST."""
+        self.hub.report_fc_log_progress(log_id, "uploading", 75)
+
+        file_size = local_path.stat().st_size
+        with open(local_path, "rb") as f:
+            content = f.read()
+
+        url = self.hub.upload_fc_log(log_id, filename, content, file_size)
+
+        if url:
+            logger.info(f"Uploaded {filename} to Hub: {url}")
+            return True, None
+        else:
+            error_msg = f"Failed to upload {filename} to Hub"
             self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
             return False, error_msg
 
