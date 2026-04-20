@@ -36,9 +36,9 @@ async function startServer() {
   
   // Initialize WebSocket server
   initializeWebSocket(server);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Configure body parser with larger size limit for file uploads (FC logs can be 200MB+)
+  app.use(express.json({ limit: "250mb" }));
+  app.use(express.urlencoded({ limit: "250mb", extended: true }));
   // Parse raw text bodies (needed for SDP in WHEP proxy)
   app.use(express.text({ type: ["application/sdp", "text/plain"], limit: "1mb" }));
   // OAuth callback under /api/oauth/callback

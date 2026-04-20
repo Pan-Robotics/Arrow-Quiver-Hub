@@ -1255,3 +1255,10 @@
 - [x] Add post-install health check (systemctl is-active)
 - [x] API key input hidden (read -sp)
 - [x] Update tests for variable-based systemctl commands
+
+## Fix: 413 Request Entity Too Large for FC Log Uploads
+- [x] Increase Express JSON body parser limit from 50MB to 250MB
+- [x] Add multipart/form-data upload endpoint (POST /api/rest/logs/fc-upload-multipart)
+- [x] Install multer for server-side multipart parsing
+- [x] Rewrite companion upload_fc_log to use multipart (no base64 overhead, ~33% faster)
+- [x] Companion falls back to base64 JSON if multipart endpoint unavailable (backward compat)

@@ -212,7 +212,36 @@ class HubClient:
 
     def upload_fc_log(self, log_id: int, filename: str,
                        content: bytes, file_size: int) -> Optional[str]:
-        """Upload a downloaded FC log file to the Hub (base64 encoded)."""
+        """Upload a downloaded FC log file to the Hub.
+        
+        Uses multipart/form-data (no base64 overhead, ~33% faster).
+        Falls back to base64 JSON if multipart endpoint is unavailable.
+        """
+        url = f"{self.hub_url}/api/rest/logs/fc-upload-multipart"
+        try:
+            resp = requests.post(url, data={
+                "api_key": self.api_key,
+                "drone_id": self.drone_id,
+                "log_id": str(log_id),
+                "filename": filename,
+                "file_size": str(file_size),
+            }, files={
+                "file": (filename, content, "application/octet-stream"),
+            }, timeout=300)  # Large files need generous timeout
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("success"):
+                    return result.get("url")
+            elif resp.status_code == 404:
+                # Multipart endpoint not available, fall back to base64
+                logger.warning("Multipart upload not available, falling back to base64")
+            else:
+                logger.error(f"Multipart upload failed: {resp.status_code} {resp.text[:200]}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Multipart upload error, falling back to base64: {e}")
+
+        # Fallback: base64 JSON (legacy)
         encoded = base64.b64encode(content).decode("ascii")
         result = self._rest_post("logs/fc-upload", {
             "api_key": self.api_key,
@@ -221,7 +250,7 @@ class HubClient:
             "filename": filename,
             "content": encoded,
             "file_size": file_size,
-        }, timeout=120)  # Large files need more time
+        }, timeout=300)
         if result and result.get("success"):
             return result.get("url")
         return None

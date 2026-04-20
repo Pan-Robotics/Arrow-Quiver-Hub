@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from "express";
+import multer from "multer";
 import {
   validateApiKey,
   upsertDrone,
@@ -17,6 +18,9 @@ import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadca
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./payloadIngest";
 import { createHash } from "crypto";
+
+// Multer for multipart file uploads (FC logs, firmware, etc.)
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 import {
   upsertFcLog,
   updateFcLog,
@@ -1050,6 +1054,101 @@ router.post("/logs/fc-upload", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error in /api/rest/logs/fc-upload:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+/**
+ * POST /api/rest/logs/fc-upload-multipart
+ * Pi uploads a downloaded FC log file as multipart/form-data (no base64 overhead).
+ * Fields: api_key, drone_id, log_id, filename, file_size
+ * File field: "file" — the raw .BIN file
+ */
+router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, log_id, filename, file_size } = req.body;
+    const file = req.file;
+
+    if (!api_key || !drone_id || !log_id || !filename || !file) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: api_key, drone_id, log_id, filename, file",
+      });
+    }
+
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ success: false, error: "Invalid API key" });
+    }
+    if (apiKeyRecord.droneId !== drone_id) {
+      return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    }
+
+    const buffer = file.buffer;
+
+    // Enforce 200MB limit
+    if (buffer.length > 200 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: "File too large. Maximum size is 200MB.",
+      });
+    }
+
+    // Compute SHA-256 hash for artefact integrity
+    const sha256Hash = createHash("sha256").update(buffer).digest("hex");
+
+    // Upload to S3
+    const fileKey = `fc-logs/${drone_id}/${nanoid()}-${filename}`;
+    const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
+
+    // Update the FC log record
+    const numLogId = typeof log_id === "string" ? parseInt(log_id, 10) : log_id;
+    await updateFcLog(numLogId, {
+      status: "completed",
+      progress: 100,
+      storageKey: fileKey,
+      url,
+      fileSize: file_size ? parseInt(file_size, 10) : buffer.length,
+      downloadedAt: new Date(),
+      sha256Hash,
+    });
+
+    // Also create a flight log entry for the Flight Analytics app
+    await createFlightLog({
+      droneId: drone_id,
+      filename,
+      fileSize: file_size ? parseInt(file_size, 10) : buffer.length,
+      storageKey: fileKey,
+      url,
+      format: filename.toLowerCase().endsWith(".log") ? "log" : "bin",
+      description: `Auto-downloaded from FC via HTTP`,
+      uploadSource: "api",
+      uploadedBy: null,
+    });
+
+    // Broadcast completion
+    broadcastLogProgress(drone_id, {
+      logId: numLogId,
+      status: "completed",
+      progress: 100,
+      url,
+      filename,
+    });
+
+    console.log(`[Logs] FC log uploaded (multipart) for ${drone_id}: ${filename} (${buffer.length} bytes)`);
+
+    return res.status(200).json({
+      success: true,
+      message: "FC log uploaded",
+      url,
+      file_size: buffer.length,
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/logs/fc-upload-multipart:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",
