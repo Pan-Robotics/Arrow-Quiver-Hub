@@ -164,7 +164,7 @@ A four-tab interface for flight controller log management, over-the-air firmware
 
 | Feature | Description |
 |---|---|
-| FC Logs | Scan FC SD card via MAVFTP, download `.BIN`/`.log` files to S3, track progress in real-time, send completed logs to Flight Analytics |
+| FC Logs | Scan FC SD card via MAVFTP, download `.BIN`/`.log` files to S3 (multipart upload with base64 fallback), track progress in real-time, save completed logs to local PC via download proxy, send completed logs to Flight Analytics |
 | OTA Firmware Flash | Upload `.abin`/`.apj` firmware, flash to FC via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed) |
 | System Diagnostics | Live CPU, memory, disk, temperature gauges; systemd service status grid; network interface table |
 | Remote Logs | Stream journalctl output from any companion service in a terminal-style viewer |
@@ -222,6 +222,8 @@ All client-server communication (except real-time streams and companion computer
 | `firmware` | `list`, `get`, `upload`, `requestFlash` | Protected |
 | `diagnostics` | `latest`, `history` | Protected |
 
+Note: the `GET /api/rest/logs/fc-download/:logId` endpoint is not a tRPC procedure but a REST endpoint authenticated via session cookie (same mechanism as `protectedProcedure`). It streams the file from S3 with `Content-Disposition: attachment` for browser download.
+
 ### 5.2 REST API Endpoints
 
 These endpoints are designed for non-tRPC clients, primarily the companion computer's Python relay scripts. All ingest endpoints require `api_key` and `drone_id` in the request body. The server validates the key against the `apiKeys` table and verifies the drone ID matches.
@@ -234,11 +236,17 @@ These endpoints are designed for non-tRPC clients, primarily the companion compu
 | `/api/rest/pointcloud/latest/:droneId` | GET | Polling fallback for latest scan |
 | `/api/rest/telemetry/ingest` | POST | Receive flight telemetry |
 | `/api/rest/camera/status` | POST | Receive camera and gimbal status |
+| `/api/rest/camera/stream-register` | POST | Register WebRTC stream URL from companion |
+| `/api/rest/camera/stream-unregister` | POST | Unregister WebRTC stream URL |
+| `/api/rest/camera/stream-status/:droneId` | GET | Get current stream URL for a drone |
+| `/api/rest/camera/whep-proxy/:droneId` | POST | WHEP SDP proxy — relays WebRTC signaling to go2rtc on companion |
 | `/api/rest/payload/:appId/ingest` | POST | Receive custom app payload data |
 | `/api/rest/flightlog/upload` | POST | Upload flight log from companion computer |
 | `/api/rest/logs/fc-list` | POST | Report discovered FC log files from MAVFTP scan |
 | `/api/rest/logs/fc-progress` | POST | Update FC log download progress |
 | `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log content (base64) to S3 |
+| `/api/rest/logs/fc-upload-multipart` | POST | Upload downloaded FC log file (multipart/form-data, preferred) |
+| `/api/rest/logs/fc-download/:logId` | GET | Download proxy — streams FC log from S3 to browser (session cookie auth) |
 | `/api/rest/firmware/progress` | POST | Update firmware flash progress and ArduPilot stage |
 | `/api/rest/diagnostics/report` | POST | Submit system diagnostics snapshot (CPU, memory, disk, temp, services) |
 

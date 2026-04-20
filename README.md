@@ -40,7 +40,8 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 │  raspberry_pi_client.py → tRPC droneJobs.getPendingJobs (polling)    │
 │  camera_stream_service.py → POST /api/rest/camera/stream-register    │
 │  siyi_camera_controller.py → Socket.IO (gimbal commands/status)      │
-│  logs_ota_service.py → REST + Socket.IO (logs, OTA, diagnostics)     │
+│  logs_ota_service.py → REST + Socket.IO (logs, OTA, diagnostics, remote logs)     │
+│  (supports multipart upload for FC logs with base64 fallback)                    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -142,7 +143,7 @@ Post-flight log analysis with a full ArduPilot DataFlash binary parser running i
 
 Four-tab interface for remote flight controller management and companion computer monitoring, powered by the `logs_ota_service.py` companion script:
 
-**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files via MAVFTP, download them to S3, and view/download from the browser. Completed logs can be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). Real-time download progress via WebSocket.
+**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files via MAVFTP, download them to S3, and view/download from the browser. Completed logs can be saved directly to the user's PC via a server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) that streams from S3 with `Content-Disposition: attachment`. For logs still on the FC, the download button dispatches the companion job and auto-triggers the browser download once the upload completes. Completed logs can also be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). The companion script supports both multipart file upload (preferred, no base64 overhead) and base64 JSON upload (backward-compatible fallback). Real-time download progress via WebSocket.
 
 **OTA Updates** — Upload firmware files (`.abin`/`.apj`, max 50 MB) and flash them to the flight controller via MAVFTP. Monitors the ArduPilot firmware rename sequence (`ardupilot.abin` → `ardupilot-verify.abin` → `ardupilot-flash.abin` → `ardupilot-flashed.abin`) with real-time progress. Includes a safety warning dialog before flashing.
 
@@ -249,10 +250,13 @@ All ingest endpoints require `api_key` and `drone_id` in the request body.
 | `/api/rest/camera/stream-register` | POST | Register WebRTC stream URL |
 | `/api/rest/camera/stream-unregister` | POST | Unregister WebRTC stream URL |
 | `/api/rest/camera/stream-status/:droneId` | GET | Get current stream URL |
+| `/api/rest/camera/whep-proxy/:droneId` | POST | WHEP SDP proxy — relays WebRTC signaling to go2rtc on companion |
 | `/api/rest/flightlog/upload` | POST | Upload flight log from Pi |
 | `/api/rest/logs/fc-list` | POST | Report discovered FC log files |
 | `/api/rest/logs/fc-progress` | POST | Update FC log download progress |
-| `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log to S3 |
+| `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log to S3 (base64) |
+| `/api/rest/logs/fc-upload-multipart` | POST | Upload downloaded FC log to S3 (multipart, preferred) |
+| `/api/rest/logs/fc-download/:logId` | GET | Download proxy — streams FC log from S3 to browser (session auth) |
 | `/api/rest/firmware/progress` | POST | Update firmware flash progress |
 | `/api/rest/diagnostics/report` | POST | Submit system diagnostics snapshot |
 | `/api/rest/payload/:appId/ingest` | POST | Receive custom app payload |
@@ -319,7 +323,7 @@ Socket.IO handles all real-time data distribution using room-based routing.
 | `drones` | `list`, `register`, `update`, `delete`, `generateApiKey` | Drone fleet management |
 | `droneJobs` | `create`, `list`, `getPendingJobs`, `acknowledge`, `complete` | Job queue operations |
 | `flightLogs` | `list`, `get`, `upload`, `delete` | Flight log management |
-| `fcLogs` | `list`, `get`, `requestScan`, `requestDownload`, `sendToAnalytics`, `delete` | FC log scanning, download, and cross-app transfer |
+| `fcLogs` | `list`, `get`, `requestScan`, `requestDownload`, `sendToAnalytics`, `delete` | FC log scanning, download, download-to-PC, and cross-app transfer |
 | `firmware` | `list`, `get`, `upload`, `requestFlash` | Firmware upload and flash management |
 | `diagnostics` | `latest`, `history` | System diagnostics queries |
 

@@ -143,7 +143,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 | Feature | Description |
 |---|---|
 | FC Log Scan | List log files on the FC SD card via MAVFTP directory listing |
-| FC Log Download | Download `.BIN`/`.log` files from the FC via MAVFTP, upload to Hub S3 |
+| FC Log Download | Download `.BIN`/`.log` files from the FC via MAVFTP, upload to Hub S3 via multipart form-data (preferred, ~33% faster) with base64 JSON fallback |
 | OTA Firmware Flash | Download firmware from Hub S3, **verify SHA-256 hash**, upload to FC as `ardupilot.abin` via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed), **clean up temp file** |
 | System Diagnostics | Collect CPU, memory, disk, temperature, network, and systemd service status every 10 seconds |
 | Remote Log Streaming | Stream journalctl output from any companion service to the browser in real-time |
@@ -153,7 +153,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 | Job Type | Trigger | Description |
 |---|---|---|
 | `scan_fc_logs` | FC Logs tab → "Scan FC Logs" button | Lists `/APM/LOGS/` directory and reports discovered files |
-| `download_fc_log` | FC Logs tab → download button on a log row | Downloads the file to a temp directory, then uploads base64 content to Hub |
+| `download_fc_log` | FC Logs tab → download button on a log row | Downloads the file to a temp directory, uploads via multipart form-data to `fc-upload-multipart` (preferred), falls back to base64 JSON `fc-upload` if unavailable |
 | `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, **verifies SHA-256 hash** against server-computed value, uploads to FC, monitors rename stages, cleans up temp file |
 
 ### CLI Arguments

@@ -57,7 +57,9 @@ The pipeline connects three layers: the **flight controller** (ArduPilot running
 
 The user clicks **Scan FC Logs** in the browser. This triggers a tRPC mutation that creates a `scan_fc_logs` job in the `droneJobs` queue. The companion script polls for pending jobs every 5 seconds, picks up the scan job, and uses MAVSDK's FTP plugin to list the `/APM/LOGS/` directory on the FC's SD card. The discovered `.BIN` and `.log` files are reported back to the Hub via `POST /api/rest/logs/fc-list`, which upserts them into the `fcLogs` database table.
 
-When the user clicks **Download** on a specific log, a `download_fc_log` job is created. The companion script downloads the file from the FC via MAVFTP to a temporary local file, then uploads the file content (base64-encoded) to the Hub via `POST /api/rest/logs/fc-upload`. The Hub stores the file in S3 and updates the `fcLogs` record with the S3 URL. Throughout this process, progress is reported via `POST /api/rest/logs/fc-progress` and broadcast to the browser over WebSocket as `fc_log_progress` events.
+When the user clicks **Download** on a specific log, a `download_fc_log` job is created. The companion script downloads the file from the FC via MAVFTP to a temporary local file, then uploads the file to the Hub. The companion first attempts a multipart upload via `POST /api/rest/logs/fc-upload-multipart` (no base64 overhead, approximately 33% faster), and falls back to the legacy base64 JSON endpoint `POST /api/rest/logs/fc-upload` if the multipart endpoint is unavailable. The Hub stores the file in S3 and updates the `fcLogs` record with the S3 URL. Throughout this process, progress is reported via `POST /api/rest/logs/fc-progress` and broadcast to the browser over WebSocket as `fc_log_progress` events.
+
+Once a log reaches `completed` status, the user can save it directly to their local PC via the **Save to PC** button. This triggers a browser download through the server-side download proxy at `GET /api/rest/logs/fc-download/:logId`, which authenticates via session cookie, fetches the file from S3, and streams it to the browser with `Content-Disposition: attachment` for a native Save dialog. For logs still on the FC (status `discovered` or `failed`), the **Download from FC** button dispatches the companion job and automatically triggers the browser download once the upload completes.
 
 | Step | Actor | Endpoint / Protocol | Direction |
 |------|-------|---------------------|-----------|
@@ -69,8 +71,10 @@ When the user clicks **Download** on a specific log, a `download_fc_log` job is 
 | Hub broadcasts to browser | Hub | WebSocket `fc_log_progress` | Hub → Browser |
 | User clicks "Download" | Browser | `trpc.fcLogs.requestDownload` | Browser → Hub |
 | Pi downloads from FC | Pi | MAVSDK FTP `download` | Pi ← FC |
-| Pi uploads to Hub | Pi | `POST /api/rest/logs/fc-upload` | Pi → Hub |
+| Pi uploads to Hub (multipart) | Pi | `POST /api/rest/logs/fc-upload-multipart` | Pi → Hub |
+| Pi uploads to Hub (base64 fallback) | Pi | `POST /api/rest/logs/fc-upload` | Pi → Hub |
 | Hub stores in S3 | Hub | `storagePut()` | Internal |
+| User saves to PC | Browser | `GET /api/rest/logs/fc-download/:logId` | Hub → Browser |
 
 ### 2. OTA Firmware Flash
 
@@ -202,6 +206,8 @@ These endpoints are used by the companion script (not the browser). All require 
 | `/api/rest/logs/fc-list` | POST | Report discovered FC log files (upserts into `fcLogs`) |
 | `/api/rest/logs/fc-progress` | POST | Update download progress for an FC log |
 | `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log content (base64) to S3 |
+| `/api/rest/logs/fc-upload-multipart` | POST | Upload downloaded FC log file (multipart/form-data, preferred) |
+| `/api/rest/logs/fc-download/:logId` | GET | Download proxy — streams FC log from S3 to browser (session cookie auth) |
 | `/api/rest/firmware/progress` | POST | Update firmware flash progress and stage |
 | `/api/rest/diagnostics/report` | POST | Submit a system diagnostics snapshot |
 
@@ -249,7 +255,7 @@ The companion script is a single-file Python 3 asyncio application (~1200 lines)
 
 **`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports.
 
-**`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
+**`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON if the multipart endpoint is unavailable; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
 
 **`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`, `go2rtc`, `tailscale-funnel`) via `systemctl is-active`.
 
@@ -283,7 +289,7 @@ pip install --break-system-packages mavsdk requests psutil python-socketio[async
 
 The frontend is a single React component (~950 lines) with four tabs, each implemented as a sub-component:
 
-**FC Logs Tab** displays a table of discovered log files with columns for filename, remote path, file size, status, and actions. The "Scan FC Logs" button triggers a scan job. Each log row shows a download button (for `discovered` status), a progress bar (for `downloading`/`uploading`), or a download link and a "Send to Flight Analytics" button (for `completed`). The Send to Flight Analytics button checks whether the Flight Analytics app is installed — if not, a toast prompts the user to install it from the App Store first. If installed, it creates a `flightLogs` record reusing the same S3 URL (zero re-upload), so the log appears immediately in Flight Analytics for parsing. Real-time progress updates arrive via Socket.IO `fc_log_progress` events.
+**FC Logs Tab** displays a table of discovered log files with columns for filename, remote path, file size, status, and actions. The "Scan FC Logs" button triggers a scan job. Each log row shows contextual action buttons depending on status: for `discovered` or `failed` logs, a **Download from FC** button dispatches the companion download job and automatically triggers a browser save-to-PC download when the upload completes; for `downloading`/`uploading` logs, a spinner with progress indication; for `completed` logs, a blue **Save to PC** button that streams the file from S3 through the server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) with `Content-Disposition: attachment` for a native browser Save dialog, plus a **Send to Flight Analytics** button. The Send to Flight Analytics button checks whether the Flight Analytics app is installed — if not, a toast prompts the user to install it from the App Store first. If installed, it creates a `flightLogs` record reusing the same S3 URL (zero re-upload), so the log appears immediately in Flight Analytics for parsing. Real-time progress updates arrive via Socket.IO `fc_log_progress` events.
 
 **OTA Updates Tab** shows a table of firmware uploads with status badges reflecting the flash pipeline stages. An "Upload Firmware" dialog accepts `.abin` or `.apj` files (max 50 MB) and includes a safety warning about the risks of OTA firmware updates. The "Flash to FC" button initiates the flash job. Progress is shown via a progress bar that updates in real-time through `firmware_progress` WebSocket events.
 
@@ -337,4 +343,4 @@ sudo systemctl stop logs-ota          # Stop service
 | `telemetry_forwarder.py` | `companion_scripts/` | MAVLink + UAVCAN telemetry forwarder (runs on Pi) |
 | `telemetry-forwarder.service` | `companion_scripts/` | Systemd unit file for telemetry forwarder |
 | `install_telemetry_forwarder.sh` | `companion_scripts/` | Interactive install script for telemetry forwarder |
-| `logs-ota.test.ts` | `server/` | 82 vitest tests covering all components |
+| `logs-ota.test.ts` | `server/` | 107 vitest tests covering all components |

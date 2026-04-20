@@ -46,7 +46,9 @@ Five job types currently exist in the system, consumed by two different companio
 
 The system already implements several security measures. Every REST endpoint validates the API key and verifies that the `droneId` in the request matches the API key's bound drone. The tRPC mutations that create jobs require authentication via `protectedProcedure`, meaning only logged-in users can dispatch jobs. The companion scripts filter jobs by type before processing — the `logs_ota_service.py` explicitly skips any job type not in `("scan_fc_logs", "download_fc_log", "flash_firmware")`, and the `raspberry_pi_client.py` logs a warning for unknown types.
 
-However, several gaps exist. The `createJob` tRPC mutation accepts `type: z.string()` and `payload: z.any()` — meaning any authenticated user can create a job with an arbitrary type string and an unconstrained payload object. There is no hash verification on firmware files before they are uploaded to the FC. There is no per-user permission model distinguishing who can flash firmware versus who can only scan logs. There is no retry mechanism for failed jobs, and no timeout for jobs that get stuck in the `acknowledged` state.
+However, several gaps exist. The `createJob` tRPC mutation accepts `type: z.string()` and `payload: z.any()` — meaning any authenticated user can create a job with an arbitrary type string and an unconstrained payload object. There is no per-user permission model distinguishing who can flash firmware versus who can only scan logs. There is no retry mechanism for failed jobs, and no timeout for jobs that get stuck in the `acknowledged` state.
+
+**Note (April 2026 update):** SHA-256 hash verification for firmware files has since been implemented. The Hub computes a SHA-256 hash at upload time and stores it in the `firmwareUpdates` table. The companion script verifies the hash after downloading from S3 and before uploading to the FC. Additionally, the FC log upload pipeline now supports multipart form-data uploads (preferred) with base64 JSON fallback, and a session-authenticated download proxy (`GET /api/rest/logs/fc-download/:logId`) enables browser-based file download.
 
 ---
 

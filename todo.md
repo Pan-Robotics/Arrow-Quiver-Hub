@@ -1269,3 +1269,11 @@
 - [x] Handle discovered/failed logs: dispatch download job to companion, then auto-trigger browser download when S3 URL is ready
 - [x] Add download progress toast feedback (downloading from FC → uploading to Hub → ready for download)
 - [x] Write tests for the download proxy endpoint
+
+## Documentation Update (System State Sync)
+- [x] Update README.md: add fc-upload-multipart, fc-download/:logId, whep-proxy endpoints; update FC Logs description
+- [x] Update LOGS_OTA_PIPELINE.md: add multipart upload, download proxy, save-to-PC flow, update test count to 107
+- [x] Update quiver-hub-architecture.md: add new REST endpoints, camera endpoints, update FC Logs feature table
+- [x] Update COMPANION_SERVICES.md: update FC Log Download and download_fc_log job descriptions
+- [x] Update docs/README.md: update LOGS_OTA_PIPELINE description
+- [x] Update JOB_SECURITY_ANALYSIS.md: note SHA-256 verification is implemented, add multipart/download proxy note
