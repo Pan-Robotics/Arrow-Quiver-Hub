@@ -52,6 +52,14 @@ import {
   CircleCheck,
   CircleX,
   Clock,
+  Radio,
+  HardDrive,
+  Activity,
+  Video,
+  Cpu,
+  Database,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 export default function DroneConfig() {
@@ -87,6 +95,16 @@ export default function DroneConfig() {
   // Delete drone state
   const [showDeleteDroneDialog, setShowDeleteDroneDialog] = useState(false);
   const [confirmDeleteDroneId, setConfirmDeleteDroneId] = useState("");
+
+  // Endpoint section expand/collapse state
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["core"]));
+  const toggleSection = (key: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   // Test connection state
   const [testResults, setTestResults] = useState<{
@@ -280,27 +298,96 @@ export default function DroneConfig() {
   // Get the first active API key for the .env snippet
   const activeKey = apiKeysList.find((k: any) => k.isActive);
 
-  // Build the .env snippet
+  // Build the .env snippet — comprehensive reference for all endpoints
   const envSnippet = useMemo(() => {
+    const key = activeKey ? activeKey.key : "<generate-an-api-key>";
+    const wsUrl = baseUrl.replace("http", "ws");
     const lines = [
-      `# Quiver Hub Connection Configuration`,
+      `# ═══════════════════════════════════════════════════════`,
+      `# Quiver Hub — Companion Computer Configuration`,
       `# Drone: ${selectedDrone}`,
       `# Generated: ${new Date().toISOString().split("T")[0]}`,
+      `# ═══════════════════════════════════════════════════════`,
       ``,
+      `# ─── Core Connection ────────────────────────────────────`,
       `QUIVER_HUB_URL=${baseUrl}`,
       `QUIVER_DRONE_ID=${selectedDrone}`,
-      `QUIVER_API_KEY=${activeKey ? activeKey.key : "<generate-an-api-key>"}`,
+      `QUIVER_API_KEY=${key}`,
       ``,
-      `# REST API Endpoints`,
+      `# ─── REST API: Core Data Pipelines ──────────────────────`,
+      `# POST — Ingest RPLidar point cloud scans`,
       `QUIVER_POINTCLOUD_ENDPOINT=${baseUrl}/api/rest/pointcloud/ingest`,
+      `# POST — Ingest MAVLink/UAVCAN telemetry`,
       `QUIVER_TELEMETRY_ENDPOINT=${baseUrl}/api/rest/telemetry/ingest`,
-      `QUIVER_CAMERA_ENDPOINT=${baseUrl}/api/rest/camera/status`,
+      `# POST — Ingest custom app payload data (replace {appId})`,
+      `QUIVER_PAYLOAD_ENDPOINT=${baseUrl}/api/rest/payload/{appId}/ingest`,
       ``,
-      `# WebSocket`,
-      `QUIVER_WS_URL=${baseUrl.replace("http", "ws")}`,
+      `# ─── REST API: Camera Pipeline ──────────────────────────`,
+      `# POST — Report camera status/metadata`,
+      `QUIVER_CAMERA_STATUS_ENDPOINT=${baseUrl}/api/rest/camera/status`,
+      `# POST — Register a WebRTC stream URL`,
+      `QUIVER_CAMERA_STREAM_REGISTER=${baseUrl}/api/rest/camera/stream-register`,
+      `# POST — Unregister a stream`,
+      `QUIVER_CAMERA_STREAM_UNREGISTER=${baseUrl}/api/rest/camera/stream-unregister`,
+      `# GET  — Get stream status for a drone`,
+      `QUIVER_CAMERA_STREAM_STATUS=${baseUrl}/api/rest/camera/stream-status/${selectedDrone}`,
+      `# POST — WHEP signaling proxy for WebRTC playback`,
+      `QUIVER_CAMERA_WHEP_PROXY=${baseUrl}/api/rest/camera/whep-proxy/${selectedDrone}`,
       ``,
-      `# Drone Job Polling (for file downloads & commands)`,
+      `# ─── REST API: Logs & OTA Pipeline ──────────────────────`,
+      `# POST — Report discovered FC log list from companion`,
+      `QUIVER_FC_LOG_LIST_ENDPOINT=${baseUrl}/api/rest/logs/fc-list`,
+      `# POST — Report FC log download/upload progress`,
+      `QUIVER_FC_LOG_PROGRESS_ENDPOINT=${baseUrl}/api/rest/logs/fc-progress`,
+      `# POST — Upload FC log file (base64 JSON — legacy fallback)`,
+      `QUIVER_FC_LOG_UPLOAD_ENDPOINT=${baseUrl}/api/rest/logs/fc-upload`,
+      `# POST — Upload FC log file (multipart form — preferred)`,
+      `QUIVER_FC_LOG_UPLOAD_MULTIPART=${baseUrl}/api/rest/logs/fc-upload-multipart`,
+      `# GET  — Download FC log to browser (session-auth proxy)`,
+      `QUIVER_FC_LOG_DOWNLOAD=${baseUrl}/api/rest/logs/fc-download/{logId}`,
+      `# POST — Report firmware flash progress`,
+      `QUIVER_FIRMWARE_PROGRESS_ENDPOINT=${baseUrl}/api/rest/firmware/progress`,
+      `# POST — Report system diagnostics + FC web server health`,
+      `QUIVER_DIAGNOSTICS_ENDPOINT=${baseUrl}/api/rest/diagnostics/report`,
+      ``,
+      `# ─── REST API: Flight Analytics ─────────────────────────`,
+      `# POST — Upload flight log for analysis (browser-only)`,
+      `QUIVER_FLIGHTLOG_UPLOAD=${baseUrl}/api/rest/flightlog/upload`,
+      ``,
+      `# ─── REST API: System ────────────────────────────────────`,
+      `# GET  — Health check`,
+      `QUIVER_HEALTH_ENDPOINT=${baseUrl}/api/rest/health`,
+      `# POST — Test API key + drone connectivity`,
+      `QUIVER_TEST_CONNECTION=${baseUrl}/api/rest/test-connection`,
+      ``,
+      `# ─── WebSocket (Socket.IO) ──────────────────────────────`,
+      `QUIVER_WS_URL=${wsUrl}`,
+      `# Client events: subscribe, unsubscribe, subscribe_app,`,
+      `#   unsubscribe_app, subscribe_camera, unsubscribe_camera,`,
+      `#   subscribe_logs, unsubscribe_logs, subscribe_stream,`,
+      `#   unsubscribe_stream`,
+      `# Command events: camera_command, log_stream_request`,
+      `# Companion events: register_companion, camera_status,`,
+      `#   camera_response, log_stream_line`,
+      `# Broadcast events: pointcloud, pointcloud_update,`,
+      `#   telemetry, telemetry_update, app_data, camera_status,`,
+      `#   camera_response, camera_stream, fc_log_progress,`,
+      `#   firmware_progress, diagnostics, log_stream`,
+      ``,
+      `# ─── tRPC Job Polling ────────────────────────────────────`,
+      `# Companion polls for pending jobs (scan_fc_logs,`,
+      `#   download_fc_log, flash_firmware, deliver_file)`,
       `QUIVER_JOBS_ENDPOINT=${baseUrl}/api/trpc/droneJobs.getPendingJobs`,
+      `QUIVER_JOBS_ACK_ENDPOINT=${baseUrl}/api/trpc/droneJobs.acknowledgeJob`,
+      `QUIVER_JOBS_COMPLETE_ENDPOINT=${baseUrl}/api/trpc/droneJobs.completeJob`,
+      `QUIVER_JOBS_FAIL_ENDPOINT=${baseUrl}/api/trpc/droneJobs.failJob`,
+      ``,
+      `# ─── FC Web Server (ArduPilot net_webserver.lua) ─────────`,
+      `# HTTP server running on the flight controller for log access`,
+      `# See docs/ARDUPILOT_WEBSERVER_SETUP.md for setup guide`,
+      `FC_WEBSERVER_URL=http://192.168.144.20:8080`,
+      `# Local cache directory for FC logs synced by FCLogSyncer`,
+      `FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs`,
     ];
     return lines.join("\n");
   }, [baseUrl, selectedDrone, activeKey]);
@@ -817,97 +904,208 @@ export default function DroneConfig() {
                 </div>
               )}
 
-              {/* Quick Reference Endpoints */}
-              <div className="space-y-3">
+              {/* Quick Reference Endpoints — collapsible by category */}
+              <div className="space-y-1">
+                {/* Hub Base URL — always visible */}
                 <div className="flex items-start gap-3 p-2.5 bg-muted/30 rounded-lg">
                   <Globe className="w-4 h-4 mt-0.5 text-blue-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-muted-foreground">Hub Base URL</p>
                     <div className="flex items-center gap-1.5">
                       <code className="text-sm font-mono break-all">{baseUrl}</code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => copyToClipboard(baseUrl, "Base URL")}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(baseUrl, "Base URL")}><Copy className="w-3 h-3" /></Button>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-2.5 bg-muted/30 rounded-lg">
-                  <Terminal className="w-4 h-4 mt-0.5 text-green-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">Point Cloud Ingest</p>
-                    <div className="flex items-center gap-1.5">
-                      <code className="text-xs font-mono break-all">POST {baseUrl}/api/rest/pointcloud/ingest</code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => copyToClipboard(`${baseUrl}/api/rest/pointcloud/ingest`, "Point Cloud endpoint")}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
+                {/* ── Core Data Pipelines ── */}
+                <button onClick={() => toggleSection("core")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("core") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  Core Data Pipelines
+                  <Badge variant="outline" className="text-[10px] ml-auto">3 endpoints</Badge>
+                </button>
+                {expandedSections.has("core") && (
+                  <div className="space-y-1 pl-1">
+                    {[
+                      { label: "Point Cloud Ingest", method: "POST", path: "/api/rest/pointcloud/ingest", color: "text-green-400", icon: <Radio className="w-4 h-4" /> },
+                      { label: "Telemetry Ingest", method: "POST", path: "/api/rest/telemetry/ingest", color: "text-yellow-400", icon: <Activity className="w-4 h-4" /> },
+                      { label: "Custom Payload Ingest", method: "POST", path: "/api/rest/payload/{appId}/ingest", color: "text-orange-400", icon: <Database className="w-4 h-4" /> },
+                    ].map((ep) => (
+                      <div key={ep.path} className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                        <span className={`mt-0.5 shrink-0 ${ep.color}`}>{ep.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">{ep.label}</p>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono break-all">{ep.method} {baseUrl}{ep.path}</code>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(`${baseUrl}${ep.path}`, ep.label)}><Copy className="w-3 h-3" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
 
-                <div className="flex items-start gap-3 p-2.5 bg-muted/30 rounded-lg">
-                  <Terminal className="w-4 h-4 mt-0.5 text-yellow-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">Telemetry Ingest</p>
-                    <div className="flex items-center gap-1.5">
-                      <code className="text-xs font-mono break-all">POST {baseUrl}/api/rest/telemetry/ingest</code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => copyToClipboard(`${baseUrl}/api/rest/telemetry/ingest`, "Telemetry endpoint")}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
+                {/* ── Camera Pipeline ── */}
+                <button onClick={() => toggleSection("camera")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("camera") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  Camera Pipeline
+                  <Badge variant="outline" className="text-[10px] ml-auto">5 endpoints</Badge>
+                </button>
+                {expandedSections.has("camera") && (
+                  <div className="space-y-1 pl-1">
+                    {[
+                      { label: "Camera Status", method: "POST", path: "/api/rest/camera/status", color: "text-purple-400" },
+                      { label: "Stream Register", method: "POST", path: "/api/rest/camera/stream-register", color: "text-purple-400" },
+                      { label: "Stream Unregister", method: "POST", path: "/api/rest/camera/stream-unregister", color: "text-purple-400" },
+                      { label: "Stream Status", method: "GET", path: `/api/rest/camera/stream-status/${selectedDrone}`, color: "text-purple-400" },
+                      { label: "WHEP Proxy (WebRTC)", method: "POST", path: `/api/rest/camera/whep-proxy/${selectedDrone}`, color: "text-purple-400" },
+                    ].map((ep) => (
+                      <div key={ep.path} className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                        <Video className={`w-4 h-4 mt-0.5 shrink-0 ${ep.color}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">{ep.label}</p>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono break-all">{ep.method} {baseUrl}{ep.path}</code>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(`${baseUrl}${ep.path}`, ep.label)}><Copy className="w-3 h-3" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
 
-                <div className="flex items-start gap-3 p-2.5 bg-muted/30 rounded-lg">
-                  <Terminal className="w-4 h-4 mt-0.5 text-purple-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">Camera Status</p>
-                    <div className="flex items-center gap-1.5">
-                      <code className="text-xs font-mono break-all">POST {baseUrl}/api/rest/camera/status</code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => copyToClipboard(`${baseUrl}/api/rest/camera/status`, "Camera endpoint")}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
+                {/* ── Logs & OTA Pipeline ── */}
+                <button onClick={() => toggleSection("logs")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("logs") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  Logs & OTA Pipeline
+                  <Badge variant="outline" className="text-[10px] ml-auto">7 endpoints</Badge>
+                </button>
+                {expandedSections.has("logs") && (
+                  <div className="space-y-1 pl-1">
+                    {[
+                      { label: "FC Log List", method: "POST", path: "/api/rest/logs/fc-list" },
+                      { label: "FC Log Progress", method: "POST", path: "/api/rest/logs/fc-progress" },
+                      { label: "FC Log Upload (JSON)", method: "POST", path: "/api/rest/logs/fc-upload" },
+                      { label: "FC Log Upload (Multipart)", method: "POST", path: "/api/rest/logs/fc-upload-multipart" },
+                      { label: "FC Log Download (Browser)", method: "GET", path: "/api/rest/logs/fc-download/{logId}" },
+                      { label: "Firmware Progress", method: "POST", path: "/api/rest/firmware/progress" },
+                      { label: "Diagnostics Report", method: "POST", path: "/api/rest/diagnostics/report" },
+                    ].map((ep) => (
+                      <div key={ep.path} className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                        <HardDrive className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">{ep.label}</p>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono break-all">{ep.method} {baseUrl}{ep.path}</code>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(`${baseUrl}${ep.path}`, ep.label)}><Copy className="w-3 h-3" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
 
-                <div className="flex items-start gap-3 p-2.5 bg-muted/30 rounded-lg">
-                  <Wifi className="w-4 h-4 mt-0.5 text-cyan-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">WebSocket</p>
-                    <div className="flex items-center gap-1.5">
-                      <code className="text-sm font-mono break-all">{baseUrl.replace("http", "ws")}</code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => copyToClipboard(baseUrl.replace("http", "ws"), "WebSocket URL")}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
+                {/* ── System & Job Polling ── */}
+                <button onClick={() => toggleSection("system")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("system") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  System & Job Polling
+                  <Badge variant="outline" className="text-[10px] ml-auto">6 endpoints</Badge>
+                </button>
+                {expandedSections.has("system") && (
+                  <div className="space-y-1 pl-1">
+                    {[
+                      { label: "Health Check", method: "GET", path: "/api/rest/health", icon: <Activity className="w-4 h-4" />, color: "text-green-400" },
+                      { label: "Test Connection", method: "POST", path: "/api/rest/test-connection", icon: <Zap className="w-4 h-4" />, color: "text-yellow-400" },
+                      { label: "Flight Log Upload", method: "POST", path: "/api/rest/flightlog/upload", icon: <FileText className="w-4 h-4" />, color: "text-blue-400" },
+                      { label: "Get Pending Jobs", method: "tRPC", path: "/api/trpc/droneJobs.getPendingJobs", icon: <RefreshCw className="w-4 h-4" />, color: "text-cyan-400" },
+                      { label: "Acknowledge Job", method: "tRPC", path: "/api/trpc/droneJobs.acknowledgeJob", icon: <Check className="w-4 h-4" />, color: "text-cyan-400" },
+                      { label: "Complete / Fail Job", method: "tRPC", path: "/api/trpc/droneJobs.completeJob", icon: <CircleCheck className="w-4 h-4" />, color: "text-cyan-400" },
+                    ].map((ep) => (
+                      <div key={ep.path} className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                        <span className={`mt-0.5 shrink-0 ${ep.color}`}>{ep.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">{ep.label}</p>
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono break-all">{ep.method} {baseUrl}{ep.path}</code>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(`${baseUrl}${ep.path}`, ep.label)}><Copy className="w-3 h-3" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── WebSocket Events ── */}
+                <button onClick={() => toggleSection("ws")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("ws") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  WebSocket (Socket.IO)
+                  <Badge variant="outline" className="text-[10px] ml-auto">17 events</Badge>
+                </button>
+                {expandedSections.has("ws") && (
+                  <div className="space-y-2 pl-1">
+                    <div className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                      <Wifi className="w-4 h-4 mt-0.5 shrink-0 text-cyan-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-muted-foreground">WebSocket URL</p>
+                        <div className="flex items-center gap-1.5">
+                          <code className="text-sm font-mono break-all">{baseUrl.replace("http", "ws")}</code>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(baseUrl.replace("http", "ws"), "WebSocket URL")}><Copy className="w-3 h-3" /></Button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      <div className="p-2 bg-muted/10 rounded border border-border/50">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Subscribe / Unsubscribe</p>
+                        <p className="text-xs font-mono text-muted-foreground">subscribe, unsubscribe, subscribe_app, unsubscribe_app, subscribe_camera, unsubscribe_camera, subscribe_logs, unsubscribe_logs, subscribe_stream, unsubscribe_stream</p>
+                      </div>
+                      <div className="p-2 bg-muted/10 rounded border border-border/50">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Commands (Client → Companion)</p>
+                        <p className="text-xs font-mono text-muted-foreground">camera_command, log_stream_request</p>
+                      </div>
+                      <div className="p-2 bg-muted/10 rounded border border-border/50">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Companion → Server</p>
+                        <p className="text-xs font-mono text-muted-foreground">register_companion, camera_status, camera_response, log_stream_line</p>
+                      </div>
+                      <div className="p-2 bg-muted/10 rounded border border-border/50">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Broadcasts (Server → Client)</p>
+                        <p className="text-xs font-mono text-muted-foreground">pointcloud, pointcloud_update, telemetry, telemetry_update, app_data, camera_status, camera_response, camera_stream, fc_log_progress, firmware_progress, diagnostics, log_stream</p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* ── FC Web Server ── */}
+                <button onClick={() => toggleSection("fc")} className="flex items-center gap-2 w-full py-1.5 px-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  {expandedSections.has("fc") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  FC Web Server (ArduPilot)
+                  <Badge variant="outline" className="text-[10px] ml-auto">2 config</Badge>
+                </button>
+                {expandedSections.has("fc") && (
+                  <div className="space-y-1 pl-1">
+                    <div className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                      <Cpu className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-muted-foreground">FC Web Server URL</p>
+                        <div className="flex items-center gap-1.5">
+                          <code className="text-xs font-mono break-all">http://192.168.144.20:8080</code>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard("http://192.168.144.20:8080", "FC Web Server URL")}><Copy className="w-3 h-3" /></Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">ArduPilot net_webserver.lua — see setup guide</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
+                      <HardDrive className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-muted-foreground">FC Log Store Directory</p>
+                        <div className="flex items-center gap-1.5">
+                          <code className="text-xs font-mono break-all">/var/lib/quiver/fc_logs</code>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard("/var/lib/quiver/fc_logs", "FC Log Store Dir")}><Copy className="w-3 h-3" /></Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Local cache for FCLogSyncer background sync</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <Separator />
@@ -920,7 +1118,7 @@ export default function DroneConfig() {
                     .env File
                   </p>
                 </div>
-                <pre className="text-xs font-mono bg-muted/50 border rounded-lg p-3 overflow-x-auto whitespace-pre max-h-[240px] overflow-y-auto">
+                <pre className="text-xs font-mono bg-muted/50 border rounded-lg p-3 overflow-x-auto whitespace-pre max-h-[400px] overflow-y-auto">
                   {envSnippet}
                 </pre>
               </div>

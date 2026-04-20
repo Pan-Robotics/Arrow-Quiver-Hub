@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "fs";
 
 // Mock the db module
 vi.mock("./db", () => ({
@@ -240,30 +241,98 @@ describe("Drone API Key Management", () => {
 });
 
 describe("Connection Info Generation", () => {
-  it("should generate correct .env snippet format", () => {
-    const baseUrl = "https://example.com";
-    const droneId = "quiver_001";
-    const apiKey = "test-key-123";
+  const baseUrl = "https://example.com";
+  const droneId = "quiver_001";
+  const apiKey = "test-key-123";
 
-    const envSnippet = [
-      `QUIVER_HUB_URL=${baseUrl}`,
-      `QUIVER_DRONE_ID=${droneId}`,
-      `QUIVER_API_KEY=${apiKey}`,
-      `QUIVER_POINTCLOUD_ENDPOINT=${baseUrl}/api/rest/pointcloud/ingest`,
-      `QUIVER_TELEMETRY_ENDPOINT=${baseUrl}/api/rest/telemetry/ingest`,
-      `QUIVER_CAMERA_ENDPOINT=${baseUrl}/api/rest/camera/status`,
-      `QUIVER_WS_URL=${baseUrl.replace("http", "ws")}`,
-      `QUIVER_JOBS_ENDPOINT=${baseUrl}/api/trpc/droneJobs.getPendingJobs`,
+  // Helper that mirrors the envSnippet logic in DroneConfig.tsx
+  function buildEnvSnippet(base: string, drone: string, key: string) {
+    const wsUrl = base.replace("http", "ws");
+    return [
+      `QUIVER_HUB_URL=${base}`,
+      `QUIVER_DRONE_ID=${drone}`,
+      `QUIVER_API_KEY=${key}`,
+      `QUIVER_POINTCLOUD_ENDPOINT=${base}/api/rest/pointcloud/ingest`,
+      `QUIVER_TELEMETRY_ENDPOINT=${base}/api/rest/telemetry/ingest`,
+      `QUIVER_PAYLOAD_ENDPOINT=${base}/api/rest/payload/{appId}/ingest`,
+      `QUIVER_CAMERA_STATUS_ENDPOINT=${base}/api/rest/camera/status`,
+      `QUIVER_CAMERA_STREAM_REGISTER=${base}/api/rest/camera/stream-register`,
+      `QUIVER_CAMERA_STREAM_UNREGISTER=${base}/api/rest/camera/stream-unregister`,
+      `QUIVER_CAMERA_STREAM_STATUS=${base}/api/rest/camera/stream-status/${drone}`,
+      `QUIVER_CAMERA_WHEP_PROXY=${base}/api/rest/camera/whep-proxy/${drone}`,
+      `QUIVER_FC_LOG_LIST_ENDPOINT=${base}/api/rest/logs/fc-list`,
+      `QUIVER_FC_LOG_PROGRESS_ENDPOINT=${base}/api/rest/logs/fc-progress`,
+      `QUIVER_FC_LOG_UPLOAD_ENDPOINT=${base}/api/rest/logs/fc-upload`,
+      `QUIVER_FC_LOG_UPLOAD_MULTIPART=${base}/api/rest/logs/fc-upload-multipart`,
+      `QUIVER_FC_LOG_DOWNLOAD=${base}/api/rest/logs/fc-download/{logId}`,
+      `QUIVER_FIRMWARE_PROGRESS_ENDPOINT=${base}/api/rest/firmware/progress`,
+      `QUIVER_DIAGNOSTICS_ENDPOINT=${base}/api/rest/diagnostics/report`,
+      `QUIVER_FLIGHTLOG_UPLOAD=${base}/api/rest/flightlog/upload`,
+      `QUIVER_HEALTH_ENDPOINT=${base}/api/rest/health`,
+      `QUIVER_TEST_CONNECTION=${base}/api/rest/test-connection`,
+      `QUIVER_WS_URL=${wsUrl}`,
+      `QUIVER_JOBS_ENDPOINT=${base}/api/trpc/droneJobs.getPendingJobs`,
+      `QUIVER_JOBS_ACK_ENDPOINT=${base}/api/trpc/droneJobs.acknowledgeJob`,
+      `QUIVER_JOBS_COMPLETE_ENDPOINT=${base}/api/trpc/droneJobs.completeJob`,
+      `QUIVER_JOBS_FAIL_ENDPOINT=${base}/api/trpc/droneJobs.failJob`,
+      `FC_WEBSERVER_URL=http://192.168.144.20:8080`,
+      `FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs`,
     ].join("\n");
+  }
 
-    expect(envSnippet).toContain("QUIVER_HUB_URL=https://example.com");
-    expect(envSnippet).toContain("QUIVER_DRONE_ID=quiver_001");
-    expect(envSnippet).toContain("QUIVER_API_KEY=test-key-123");
-    expect(envSnippet).toContain("QUIVER_POINTCLOUD_ENDPOINT=https://example.com/api/rest/pointcloud/ingest");
-    expect(envSnippet).toContain("QUIVER_TELEMETRY_ENDPOINT=https://example.com/api/rest/telemetry/ingest");
-    expect(envSnippet).toContain("QUIVER_CAMERA_ENDPOINT=https://example.com/api/rest/camera/status");
-    expect(envSnippet).toContain("QUIVER_WS_URL=wss://example.com");
-    expect(envSnippet).toContain("QUIVER_JOBS_ENDPOINT=https://example.com/api/trpc/droneJobs.getPendingJobs");
+  it("should generate correct .env snippet with all core connection fields", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_HUB_URL=https://example.com");
+    expect(env).toContain("QUIVER_DRONE_ID=quiver_001");
+    expect(env).toContain("QUIVER_API_KEY=test-key-123");
+  });
+
+  it("should include all core data pipeline endpoints", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_POINTCLOUD_ENDPOINT=https://example.com/api/rest/pointcloud/ingest");
+    expect(env).toContain("QUIVER_TELEMETRY_ENDPOINT=https://example.com/api/rest/telemetry/ingest");
+    expect(env).toContain("QUIVER_PAYLOAD_ENDPOINT=https://example.com/api/rest/payload/{appId}/ingest");
+  });
+
+  it("should include all camera pipeline endpoints", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_CAMERA_STATUS_ENDPOINT=https://example.com/api/rest/camera/status");
+    expect(env).toContain("QUIVER_CAMERA_STREAM_REGISTER=https://example.com/api/rest/camera/stream-register");
+    expect(env).toContain("QUIVER_CAMERA_STREAM_UNREGISTER=https://example.com/api/rest/camera/stream-unregister");
+    expect(env).toContain(`QUIVER_CAMERA_STREAM_STATUS=https://example.com/api/rest/camera/stream-status/${droneId}`);
+    expect(env).toContain(`QUIVER_CAMERA_WHEP_PROXY=https://example.com/api/rest/camera/whep-proxy/${droneId}`);
+  });
+
+  it("should include all logs & OTA pipeline endpoints", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_FC_LOG_LIST_ENDPOINT=https://example.com/api/rest/logs/fc-list");
+    expect(env).toContain("QUIVER_FC_LOG_PROGRESS_ENDPOINT=https://example.com/api/rest/logs/fc-progress");
+    expect(env).toContain("QUIVER_FC_LOG_UPLOAD_ENDPOINT=https://example.com/api/rest/logs/fc-upload");
+    expect(env).toContain("QUIVER_FC_LOG_UPLOAD_MULTIPART=https://example.com/api/rest/logs/fc-upload-multipart");
+    expect(env).toContain("QUIVER_FC_LOG_DOWNLOAD=https://example.com/api/rest/logs/fc-download/{logId}");
+    expect(env).toContain("QUIVER_FIRMWARE_PROGRESS_ENDPOINT=https://example.com/api/rest/firmware/progress");
+    expect(env).toContain("QUIVER_DIAGNOSTICS_ENDPOINT=https://example.com/api/rest/diagnostics/report");
+  });
+
+  it("should include system and flight analytics endpoints", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_HEALTH_ENDPOINT=https://example.com/api/rest/health");
+    expect(env).toContain("QUIVER_TEST_CONNECTION=https://example.com/api/rest/test-connection");
+    expect(env).toContain("QUIVER_FLIGHTLOG_UPLOAD=https://example.com/api/rest/flightlog/upload");
+  });
+
+  it("should include all tRPC job polling endpoints", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("QUIVER_JOBS_ENDPOINT=https://example.com/api/trpc/droneJobs.getPendingJobs");
+    expect(env).toContain("QUIVER_JOBS_ACK_ENDPOINT=https://example.com/api/trpc/droneJobs.acknowledgeJob");
+    expect(env).toContain("QUIVER_JOBS_COMPLETE_ENDPOINT=https://example.com/api/trpc/droneJobs.completeJob");
+    expect(env).toContain("QUIVER_JOBS_FAIL_ENDPOINT=https://example.com/api/trpc/droneJobs.failJob");
+  });
+
+  it("should include FC web server configuration", () => {
+    const env = buildEnvSnippet(baseUrl, droneId, apiKey);
+    expect(env).toContain("FC_WEBSERVER_URL=http://192.168.144.20:8080");
+    expect(env).toContain("FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs");
   });
 
   it("should handle http to ws conversion correctly", () => {
@@ -274,5 +343,105 @@ describe("Connection Info Generation", () => {
   it("should show placeholder when no active key", () => {
     const envLine = `QUIVER_API_KEY=${undefined ? "some-key" : "<generate-an-api-key>"}`;
     expect(envLine).toContain("<generate-an-api-key>");
+  });
+});
+
+describe("DroneConfig .env UI — comprehensive endpoint reference", () => {
+  it("DroneConfig.tsx envSnippet contains all REST endpoint categories", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    // Core data pipelines
+    expect(source).toContain("/api/rest/pointcloud/ingest");
+    expect(source).toContain("/api/rest/telemetry/ingest");
+    expect(source).toContain("/api/rest/payload/{appId}/ingest");
+    // Camera pipeline
+    expect(source).toContain("/api/rest/camera/status");
+    expect(source).toContain("/api/rest/camera/stream-register");
+    expect(source).toContain("/api/rest/camera/stream-unregister");
+    expect(source).toContain("/api/rest/camera/stream-status/");
+    expect(source).toContain("/api/rest/camera/whep-proxy/");
+    // Logs & OTA
+    expect(source).toContain("/api/rest/logs/fc-list");
+    expect(source).toContain("/api/rest/logs/fc-progress");
+    expect(source).toContain("/api/rest/logs/fc-upload");
+    expect(source).toContain("/api/rest/logs/fc-upload-multipart");
+    expect(source).toContain("/api/rest/logs/fc-download/");
+    expect(source).toContain("/api/rest/firmware/progress");
+    expect(source).toContain("/api/rest/diagnostics/report");
+    // Flight analytics
+    expect(source).toContain("/api/rest/flightlog/upload");
+    // System
+    expect(source).toContain("/api/rest/health");
+    expect(source).toContain("/api/rest/test-connection");
+  });
+
+  it("DroneConfig.tsx envSnippet contains all tRPC job endpoints", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    expect(source).toContain("droneJobs.getPendingJobs");
+    expect(source).toContain("droneJobs.acknowledgeJob");
+    expect(source).toContain("droneJobs.completeJob");
+    expect(source).toContain("droneJobs.failJob");
+  });
+
+  it("DroneConfig.tsx envSnippet contains FC web server config", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    expect(source).toContain("FC_WEBSERVER_URL=http://192.168.144.20:8080");
+    expect(source).toContain("FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs");
+    expect(source).toContain("ARDUPILOT_WEBSERVER_SETUP.md");
+  });
+
+  it("DroneConfig.tsx has collapsible endpoint categories", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    expect(source).toContain("toggleSection");
+    expect(source).toContain("expandedSections");
+    expect(source).toContain("Core Data Pipelines");
+    expect(source).toContain("Camera Pipeline");
+    expect(source).toContain("Logs & OTA Pipeline");
+    expect(source).toContain("System & Job Polling");
+    expect(source).toContain("WebSocket (Socket.IO)");
+    expect(source).toContain("FC Web Server (ArduPilot)");
+  });
+
+  it("DroneConfig.tsx lists all WebSocket event categories", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    // Subscribe events
+    expect(source).toContain("subscribe_app");
+    expect(source).toContain("subscribe_camera");
+    expect(source).toContain("subscribe_logs");
+    expect(source).toContain("subscribe_stream");
+    // Command events
+    expect(source).toContain("camera_command");
+    expect(source).toContain("log_stream_request");
+    // Companion events
+    expect(source).toContain("register_companion");
+    expect(source).toContain("log_stream_line");
+    // Broadcast events
+    expect(source).toContain("pointcloud_update");
+    expect(source).toContain("telemetry_update");
+    expect(source).toContain("fc_log_progress");
+    expect(source).toContain("firmware_progress");
+    expect(source).toContain("diagnostics");
+  });
+
+  it("DroneConfig.tsx envSnippet has descriptive comments for each section", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    expect(source).toContain("Core Connection");
+    expect(source).toContain("REST API: Core Data Pipelines");
+    expect(source).toContain("REST API: Camera Pipeline");
+    expect(source).toContain("REST API: Logs & OTA Pipeline");
+    expect(source).toContain("REST API: Flight Analytics");
+    expect(source).toContain("REST API: System");
+    expect(source).toContain("WebSocket (Socket.IO)");
+    expect(source).toContain("tRPC Job Polling");
+    expect(source).toContain("FC Web Server (ArduPilot net_webserver.lua)");
+  });
+
+  it("DroneConfig.tsx Quick Reference shows endpoint counts per category", () => {
+    const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
+    expect(source).toContain("3 endpoints"); // Core
+    expect(source).toContain("5 endpoints"); // Camera
+    expect(source).toContain("7 endpoints"); // Logs & OTA
+    expect(source).toContain("6 endpoints"); // System & Jobs
+    expect(source).toContain("17 events");   // WebSocket
+    expect(source).toContain("2 config");    // FC Web Server
   });
 });

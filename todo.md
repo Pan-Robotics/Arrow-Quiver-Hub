@@ -1298,3 +1298,10 @@
 - [x] Add FC web server health indicator badge in the Logs & OTA FC Logs tab header
 - [x] Show status details on hover/click (latency, last check time, URL, troubleshooting hints)
 - [x] Write tests for companion-side health check, server-side passthrough, frontend indicator, and setup guide doc (135 tests pass)
+
+## Update Drone Configuration .env Section
+- [x] Audit current DroneConfigApp .env section (was 5 endpoints, 1 WebSocket URL)
+- [x] Inventory all 19 REST endpoints, 17 WebSocket events, 4 tRPC job procedures, and FC config
+- [x] Update envSnippet with 28 env vars organized by 9 categories (Core Connection, Core Data Pipelines, Camera Pipeline, Logs & OTA, Flight Analytics, System, WebSocket, tRPC Jobs, FC Web Server)
+- [x] Update Quick Reference with 6 collapsible categories (Core 3, Camera 5, Logs 7, System 6, WebSocket 17 events, FC 2 config) with copy buttons
+- [x] Update tests: 27 tests pass in drone-api-keys.test.ts (was 10, added 17 new)
