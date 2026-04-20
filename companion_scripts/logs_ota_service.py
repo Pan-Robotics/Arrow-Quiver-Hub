@@ -1440,7 +1440,7 @@ class LogsOtaJobHandler:
 class DiagnosticsCollector:
     """
     Collects system health metrics from the Raspberry Pi.
-    Reports CPU, memory, disk, temperature, and service status.
+    Reports CPU, memory, disk, temperature, service status, and FC web server health.
     """
 
     # Services to monitor (systemd unit names)
@@ -1451,6 +1451,9 @@ class DiagnosticsCollector:
         "logs-ota.service",
         "quiver-hub-client.service",
     ]
+
+    def __init__(self, fc_webserver_url: str = None):
+        self.fc_webserver_url = fc_webserver_url
 
     def collect(self) -> dict:
         """Collect a system diagnostics snapshot."""
@@ -1545,6 +1548,29 @@ class DiagnosticsCollector:
             except Exception:
                 services[svc.replace(".service", "")] = "unknown"
         diag["services"] = services
+
+        # FC web server health check (HTTP ping)
+        if self.fc_webserver_url and requests:
+            fc_ws: dict = {
+                "url": self.fc_webserver_url,
+                "reachable": False,
+                "latency_ms": None,
+                "last_checked": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            try:
+                start = time.monotonic()
+                resp = requests.head(
+                    self.fc_webserver_url,
+                    timeout=3,
+                    allow_redirects=False,
+                )
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                fc_ws["reachable"] = resp.status_code < 500
+                fc_ws["latency_ms"] = elapsed_ms
+                logger.debug(f"FC web server reachable: {resp.status_code} in {elapsed_ms}ms")
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"FC web server unreachable: {e}")
+            diag["fc_webserver"] = fc_ws
 
         return diag
 
@@ -1678,7 +1704,9 @@ class LogsOtaService:
         )
         self.job_handler = LogsOtaJobHandler(self.hub, self.ftp,
                                               log_syncer=self.log_syncer)
-        self.diagnostics = DiagnosticsCollector()
+        self.diagnostics = DiagnosticsCollector(
+            fc_webserver_url=self.log_syncer.fc_url
+        )
         self.drone_id = drone_id
         self.hub_url = hub_url
         self.api_key = api_key

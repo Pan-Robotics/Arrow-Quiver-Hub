@@ -1285,3 +1285,16 @@
 - [x] Update COMPANION_SERVICES.md: add FCLogSyncer class, update features/job tables with three-tier resolution, add --fc-webserver-url and --log-store-dir CLI args
 - [x] Update docs/README.md: update LOGS_OTA_PIPELINE description with net_webserver.lua mention
 - [x] Update JOB_SECURITY_ANALYSIS.md: note HTTP-based log access (net_webserver.lua) as primary path with MAVFTP fallback
+
+## ArduPilot net_webserver.lua Setup Guide
+- [x] Create setup guide doc covering: enabling Lua scripting, copying applet, configuring WEB_BIND_PORT, network setup, verification steps
+- [x] Add troubleshooting section for common issues (script not loading, port conflicts, network unreachable)
+- [x] Update docs/README.md index with new guide
+
+## FC Web Server Connectivity Health Check
+- [x] Add companion-side HTTP ping to FC web server (port 8080) in diagnostics collector
+- [x] Include fc_webserver_status in diagnostics payload (reachable, unreachable, latency_ms, last_checked)
+- [x] Extend existing diagnostics/report REST endpoint and broadcastDiagnostics to pass through fc_webserver field
+- [x] Add FC web server health indicator badge in the Logs & OTA FC Logs tab header
+- [x] Show status details on hover/click (latency, last check time, URL, troubleshooting hints)
+- [x] Write tests for companion-side health check, server-side passthrough, frontend indicator, and setup guide doc (135 tests pass)

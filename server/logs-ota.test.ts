@@ -648,3 +648,178 @@ describe("FC Log Download to PC - Frontend", () => {
     expect(source).toContain("pendingBrowserDownloads.current.add(variables.logId)");
   });
 });
+
+// ─── FC Web Server Health Check - Companion Script ─────────────────────────
+
+describe("FC Web Server Health Check - Companion Script", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("DiagnosticsCollector accepts fc_webserver_url in __init__", () => {
+    expect(source).toContain("def __init__(self, fc_webserver_url");
+    expect(source).toContain("self.fc_webserver_url = fc_webserver_url");
+  });
+
+  it("performs HTTP HEAD ping to FC web server in collect()", () => {
+    expect(source).toContain("requests.head(");
+    expect(source).toContain("self.fc_webserver_url");
+    expect(source).toContain("timeout=3");
+  });
+
+  it("reports fc_webserver dict with reachable, latency_ms, url, last_checked", () => {
+    expect(source).toContain('"fc_webserver"');
+    expect(source).toContain('"reachable"');
+    expect(source).toContain('"latency_ms"');
+    expect(source).toContain('"last_checked"');
+    expect(source).toContain('"url"');
+  });
+
+  it("measures latency using time.monotonic()", () => {
+    expect(source).toContain("time.monotonic()");
+    expect(source).toContain("elapsed_ms");
+  });
+
+  it("handles RequestException gracefully when FC is unreachable", () => {
+    expect(source).toContain("requests.exceptions.RequestException");
+    expect(source).toContain("FC web server unreachable");
+  });
+
+  it("passes fc_webserver_url from log_syncer to DiagnosticsCollector", () => {
+    expect(source).toContain("fc_webserver_url=self.log_syncer.fc_url");
+  });
+});
+
+// ─── FC Web Server Health Check - Server Side ──────────────────────────────
+
+describe("FC Web Server Health Check - Server Side", () => {
+  const restSource = fs.readFileSync("./server/rest-api.ts", "utf-8");
+  const wsSource = fs.readFileSync("./server/websocket.ts", "utf-8");
+
+  it("REST diagnostics/report endpoint accepts fc_webserver field", () => {
+    expect(restSource).toContain("fc_webserver");
+  });
+
+  it("broadcasts fcWebserver in diagnostics event", () => {
+    expect(restSource).toContain("fcWebserver: fc_webserver");
+  });
+
+  it("broadcastDiagnostics type includes fcWebserver field", () => {
+    expect(wsSource).toContain("fcWebserver?:");
+    expect(wsSource).toContain("reachable: boolean");
+    expect(wsSource).toContain("latency_ms: number | null");
+    expect(wsSource).toContain("last_checked: string");
+  });
+});
+
+// ─── FC Web Server Health Check - Frontend ─────────────────────────────────
+
+describe("FC Web Server Health Check - Frontend", () => {
+  const source = fs.readFileSync("./client/src/components/apps/LogsOtaApp.tsx", "utf-8");
+
+  it("defines FcWebserverHealth interface", () => {
+    expect(source).toContain("interface FcWebserverHealth");
+    expect(source).toContain("reachable: boolean");
+    expect(source).toContain("latency_ms: number | null");
+    expect(source).toContain("last_checked: string");
+  });
+
+  it("adds fcWebserver field to DiagnosticsEvent interface", () => {
+    expect(source).toContain("fcWebserver?: FcWebserverHealth | null");
+  });
+
+  it("tracks FC web server health state in FcLogsTab", () => {
+    expect(source).toContain("fcWebserverHealth, setFcWebserverHealth");
+    expect(source).toContain("useState<FcWebserverHealth | null>(null)");
+  });
+
+  it("listens for diagnostics events to update FC webserver health", () => {
+    expect(source).toContain("data.fcWebserver !== undefined");
+    expect(source).toContain("setFcWebserverHealth(data.fcWebserver");
+  });
+
+  it("renders FC Web health indicator with Globe icon", () => {
+    expect(source).toContain("<Globe");
+    expect(source).toContain("FC Web");
+  });
+
+  it("shows green dot when FC web server is reachable", () => {
+    expect(source).toContain("fcWebserverHealth.reachable");
+    expect(source).toContain("bg-green-500");
+  });
+
+  it("shows red dot when FC web server is unreachable", () => {
+    expect(source).toContain("bg-red-500");
+  });
+
+  it("shows gray dot when status is unknown (null)", () => {
+    expect(source).toContain("bg-zinc-500");
+  });
+
+  it("displays latency in milliseconds when reachable", () => {
+    expect(source).toContain("fcWebserverHealth.latency_ms");
+    expect(source).toContain("ms</span>");
+  });
+
+  it("shows tooltip with troubleshooting hints when unreachable", () => {
+    expect(source).toContain("FC Web Server Unreachable");
+    expect(source).toContain("WEB_ENABLE=1");
+    expect(source).toContain("MAVFTP (slower)");
+  });
+
+  it("shows tooltip with URL and latency when reachable", () => {
+    expect(source).toContain("FC Web Server Reachable");
+    expect(source).toContain("fcWebserverHealth.url");
+  });
+});
+
+// ─── ArduPilot Setup Guide Documentation ───────────────────────────────────
+
+describe("ArduPilot net_webserver.lua Setup Guide", () => {
+  const source = fs.readFileSync("./docs/ARDUPILOT_WEBSERVER_SETUP.md", "utf-8");
+
+  it("exists and has a title", () => {
+    expect(source).toContain("# ArduPilot net_webserver.lua Setup Guide");
+  });
+
+  it("covers SCR_ENABLE parameter setup", () => {
+    expect(source).toContain("SCR_ENABLE");
+    expect(source).toContain("SCR_VM_I_COUNT");
+    expect(source).toContain("SCR_HEAP_SIZE");
+  });
+
+  it("covers WEB_ENABLE and WEB_BIND_PORT parameters", () => {
+    expect(source).toContain("WEB_ENABLE");
+    expect(source).toContain("WEB_BIND_PORT");
+    expect(source).toContain("8080");
+  });
+
+  it("covers FC networking parameters", () => {
+    expect(source).toContain("NET_ENABLE");
+    expect(source).toContain("NET_IPADDR");
+    expect(source).toContain("192.168.144.20");
+  });
+
+  it("includes verification steps", () => {
+    expect(source).toContain("## 3. Verification");
+    expect(source).toContain("curl");
+    expect(source).toContain("/mnt/APM/LOGS/");
+  });
+
+  it("documents Quiver Hub integration and three-tier resolution", () => {
+    expect(source).toContain("FCLogSyncer");
+    expect(source).toContain("three-tier");
+    expect(source).toContain("--fc-webserver-url");
+    expect(source).toContain("--log-store-dir");
+  });
+
+  it("includes troubleshooting section", () => {
+    expect(source).toContain("## 5. Troubleshooting");
+    expect(source).toContain("Script Not Loading");
+    expect(source).toContain("Web Server Unreachable");
+  });
+
+  it("is listed in docs/README.md index", () => {
+    const index = fs.readFileSync("./docs/README.md", "utf-8");
+    expect(index).toContain("ARDUPILOT_WEBSERVER_SETUP.md");
+    expect(index).toContain("Setup Guides");
+  });
+});

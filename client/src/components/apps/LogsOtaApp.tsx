@@ -60,6 +60,8 @@ import {
   ArrowDown,
   BarChart3,
   Save,
+  Globe,
+  Signal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
@@ -130,6 +132,13 @@ interface FirmwareProgressEvent {
   errorMessage?: string;
 }
 
+interface FcWebserverHealth {
+  url: string;
+  reachable: boolean;
+  latency_ms: number | null;
+  last_checked: string;
+}
+
 interface DiagnosticsEvent {
   drone_id: string;
   cpuPercent?: number;
@@ -139,6 +148,7 @@ interface DiagnosticsEvent {
   uptimeSeconds?: number;
   services?: Record<string, string>;
   network?: Record<string, any>;
+  fcWebserver?: FcWebserverHealth | null;
   timestamp: string;
 }
 
@@ -260,6 +270,25 @@ function FcLogsTab({
     onError: (e) => toast.error(`Delete failed: ${e.message}`),
   });
 
+  // ─── FC Web Server Health ─────────────────────────────────────────────
+  const [fcWebserverHealth, setFcWebserverHealth] = useState<FcWebserverHealth | null>(null);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleDiag = (data: DiagnosticsEvent) => {
+      if (data.drone_id !== droneId) return;
+      if (data.fcWebserver !== undefined) {
+        setFcWebserverHealth(data.fcWebserver ?? null);
+      }
+    };
+
+    socket.on("diagnostics", handleDiag);
+    return () => {
+      socket.off("diagnostics", handleDiag);
+    };
+  }, [socket, droneId]);
+
   const sendToAnalyticsMutation = trpc.fcLogs.sendToAnalytics.useMutation({
     onSuccess: (data) => {
       toast.success(`"${data.filename}" sent to Flight Analytics`, {
@@ -361,6 +390,47 @@ function FcLogsTab({
             Scan and download .BIN log files from the FC SD card
           </p>
         </div>
+        <div className="flex items-center gap-3">
+          {/* FC Web Server Health Indicator */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium cursor-default">
+                <Globe size={13} />
+                <span>FC Web</span>
+                {fcWebserverHealth === null ? (
+                  <span className="inline-block w-2 h-2 rounded-full bg-zinc-500" />
+                ) : fcWebserverHealth.reachable ? (
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                ) : (
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                )}
+                {fcWebserverHealth?.reachable && fcWebserverHealth.latency_ms !== null && (
+                  <span className="text-muted-foreground">{fcWebserverHealth.latency_ms}ms</span>
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              {fcWebserverHealth === null ? (
+                <p>FC web server status unknown. Waiting for diagnostics data from the companion.</p>
+              ) : fcWebserverHealth.reachable ? (
+                <div className="space-y-1">
+                  <p className="font-medium text-green-400">FC Web Server Reachable</p>
+                  <p className="text-xs">URL: {fcWebserverHealth.url}</p>
+                  <p className="text-xs">Latency: {fcWebserverHealth.latency_ms}ms</p>
+                  <p className="text-xs text-muted-foreground">Last checked: {new Date(fcWebserverHealth.last_checked).toLocaleTimeString()}</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="font-medium text-red-400">FC Web Server Unreachable</p>
+                  <p className="text-xs">URL: {fcWebserverHealth.url}</p>
+                  <p className="text-xs text-muted-foreground">Log downloads will fall back to MAVFTP (slower).</p>
+                  <p className="text-xs text-muted-foreground">Check: WEB_ENABLE=1, WEB_BIND_PORT, network cable.</p>
+                  <p className="text-xs text-muted-foreground">Last checked: {new Date(fcWebserverHealth.last_checked).toLocaleTimeString()}</p>
+                </div>
+              )}
+            </TooltipContent>
+          </Tooltip>
+
         <Button
           onClick={() => scanMutation.mutate({ droneId })}
           disabled={scanMutation.isPending}
@@ -374,6 +444,7 @@ function FcLogsTab({
           )}
           Scan FC
         </Button>
+        </div>
       </div>
 
       {isLoading ? (

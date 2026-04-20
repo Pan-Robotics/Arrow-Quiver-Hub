@@ -1353,7 +1353,7 @@ router.post("/firmware/progress", async (req: Request, res: Response) => {
  */
 router.post("/diagnostics/report", async (req: Request, res: Response) => {
   try {
-    const { api_key, drone_id, cpu_percent, memory_percent, disk_percent, cpu_temp_c, uptime_seconds, services, network } = req.body;
+    const { api_key, drone_id, cpu_percent, memory_percent, disk_percent, cpu_temp_c, uptime_seconds, services, network, fc_webserver } = req.body;
 
     if (!api_key || !drone_id) {
       return res.status(400).json({
@@ -1394,6 +1394,7 @@ router.post("/diagnostics/report", async (req: Request, res: Response) => {
       uptimeSeconds: uptime_seconds,
       services,
       network,
+      fcWebserver: fc_webserver ?? null,
       timestamp: new Date().toISOString(),
     });
 

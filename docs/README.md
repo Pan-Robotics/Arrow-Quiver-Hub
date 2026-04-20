@@ -12,6 +12,12 @@ This directory contains all architecture documents, pipeline references, and spe
 | [Quiver_Camera_Feed_Architecture.md](architecture/Quiver_Camera_Feed_Architecture.md) | Camera feed pipeline — SIYI A8 Mini, go2rtc, Tailscale funnel, WebRTC signaling, gimbal control protocol |
 | [flight-analytics-integration-analysis.md](architecture/flight-analytics-integration-analysis.md) | Integration analysis mapping the Flight-Log-Analyser tool to Quiver Hub infrastructure — parser reuse, chart rendering, storage, and implementation phases |
 
+## Setup Guides
+
+| Document | Description |
+|---|---|
+| [ARDUPILOT_WEBSERVER_SETUP.md](ARDUPILOT_WEBSERVER_SETUP.md) | ArduPilot `net_webserver.lua` setup guide — enabling Lua scripting, configuring `WEB_BIND_PORT`, network setup, verification steps, Quiver Hub integration, and troubleshooting |
+
 ## Pipeline References
 
 | Document | Description |

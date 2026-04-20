@@ -352,6 +352,12 @@ export function broadcastDiagnostics(droneId: string, data: {
   uptimeSeconds?: number;
   services?: Record<string, string>;
   network?: Record<string, any>;
+  fcWebserver?: {
+    url: string;
+    reachable: boolean;
+    latency_ms: number | null;
+    last_checked: string;
+  } | null;
   timestamp: string;
 }) {
   if (!io) return;
