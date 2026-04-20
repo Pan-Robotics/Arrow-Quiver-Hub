@@ -16,7 +16,7 @@ This directory contains all architecture documents, pipeline references, and spe
 
 | Document | Description |
 |---|---|
-| [LOGS_OTA_PIPELINE.md](LOGS_OTA_PIPELINE.md) | Logs & OTA Updates pipeline — FC log scan/download via MAVFTP (multipart upload, download-to-PC proxy), OTA firmware flash, system diagnostics, remote log streaming, and "Send to Flight Analytics" integration |
+| [LOGS_OTA_PIPELINE.md](LOGS_OTA_PIPELINE.md) | Logs & OTA Updates pipeline — FC log scan/download via HTTP (`net_webserver.lua`) with MAVFTP fallback, multipart upload, download-to-PC proxy, OTA firmware flash, system diagnostics, remote log streaming, and "Send to Flight Analytics" integration |
 
 ## Specifications
 

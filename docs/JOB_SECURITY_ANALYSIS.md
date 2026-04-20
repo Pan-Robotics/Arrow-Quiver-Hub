@@ -38,8 +38,8 @@ Five job types currently exist in the system, consumed by two different companio
 |----------|----------|---------|------------|
 | `upload_file` | `raspberry_pi_client.py` | `{ fileId, fileUrl, filename }` | Medium — writes files to Pi filesystem |
 | `update_config` | `raspberry_pi_client.py` | `{ configPath, configData }` | Medium — modifies service configuration |
-| `scan_fc_logs` | `logs_ota_service.py` | `{ logPath }` | Low — read-only directory listing |
-| `download_fc_log` | `logs_ota_service.py` | `{ logId, remotePath, filename }` | Low — read from FC, upload to Hub |
+| `scan_fc_logs` | `logs_ota_service.py` | `{ logPath }` | Low — read-only directory listing (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback) |
+| `download_fc_log` | `logs_ota_service.py` | `{ logId, remotePath, filename }` | Low — read from FC (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback), upload to Hub |
 | `flash_firmware` | `logs_ota_service.py` | `{ updateId, firmwareUrl, filename }` | **Critical** — writes to FC SD card, triggers reboot |
 
 ### 2.3 Current Security Controls

@@ -40,8 +40,21 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 │  raspberry_pi_client.py → tRPC droneJobs.getPendingJobs (polling)    │
 │  camera_stream_service.py → POST /api/rest/camera/stream-register    │
 │  siyi_camera_controller.py → Socket.IO (gimbal commands/status)      │
-│  logs_ota_service.py → REST + Socket.IO (logs, OTA, diagnostics, remote logs)     │
-│  (supports multipart upload for FC logs with base64 fallback)                    │
+│  logs_ota_service.py → REST + Socket.IO (logs, OTA, diagnostics)     │
+│    ├─ FCLogSyncer: HTTP GET from FC net_webserver (primary)          │
+│    ├─ Multipart upload to Hub S3 (preferred, base64 fallback)        │
+│    └─ MAVFTP fallback if FC webserver unreachable                    │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │  HTTP (port 8080)
+┌──────────────────────────────┴───────────────────────────────────────┐
+│              Flight Controller (ArduPilot + net_webserver.lua)        │
+│                                                                      │
+│  net_webserver.lua — Lua scripting applet (AP_Scripting)             │
+│    Serves SD card files over HTTP on port 8080 (WEB_BIND_PORT)       │
+│    /mnt/APM/LOGS/ → HTML directory listing of .BIN log files         │
+│    /mnt/APM/LOGS/00000042.BIN → direct file download                 │
+│    / → status page (firmware, uptime, arm state, GPS)                │
+│  Also accessible via MAVLink/MAVFTP (serial or TCP, used as fallback)│
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -56,6 +69,7 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 | Authentication | Manus OAuth + JWT (users); per-drone API keys (companion computers) |
 | Parser Runtime | Python 3.11 subprocess sandbox (custom app parsers) |
 | Companion Scripts | Python 3.11 with MAVSDK, aiohttp, python-socketio, psutil |
+| FC Web Server | ArduPilot [net_webserver.lua](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) (Lua scripting applet, port 8080) |
 
 ### Key Directories
 
@@ -143,7 +157,7 @@ Post-flight log analysis with a full ArduPilot DataFlash binary parser running i
 
 Four-tab interface for remote flight controller management and companion computer monitoring, powered by the `logs_ota_service.py` companion script:
 
-**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files via MAVFTP, download them to S3, and view/download from the browser. Completed logs can be saved directly to the user's PC via a server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) that streams from S3 with `Content-Disposition: attachment`. For logs still on the FC, the download button dispatches the companion job and auto-triggers the browser download once the upload completes. Completed logs can also be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). The companion script supports both multipart file upload (preferred, no base64 overhead) and base64 JSON upload (backward-compatible fallback). Real-time download progress via WebSocket.
+**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files. The primary data path uses HTTP via the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet running on the FC (port 8080): the `FCLogSyncer` class in `logs_ota_service.py` parses the HTML directory listing at `/mnt/APM/LOGS/`, downloads files to a local cache on the Pi, and uploads them to Hub S3. MAVFTP is retained as a fallback when the FC web server is unreachable. Completed logs can be saved directly to the user's PC via a server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) that streams from S3 with `Content-Disposition: attachment`. For logs still on the FC, the download button dispatches the companion job and auto-triggers the browser download once the upload completes. Completed logs can also be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). The companion script supports both multipart file upload (preferred, no base64 overhead) and base64 JSON upload (backward-compatible fallback). Real-time download progress via WebSocket.
 
 **OTA Updates** — Upload firmware files (`.abin`/`.apj`, max 50 MB) and flash them to the flight controller via MAVFTP. Monitors the ArduPilot firmware rename sequence (`ardupilot.abin` → `ardupilot-verify.abin` → `ardupilot-flash.abin` → `ardupilot-flashed.abin`) with real-time progress. Includes a safety warning dialog before flashing.
 
@@ -219,8 +233,8 @@ A polling-based job queue pushes tasks to the companion computer. Jobs follow a 
 | `upload_file` | Download a file from S3 to a target path on the Pi | `raspberry_pi_client.py` |
 | `update_config` | Update configuration files | `raspberry_pi_client.py` |
 | `restart_service` | Restart a systemd service | `raspberry_pi_client.py` |
-| `scan_fc_logs` | Scan FC SD card for log files via MAVFTP | `logs_ota_service.py` |
-| `download_fc_log` | Download a specific FC log via MAVFTP and upload to Hub | `logs_ota_service.py` |
+| `scan_fc_logs` | List FC log files — reads from local cache (instant) or on-demand HTTP listing from FC `net_webserver.lua`, MAVFTP fallback | `logs_ota_service.py` |
+| `download_fc_log` | Download FC log — serves from local cache, or on-demand HTTP download from FC `net_webserver.lua`, MAVFTP fallback; uploads to Hub S3 via multipart (preferred) or base64 | `logs_ota_service.py` |
 | `flash_firmware` | Flash firmware to FC via MAVFTP with stage monitoring | `logs_ota_service.py` |
 
 ### Relay Configuration
@@ -435,7 +449,7 @@ MIT License
 ## Acknowledgments
 
 - **RPLidar C1** by SLAMTEC
-- **ArduPilot** DataFlash log format and MAVFTP protocol
+- **ArduPilot** DataFlash log format, MAVFTP protocol, and [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) HTTP file server
 - **MAVSDK** for flight controller communication
 - **SIYI** A8 Mini gimbal camera SDK
 - **shadcn/ui** for UI components

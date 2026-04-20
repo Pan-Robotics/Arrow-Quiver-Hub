@@ -22,6 +22,7 @@ The system connects to one or more companion computers (typically Raspberry Pi u
 | File Storage | S3-compatible object storage (flight logs, drone files, media) |
 | Authentication | Manus OAuth with JWT session cookies (users); per-drone API keys (companion computers) |
 | Parser Runtime | Python 3.11 subprocess sandbox (custom app payload parsing) |
+| FC Web Server | ArduPilot [net_webserver.lua](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) (Lua scripting applet, port 8080) |
 
 ---
 
@@ -64,7 +65,7 @@ The architecture consists of three tiers: the browser-based frontend, the Node.j
 
 ### Data Flow Summary
 
-The five primary data flows are as follows. First, **companion-to-hub ingestion**: Python relay scripts on the Pi POST sensor data to REST endpoints, authenticated via per-drone API keys. This covers LiDAR point clouds, MAVLink/UAVCAN telemetry, camera status, FC log files, firmware flash progress, and system diagnostics. Second, **hub-to-browser broadcast**: the server validates incoming data, stores metadata in MySQL, and broadcasts payloads over Socket.IO to all subscribed browser clients. Third, **browser-to-hub operations**: the React frontend calls tRPC procedures for CRUD operations (drone management, log uploads, app configuration) and receives real-time data via Socket.IO subscriptions. Fourth, **hub-to-companion commands**: the drone jobs system enables reverse communication — the web UI creates jobs (file uploads, config changes, FC log scans, FC log downloads, firmware flashes), and the Pi polls for pending jobs and executes them. Fifth, **bidirectional log streaming**: the browser requests journalctl output from a specific companion service via Socket.IO; the Hub relays the request to the companion, which spawns a `journalctl -f` subprocess and streams lines back through the Hub to the browser in real-time.
+The six primary data flows are as follows. First, **FC-to-companion log sync**: the `FCLogSyncer` class in `logs_ota_service.py` downloads flight log files from the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet running on the flight controller (HTTP on port 8080), caching them locally on the Pi for instant access; MAVFTP over MAVLink is used as a fallback when the web server is unreachable. Second, **companion-to-hub ingestion**: Python relay scripts on the Pi POST sensor data to REST endpoints, authenticated via per-drone API keys. This covers LiDAR point clouds, MAVLink/UAVCAN telemetry, camera status, FC log files, firmware flash progress, and system diagnostics. Third, **hub-to-browser broadcast**: the server validates incoming data, stores metadata in MySQL, and broadcasts payloads over Socket.IO to all subscribed browser clients. Fourth, **browser-to-hub operations**: the React frontend calls tRPC procedures for CRUD operations (drone management, log uploads, app configuration) and receives real-time data via Socket.IO subscriptions. Fifth, **hub-to-companion commands**: the drone jobs system enables reverse communication — the web UI creates jobs (file uploads, config changes, FC log scans, FC log downloads, firmware flashes), and the Pi polls for pending jobs and executes them. Sixth, **bidirectional log streaming**: the browser requests journalctl output from a specific companion service via Socket.IO; the Hub relays the request to the companion, which spawns a `journalctl -f` subprocess and streams lines back through the Hub to the browser in real-time.
 
 ---
 
@@ -160,11 +161,11 @@ An administration panel for managing drones and their connectivity, also accessi
 
 ### 3.7 Logs & OTA Updates
 
-A four-tab interface for flight controller log management, over-the-air firmware updates, companion computer diagnostics, and remote log streaming. The companion script (`logs_ota_service.py`) bridges the flight controller and the Hub using MAVSDK/MAVFTP.
+A four-tab interface for flight controller log management, over-the-air firmware updates, companion computer diagnostics, and remote log streaming. The companion script (`logs_ota_service.py`) bridges the flight controller and the Hub. The primary FC log access path uses HTTP via the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet (a Lua scripting applet that serves the FC's SD card over HTTP on port 8080), with MAVSDK/MAVFTP retained as a fallback. The `FCLogSyncer` class runs a background sync loop that downloads log files from the FC web server to a local cache on the Pi, enabling instant access for scan and download jobs without blocking the MAVLink connection.
 
 | Feature | Description |
 |---|---|
-| FC Logs | Scan FC SD card via MAVFTP, download `.BIN`/`.log` files to S3 (multipart upload with base64 fallback), track progress in real-time, save completed logs to local PC via download proxy, send completed logs to Flight Analytics |
+| FC Logs | Three-tier log access: local cache → HTTP via FC `net_webserver.lua` (port 8080) → MAVFTP fallback. Download `.BIN`/`.log` files to S3 (multipart upload with base64 fallback), track progress in real-time, save completed logs to local PC via download proxy, send completed logs to Flight Analytics |
 | OTA Firmware Flash | Upload `.abin`/`.apj` firmware, flash to FC via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed) |
 | System Diagnostics | Live CPU, memory, disk, temperature gauges; systemd service status grid; network interface table |
 | Remote Logs | Stream journalctl output from any companion service in a terminal-style viewer |

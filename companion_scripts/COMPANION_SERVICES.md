@@ -134,7 +134,7 @@ UPDATE_RATE=2               # Hz
 
 ### Overview
 
-A comprehensive companion service that bridges the flight controller and the Hub for four functions: FC log management, OTA firmware updates, system diagnostics, and remote log streaming. It uses MAVSDK/MAVFTP for flight controller communication and Socket.IO for real-time bidirectional data.
+A comprehensive companion service that bridges the flight controller and the Hub for five functions: FC log background sync, FC log management, OTA firmware updates, system diagnostics, and remote log streaming. The primary FC log access path uses HTTP via the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet (a Lua scripting applet that serves the FC's SD card over HTTP on port 8080), with MAVSDK/MAVFTP retained as a fallback. Socket.IO handles real-time bidirectional data.
 
 **Security features:** SHA-256 artefact integrity verification before firmware flash, mutex-locked job acknowledgement, automatic artefact cleanup after flash, and superuser permission checks at startup.
 
@@ -142,8 +142,9 @@ A comprehensive companion service that bridges the flight controller and the Hub
 
 | Feature | Description |
 |---|---|
-| FC Log Scan | List log files on the FC SD card via MAVFTP directory listing |
-| FC Log Download | Download `.BIN`/`.log` files from the FC via MAVFTP, upload to Hub S3 via multipart form-data (preferred, ~33% faster) with base64 JSON fallback |
+| FC Log Background Sync | `FCLogSyncer` class runs a 60-second background loop (only when drone is disarmed) that parses the HTML directory listing from `net_webserver.lua` at `/mnt/APM/LOGS/`, compares against a local JSON manifest, and downloads new/changed files using `If-Modified-Since` headers to `/var/lib/quiver/fc_logs/` |
+| FC Log Scan | Three-tier resolution: local cache (instant) → HTTP listing from FC `net_webserver.lua` (primary) → MAVFTP fallback |
+| FC Log Download | Three-tier resolution: local cache → HTTP download from FC `net_webserver.lua` (primary, also caches locally) → MAVFTP fallback. Upload to Hub S3 via multipart form-data (preferred, ~33% faster) with base64 JSON fallback |
 | OTA Firmware Flash | Download firmware from Hub S3, **verify SHA-256 hash**, upload to FC as `ardupilot.abin` via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed), **clean up temp file** |
 | System Diagnostics | Collect CPU, memory, disk, temperature, network, and systemd service status every 10 seconds |
 | Remote Log Streaming | Stream journalctl output from any companion service to the browser in real-time |
@@ -152,8 +153,8 @@ A comprehensive companion service that bridges the flight controller and the Hub
 
 | Job Type | Trigger | Description |
 |---|---|---|
-| `scan_fc_logs` | FC Logs tab → "Scan FC Logs" button | Lists `/APM/LOGS/` directory and reports discovered files |
-| `download_fc_log` | FC Logs tab → download button on a log row | Downloads the file to a temp directory, uploads via multipart form-data to `fc-upload-multipart` (preferred), falls back to base64 JSON `fc-upload` if unavailable |
+| `scan_fc_logs` | FC Logs tab → "Scan FC Logs" button | Reads from local cache first (instant); on-demand HTTP listing from FC `net_webserver.lua` if cache is stale; MAVFTP fallback if web server unreachable |
+| `download_fc_log` | FC Logs tab → download button on a log row | Serves from local cache first; on-demand HTTP download from FC `net_webserver.lua` (also caches locally); MAVFTP fallback. Uploads via multipart form-data to `fc-upload-multipart` (preferred), falls back to base64 JSON `fc-upload` if unavailable |
 | `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, **verifies SHA-256 hash** against server-computed value, uploads to FC, monitors rename stages, cleans up temp file |
 
 ### CLI Arguments
@@ -163,6 +164,8 @@ A comprehensive companion service that bridges the flight controller and the Hub
 --api-key          API key for authentication (required)
 --drone-id         Drone identifier (required)
 --fc-connection    MAVSDK connection URL (default: serial:///dev/ttyAMA1:921600)
+--fc-webserver-url ArduPilot net_webserver.lua URL (default: http://192.168.144.10:8080)
+--log-store-dir    Local directory for cached FC log files (default: /var/lib/quiver/fc_logs/)
 --poll-interval    Job polling interval in seconds (default: 5)
 --diag-interval    Diagnostics reporting interval in seconds (default: 10)
 --no-fc            Run without flight controller connection (diagnostics + log streaming only)
@@ -197,10 +200,11 @@ The diagnostics collector checks the status of these systemd services:
 |---|---|
 | `HubClient` | REST + tRPC communication with the Hub server |
 | `MavFtpClient` | MAVSDK FTP operations (list, download, upload, exists, remove) |
-| `LogsOtaJobHandler` | Implements scan, download, and flash job handlers |
+| `FCLogSyncer` | Background HTTP sync from FC `net_webserver.lua` to local cache; HTML directory parsing, incremental download with `If-Modified-Since`, JSON manifest tracking |
+| `LogsOtaJobHandler` | Implements scan, download, and flash job handlers using three-tier resolution (cache → HTTP → MAVFTP) |
 | `DiagnosticsCollector` | System health metrics via psutil + systemctl |
 | `RemoteLogStreamer` | Manages journalctl subprocess streams via Socket.IO |
-| `LogsOtaService` | Main orchestrator — FC connection, job polling, diagnostics loop |
+| `LogsOtaService` | Main orchestrator — FC connection, job polling, diagnostics loop, FC log background sync |
 
 ---
 

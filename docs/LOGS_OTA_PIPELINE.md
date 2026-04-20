@@ -11,15 +11,17 @@ This document describes the full architecture of the Logs & OTA Updates pipeline
 The pipeline connects three layers: the **flight controller** (ArduPilot running on a Cube Orange or similar), the **companion computer** (Raspberry Pi 4/5 on the drone), and the **Quiver Hub** cloud server. The companion script bridges the FC and the Hub, while the browser connects directly to the Hub for real-time monitoring and control.
 
 ```
-┌─────────────────────┐     MAVFTP/MAVLink      ┌──────────────────────┐
+┌─────────────────────┐  HTTP (8080) + MAVFTP  ┌──────────────────────┐
 │   Flight Controller  │◄──────────────────────►│   Raspberry Pi       │
 │   (ArduPilot)        │   Serial or Ethernet    │   (Companion)        │
 │                      │                          │                      │
-│  • SD card logs      │                          │  logs_ota_service.py │
-│  • Firmware flash    │                          │  • MAVSDK/MAVFTP     │
-│  • ardupilot.abin    │                          │  • Job polling       │
-└─────────────────────┘                          │  • Diagnostics       │
-                                                  │  • Log streaming     │
+│  • net_webserver.lua │  ◄── HTTP GET (primary)    │  logs_ota_service.py │
+│    port 8080         │                          │  • FCLogSyncer       │
+│    /mnt/APM/LOGS/    │                          │    (HTTP log sync)  │
+│  • SD card logs      │  ◄── MAVFTP (fallback)    │  • MAVSDK/MAVFTP     │
+│  • Firmware flash    │                          │  • Job polling       │
+│  • ardupilot.abin    │                          │  • Diagnostics       │
+└─────────────────────┘                          │  • Log streaming     │
                                                   └──────────┬───────────┘
                                                              │
                                                    REST API + Socket.IO
@@ -55,9 +57,15 @@ The pipeline connects three layers: the **flight controller** (ArduPilot running
 
 ### 1. FC Log Scanning and Download
 
-The user clicks **Scan FC Logs** in the browser. This triggers a tRPC mutation that creates a `scan_fc_logs` job in the `droneJobs` queue. The companion script polls for pending jobs every 5 seconds, picks up the scan job, and uses MAVSDK's FTP plugin to list the `/APM/LOGS/` directory on the FC's SD card. The discovered `.BIN` and `.log` files are reported back to the Hub via `POST /api/rest/logs/fc-list`, which upserts them into the `fcLogs` database table.
+The user clicks **Scan FC Logs** in the browser. This triggers a tRPC mutation that creates a `scan_fc_logs` job in the `droneJobs` queue. The companion script polls for pending jobs every 5 seconds, picks up the scan job, and uses a three-tier resolution strategy to list the FC's log files:
 
-When the user clicks **Download** on a specific log, a `download_fc_log` job is created. The companion script downloads the file from the FC via MAVFTP to a temporary local file, then uploads the file to the Hub. The companion first attempts a multipart upload via `POST /api/rest/logs/fc-upload-multipart` (no base64 overhead, approximately 33% faster), and falls back to the legacy base64 JSON endpoint `POST /api/rest/logs/fc-upload` if the multipart endpoint is unavailable. The Hub stores the file in S3 and updates the `fcLogs` record with the S3 URL. Throughout this process, progress is reported via `POST /api/rest/logs/fc-progress` and broadcast to the browser over WebSocket as `fc_log_progress` events.
+1. **Local cache** (instant) — If the `FCLogSyncer` has already synced the FC's `/APM/LOGS/` directory, the manifest is read from disk with no network access.
+2. **HTTP via `net_webserver.lua`** (primary) — The companion issues `GET http://<fc_ip>:8080/mnt/APM/LOGS/` to the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet running on the FC. This Lua scripting applet serves the SD card over HTTP on port 8080 (configurable via `WEB_BIND_PORT`). The companion parses the HTML directory listing to extract filenames, sizes, and timestamps.
+3. **MAVFTP fallback** — If the FC web server is unreachable (`ConnectionError` / `Timeout`), the companion falls back to MAVSDK's FTP plugin to list the directory over MAVLink.
+
+The discovered `.BIN` and `.log` files are reported back to the Hub via `POST /api/rest/logs/fc-list`, which upserts them into the `fcLogs` database table.
+
+When the user clicks **Download** on a specific log, a `download_fc_log` job is created. The companion script uses the same three-tier strategy: it first checks the local cache, then attempts an HTTP download from the FC's `net_webserver.lua` (streaming the `.BIN` file via `GET /mnt/APM/LOGS/<filename>` and caching it locally for future access), and falls back to MAVFTP only if the web server is unreachable. It then uploads the file to the Hub. The companion first attempts a multipart upload via `POST /api/rest/logs/fc-upload-multipart` (no base64 overhead, approximately 33% faster), and falls back to the legacy base64 JSON endpoint `POST /api/rest/logs/fc-upload` if the multipart endpoint is unavailable. The Hub stores the file in S3 and updates the `fcLogs` record with the S3 URL. Throughout this process, progress is reported via `POST /api/rest/logs/fc-progress` and broadcast to the browser over WebSocket as `fc_log_progress` events.
 
 Once a log reaches `completed` status, the user can save it directly to their local PC via the **Save to PC** button. This triggers a browser download through the server-side download proxy at `GET /api/rest/logs/fc-download/:logId`, which authenticates via session cookie, fetches the file from S3, and streams it to the browser with `Content-Disposition: attachment` for a native Save dialog. For logs still on the FC (status `discovered` or `failed`), the **Download from FC** button dispatches the companion job and automatically triggers the browser download once the upload completes.
 
@@ -66,11 +74,15 @@ Once a log reaches `completed` status, the user can save it directly to their lo
 | User clicks "Scan FC Logs" | Browser | `trpc.fcLogs.requestScan` | Browser → Hub |
 | Hub creates job | Hub | `droneJobs` table | Internal |
 | Pi polls for jobs | Pi | `trpc.droneJobs.getPendingJobs` | Pi → Hub |
-| Pi scans FC SD card | Pi | MAVSDK FTP `list_directory` | Pi → FC |
+| Pi reads local cache | Pi | Local manifest JSON | Internal |
+| Pi lists FC logs (primary) | Pi | `GET http://<fc>:8080/mnt/APM/LOGS/` (net_webserver.lua) | Pi → FC |
+| Pi lists FC logs (fallback) | Pi | MAVSDK FTP `list_directory` | Pi → FC |
 | Pi reports discovered logs | Pi | `POST /api/rest/logs/fc-list` | Pi → Hub |
 | Hub broadcasts to browser | Hub | WebSocket `fc_log_progress` | Hub → Browser |
 | User clicks "Download" | Browser | `trpc.fcLogs.requestDownload` | Browser → Hub |
-| Pi downloads from FC | Pi | MAVSDK FTP `download` | Pi ← FC |
+| Pi serves from local cache | Pi | Local file read | Internal |
+| Pi downloads from FC (primary) | Pi | `GET http://<fc>:8080/mnt/APM/LOGS/<file>` (net_webserver.lua) | Pi ← FC |
+| Pi downloads from FC (fallback) | Pi | MAVSDK FTP `download` | Pi ← FC |
 | Pi uploads to Hub (multipart) | Pi | `POST /api/rest/logs/fc-upload-multipart` | Pi → Hub |
 | Pi uploads to Hub (base64 fallback) | Pi | `POST /api/rest/logs/fc-upload` | Pi → Hub |
 | Hub stores in S3 | Hub | `storagePut()` | Internal |
@@ -249,19 +261,21 @@ All events use the `logs:<droneId>` Socket.IO room for scoping.
 
 ## Companion Script (`logs_ota_service.py`)
 
-The companion script is a single-file Python 3 asyncio application (~1200 lines) organized into six classes:
+The companion script is a single-file Python 3 asyncio application (~1900 lines) organized into seven classes:
 
 **`HubClient`** handles all REST and tRPC communication with the Hub server, including job polling, job acknowledgment/completion, FC log reporting, firmware progress reporting, and diagnostics submission.
 
 **`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports.
 
-**`LogsOtaJobHandler`** implements the three job types: `handle_scan_fc_logs()` lists the FC log directory and reports results; `handle_download_fc_log()` downloads a log file to a temp file and uploads it to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON if the multipart endpoint is unavailable; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
+**`FCLogSyncer`** is a background syncer that downloads FC log files from the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet over HTTP and stores them locally on the companion computer at `/var/lib/quiver/fc_logs/`. The `net_webserver.lua` script is a Lua scripting applet that runs inside ArduPilot on boards with networking support (e.g., Cube Orange with Ethernet). It serves the FC's SD card over HTTP on port 8080 (configurable via the `WEB_BIND_PORT` parameter), providing an HTML directory listing at `/mnt/APM/LOGS/` and direct file downloads at `/mnt/APM/LOGS/<filename>`. The syncer runs a 60-second background loop (only when the drone is **disarmed**, verified via MAVSDK telemetry) that parses the HTML directory listing, compares against a local JSON manifest, and downloads new or changed files using `If-Modified-Since` headers for incremental sync. This approach avoids blocking the MAVLink TCP connection (which MAVFTP does) and provides fast local access for the dashboard. The default FC web server URL is `http://192.168.144.10:8080`, configurable via the `--fc-webserver-url` CLI argument.
+
+**`LogsOtaJobHandler`** implements the three job types using a three-tier resolution strategy (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback): `handle_scan_fc_logs()` reads from the local manifest first, then issues an on-demand HTTP listing, falling back to MAVFTP; `handle_download_fc_log()` serves from the local cache first, then streams via HTTP (also caching locally), falling back to MAVFTP, and uploads to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
 
 **`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`, `go2rtc`, `tailscale-funnel`) via `systemctl is-active`.
 
 **`RemoteLogStreamer`** manages `journalctl -f` subprocess streams. When the browser requests a log stream for a service, the streamer spawns the subprocess and reads lines in a buffered async loop, emitting batches via Socket.IO every 500ms.
 
-**`LogsOtaService`** is the main orchestrator that initializes all components, connects to the FC (with retries), establishes a Socket.IO connection to the Hub, and runs two concurrent async loops: the job polling loop (every 5s) and the diagnostics reporting loop (every 10s).
+**`LogsOtaService`** is the main orchestrator that initializes all components, connects to the FC (with retries), establishes a Socket.IO connection to the Hub, and runs three concurrent async loops: the job polling loop (every 5s), the diagnostics reporting loop (every 10s), and the FC log background sync loop (every 60s, via `FCLogSyncer`).
 
 ### CLI Arguments
 
@@ -271,6 +285,8 @@ The companion script is a single-file Python 3 asyncio application (~1200 lines)
 | `--drone-id` | (required) | Drone identifier |
 | `--api-key` | (required) | API key for authentication |
 | `--fc-connection` | `serial:///dev/ttyAMA1:921600` | MAVSDK connection string |
+| `--fc-webserver-url` | `http://192.168.144.10:8080` | ArduPilot `net_webserver.lua` URL for HTTP log access |
+| `--log-store-dir` | `/var/lib/quiver/fc_logs/` | Local directory for cached FC log files |
 | `--poll-interval` | `5` | Job polling interval (seconds) |
 | `--diagnostics-interval` | `10` | Diagnostics reporting interval (seconds) |
 | `--no-fc` | `false` | Run without FC (diagnostics + log streaming only) |

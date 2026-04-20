@@ -1277,3 +1277,11 @@
 - [x] Update COMPANION_SERVICES.md: update FC Log Download and download_fc_log job descriptions
 - [x] Update docs/README.md: update LOGS_OTA_PIPELINE description
 - [x] Update JOB_SECURITY_ANALYSIS.md: note SHA-256 verification is implemented, add multipart/download proxy note
+
+## Document ArduPilot net_webserver.lua Role in Architecture
+- [x] Update README.md: add FC layer to architecture diagram, update FC Logs description, update job descriptions, update acknowledgments
+- [x] Update LOGS_OTA_PIPELINE.md: add net_webserver.lua to architecture diagram, update scanning/download flow with three-tier resolution, update data flow table, update companion script class descriptions (FCLogSyncer)
+- [x] Update quiver-hub-architecture.md: add FC layer to system diagram, update data flow summary (6 flows), update Logs & OTA feature table, add FC Web Server to tech stack
+- [x] Update COMPANION_SERVICES.md: add FCLogSyncer class, update features/job tables with three-tier resolution, add --fc-webserver-url and --log-store-dir CLI args
+- [x] Update docs/README.md: update LOGS_OTA_PIPELINE description with net_webserver.lua mention
+- [x] Update JOB_SECURITY_ANALYSIS.md: note HTTP-based log access (net_webserver.lua) as primary path with MAVFTP fallback
