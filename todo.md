@@ -1342,3 +1342,10 @@
 - [x] Keep MAVFTP as fallback when FC web server is unreachable (_check_file_exists falls through to ftp.file_exists)
 - [x] Write tests for hybrid monitoring approach (773 tests pass, 20 new for HTTP helpers, reboot verification, flash integration)
 - [ ] Update SDK guide and LOGS_OTA_PIPELINE docs with hybrid approach
+
+## Fix Firmware Flash: async_generator Error & .apj File Support
+- [x] Fix "object async_generator can't be used in 'await' expression" error — MavFtpClient.upload_file now uses `async for` instead of `await` for MAVSDK ftp.upload() (which is an async generator like download())
+- [x] Fix MAVSDK upload() call: second arg is remote_dir ("/APM/"), not file path; temp file renamed to ardupilot.abin (MAVSDK preserves local filename)
+- [x] Add .apj rejection at flash time with clear error: "Cannot flash .apj files via OTA. ArduPilot SD card flash requires .abin format."
+- [x] Update frontend upload dialog: warns .apj is USB/GCS only, links to firmware.ardupilot.org for .abin downloads
+- [x] Write tests: 793 tests pass (20 new for upload fix, .apj rejection, temp file naming, frontend guidance)

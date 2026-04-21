@@ -698,7 +698,7 @@ function OtaUpdatesTab({
         <div>
           <h3 className="text-lg font-semibold text-foreground">OTA Firmware Updates</h3>
           <p className="text-sm text-muted-foreground">
-            Upload .abin firmware and flash to the flight controller via MAVFTP
+            Upload .abin firmware and flash to the flight controller via MAVFTP (OTA)
           </p>
         </div>
         <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-1">
@@ -713,8 +713,8 @@ function OtaUpdatesTab({
           <DialogHeader>
             <DialogTitle>Upload Firmware</DialogTitle>
             <DialogDescription>
-              Select an ArduPilot firmware file (.abin or .apj) to upload. The file will be stored
-              in the cloud and can be flashed to the flight controller.
+              Select an ArduPilot firmware file to upload. Only <strong>.abin</strong> files can be
+              flashed via OTA. (.apj files are for USB/GCS tools only and will be rejected at flash time.)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -739,7 +739,9 @@ function OtaUpdatesTab({
                   <p className="font-medium mb-1">Safety Warning</p>
                   <p>
                     Flashing incorrect firmware can brick the flight controller. Ensure the firmware
-                    matches your FC hardware (e.g., CubeOrange, Pixhawk6X).
+                    matches your FC hardware (e.g., CubeOrange, Pixhawk6X). OTA flash requires
+                    <strong>.abin</strong> format — download from{" "}
+                    <a href="https://firmware.ardupilot.org" target="_blank" rel="noopener" className="underline">firmware.ardupilot.org</a>.
                   </p>
                 </div>
               </div>

@@ -986,14 +986,18 @@ class MavFtpClient:
             logger.error(f"MAVFTP download failed for {remote_path}: {e}")
             raise
 
-    async def upload_file(self, local_path: str, remote_path: str,
+    async def upload_file(self, local_path: str, remote_dir: str,
                            progress_callback=None) -> bool:
         """
         Upload a file to the FC via MAVFTP.
         
+        MAVSDK's ftp.upload() is an async generator that yields ProgressData,
+        similar to ftp.download(). The file is placed in remote_dir with its
+        original local filename preserved.
+        
         Args:
-            local_path: Local file path
-            remote_path: Destination path on FC (e.g., /APM/ardupilot.abin)
+            local_path: Local file path (filename is preserved on the FC)
+            remote_dir: Destination directory on FC (e.g., "/APM/")
             progress_callback: async callable(bytes_uploaded, total_bytes)
         """
         if not self.connected:
@@ -1001,9 +1005,18 @@ class MavFtpClient:
 
         try:
             file_size = os.path.getsize(local_path)
-            logger.info(f"Uploading {local_path} → {remote_path} ({file_size} bytes)")
+            local_filename = os.path.basename(local_path)
+            logger.info(f"Uploading {local_path} → {remote_dir}{local_filename} ({file_size} bytes)")
 
-            await self.system.ftp.upload(local_path, remote_path)
+            # MAVSDK ftp.upload() is an async generator yielding ProgressData
+            async for progress_data in self.system.ftp.upload(
+                local_path, remote_dir
+            ):
+                if progress_callback and progress_data:
+                    await progress_callback(
+                        progress_data.bytes_transferred,
+                        progress_data.total_bytes
+                    )
 
             logger.info("Upload complete")
             if progress_callback:
@@ -1386,6 +1399,9 @@ class LogsOtaJobHandler:
         """
         Download firmware from Hub, upload to FC via MAVFTP, and monitor flash stages.
         
+        Only .abin files are supported for OTA flash. .apj files (used by GCS
+        tools like Mission Planner over USB) are rejected with a clear error.
+        
         ArduPilot OTA flash process:
           1. Upload ardupilot.abin to /APM/ on the FC SD card
           2. FC renames to ardupilot-verify.abin (CRC verification)
@@ -1393,7 +1409,8 @@ class LogsOtaJobHandler:
           4. FC renames to ardupilot-flashed.abin (success, FC reboots)
           
         If any stage fails, the file may remain or be deleted.
-        We poll for stage file existence to track progress.
+        We poll for stage file existence to track progress (HTTP first, MAVFTP fallback).
+        After flash, we verify FC reboots successfully via HTTP.
         """
         payload = job.get("payload", {})
         update_id = payload.get("updateId")
@@ -1403,14 +1420,34 @@ class LogsOtaJobHandler:
         if not update_id or not firmware_url:
             return False, "Missing updateId or firmwareUrl in job payload"
 
+        # ── Validate firmware format ──
+        # ArduPilot OTA SD card flash ONLY supports .abin files.
+        # .apj is a different format (JSON header + binary) used by GCS tools
+        # like Mission Planner over USB — it cannot be used for OTA flash.
+        if firmware_filename.lower().endswith(".apj"):
+            error_msg = (
+                "Cannot flash .apj files via OTA. ArduPilot SD card flash requires "
+                ".abin format. Download the .abin build from firmware.ardupilot.org "
+                "for your board (e.g., CubeOrange, Pixhawk6X)."
+            )
+            logger.error(error_msg)
+            self.hub.report_firmware_progress(
+                update_id, "failed", 0,
+                flash_stage="unsupported_format",
+                error_message=error_msg
+            )
+            return False, error_msg
+
         try:
             # ── Step 1: Download firmware from Hub ──
             self.hub.report_firmware_progress(update_id, "transferring", 5,
                                                flash_stage="downloading")
             logger.info(f"Downloading firmware from: {firmware_url}")
 
-            with tempfile.NamedTemporaryFile(suffix=".abin", delete=False) as tmp:
-                tmp_path = tmp.name
+            # Create temp file in a temp directory so we can rename it to
+            # "ardupilot.abin" — MAVSDK upload() preserves the local filename.
+            tmp_dir = tempfile.mkdtemp(prefix="quiver_fw_")
+            tmp_path = os.path.join(tmp_dir, "ardupilot.abin")
 
             try:
                 resp = requests.get(firmware_url, timeout=120)
@@ -1466,6 +1503,8 @@ class LogsOtaJobHandler:
                         await self.ftp.remove_file(f"/APM/{old_name}")
 
                 # ── Step 3: Upload firmware to FC as ardupilot.abin ──
+                # MAVSDK ftp.upload(local_path, remote_dir) preserves the local
+                # filename, so tmp_path is already named "ardupilot.abin".
                 self.hub.report_firmware_progress(update_id, "transferring", 20,
                                                    flash_stage="uploading")
 
@@ -1477,10 +1516,10 @@ class LogsOtaJobHandler:
                             flash_stage="uploading"
                         )
 
-                await self.ftp.upload_file(tmp_path, "/APM/ardupilot.abin",
+                await self.ftp.upload_file(tmp_path, "/APM/",
                                             upload_progress)
 
-                logger.info("Firmware uploaded to FC as ardupilot.abin")
+                logger.info("Firmware uploaded to FC as /APM/ardupilot.abin")
 
                 # ── Step 4: Monitor flash stages (hybrid HTTP + MAVFTP) ──
                 self.hub.report_firmware_progress(update_id, "flashing", 65,
@@ -1564,13 +1603,15 @@ class LogsOtaJobHandler:
                 return True, None
 
             finally:
-                # ── Artefact Cleanup: delete downloaded firmware temp file ──
+                # ── Artefact Cleanup: delete downloaded firmware temp file and dir ──
                 try:
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
-                        logger.info(f"Cleaned up firmware temp file: {tmp_path}")
+                    if os.path.exists(tmp_dir):
+                        os.rmdir(tmp_dir)
+                    logger.info(f"Cleaned up firmware temp dir: {tmp_dir}")
                 except OSError as cleanup_err:
-                    logger.warning(f"Failed to clean up temp file {tmp_path}: {cleanup_err}")
+                    logger.warning(f"Failed to clean up temp dir {tmp_dir}: {cleanup_err}")
 
         except Exception as e:
             error_msg = f"Firmware flash failed: {e}"

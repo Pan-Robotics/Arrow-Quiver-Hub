@@ -1189,7 +1189,7 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
 
   it("still uses MAVFTP for actual firmware upload (ardupilot.abin)", () => {
     expect(flashMethod).toContain(
-      'await self.ftp.upload_file(tmp_path, "/APM/ardupilot.abin"'
+      'await self.ftp.upload_file(tmp_path, "/APM/"'
     );
   });
 
@@ -1200,5 +1200,148 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
     expect(flashMethod).toContain(
       'await self.ftp.remove_file(f"/APM/{old_name}")'
     );
+  });
+});
+
+// ─── Fix: async_generator error in MAVFTP upload ───────────────────────────
+
+describe("MavFtpClient.upload_file - async generator fix", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const uploadMethod = source.substring(
+    source.indexOf("async def upload_file(self, local_path"),
+    source.indexOf("async def file_exists")
+  );
+
+  it("uses 'async for' instead of 'await' for MAVSDK ftp.upload()", () => {
+    expect(uploadMethod).toContain("async for progress_data in self.system.ftp.upload(");
+    expect(uploadMethod).not.toContain("await self.system.ftp.upload(");
+  });
+
+  it("accepts remote_dir parameter (directory, not file path)", () => {
+    expect(uploadMethod).toContain("async def upload_file(self, local_path: str, remote_dir: str,");
+  });
+
+  it("documents that MAVSDK upload() is an async generator", () => {
+    expect(uploadMethod).toContain("MAVSDK's ftp.upload() is an async generator");
+    expect(uploadMethod).toContain("yields ProgressData");
+  });
+
+  it("reports upload progress from ProgressData", () => {
+    expect(uploadMethod).toContain("progress_data.bytes_transferred");
+    expect(uploadMethod).toContain("progress_data.total_bytes");
+  });
+
+  it("preserves local filename in log message", () => {
+    expect(uploadMethod).toContain("local_filename = os.path.basename(local_path)");
+  });
+});
+
+// ─── Fix: .apj file rejection ──────────────────────────────────────────────
+
+describe("Firmware flash - .apj file rejection", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
+  );
+
+  it("checks for .apj extension before starting flash", () => {
+    expect(flashMethod).toContain('firmware_filename.lower().endswith(".apj")');
+  });
+
+  it("rejects .apj files with a clear error message", () => {
+    expect(flashMethod).toContain("Cannot flash .apj files via OTA");
+    expect(flashMethod).toContain("ArduPilot SD card flash requires");
+    expect(flashMethod).toContain(".abin format");
+  });
+
+  it("suggests downloading .abin from firmware.ardupilot.org", () => {
+    expect(flashMethod).toContain("firmware.ardupilot.org");
+  });
+
+  it("reports unsupported_format flash stage on .apj rejection", () => {
+    expect(flashMethod).toContain('flash_stage="unsupported_format"');
+  });
+
+  it("returns False with error message for .apj files", () => {
+    // The .apj check happens before the try block
+    const apjSection = flashMethod.substring(
+      flashMethod.indexOf('firmware_filename.lower().endswith(".apj")'),
+      flashMethod.indexOf("try:")
+    );
+    expect(apjSection).toContain("return False, error_msg");
+  });
+});
+
+// ─── Fix: temp file naming for MAVSDK upload ───────────────────────────────
+
+describe("Firmware flash - temp file naming for MAVSDK upload", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
+  );
+
+  it("creates a temp directory instead of a temp file", () => {
+    expect(flashMethod).toContain('tmp_dir = tempfile.mkdtemp(prefix="quiver_fw_")');
+  });
+
+  it("names the temp file ardupilot.abin (MAVSDK preserves filename)", () => {
+    expect(flashMethod).toContain('tmp_path = os.path.join(tmp_dir, "ardupilot.abin")');
+  });
+
+  it("uploads to /APM/ directory (not /APM/ardupilot.abin)", () => {
+    expect(flashMethod).toContain('await self.ftp.upload_file(tmp_path, "/APM/"');
+  });
+
+  it("does NOT upload to /APM/ardupilot.abin (old bug)", () => {
+    expect(flashMethod).not.toContain('upload_file(tmp_path, "/APM/ardupilot.abin"');
+  });
+
+  it("cleans up both temp file and temp directory", () => {
+    expect(flashMethod).toContain("os.unlink(tmp_path)");
+    expect(flashMethod).toContain("os.rmdir(tmp_dir)");
+  });
+});
+
+// ─── Frontend: .apj warning in upload dialog ───────────────────────────────
+
+describe("Frontend - firmware upload dialog .apj guidance", () => {
+  const logsOtaApp = fs.readFileSync(
+    "./client/src/components/apps/LogsOtaApp.tsx",
+    "utf-8"
+  );
+
+  it("still accepts both .abin and .apj in file input", () => {
+    expect(logsOtaApp).toContain('accept=".abin,.apj"');
+  });
+
+  it("explains that only .abin can be flashed via OTA", () => {
+    expect(logsOtaApp).toContain(".abin");
+    expect(logsOtaApp).toContain("flashed via OTA");
+  });
+
+  it("notes that .apj is for USB/GCS tools only", () => {
+    expect(logsOtaApp).toContain(".apj files are for USB/GCS tools only");
+  });
+
+  it("links to firmware.ardupilot.org for .abin downloads", () => {
+    expect(logsOtaApp).toContain("firmware.ardupilot.org");
+  });
+
+  it("mentions OTA in the section subtitle", () => {
+    expect(logsOtaApp).toContain("via MAVFTP (OTA)");
   });
 });
