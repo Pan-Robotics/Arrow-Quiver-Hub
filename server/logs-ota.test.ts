@@ -823,3 +823,112 @@ describe("ArduPilot net_webserver.lua Setup Guide", () => {
     expect(index).toContain("Setup Guides");
   });
 });
+
+
+// ─── FCLogSyncer Retry Logic & Skip List ────────────────────────────────────
+
+describe("FCLogSyncer - Retry limit and skip list", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("defines MAX_DOWNLOAD_ATTEMPTS = 3", () => {
+    expect(source).toContain("MAX_DOWNLOAD_ATTEMPTS = 3");
+  });
+
+  it("has _is_skipped method that checks manifest skipped flag", () => {
+    expect(source).toContain("def _is_skipped(self, filename: str) -> bool:");
+    expect(source).toContain('entry.get("skipped", False)');
+  });
+
+  it("has _record_attempt method that tracks attempts and marks skipped", () => {
+    expect(source).toContain("def _record_attempt(self, filename: str, success: bool, error: str = None):");
+    expect(source).toContain("attempts >= self.MAX_DOWNLOAD_ATTEMPTS");
+    expect(source).toContain('entry["skipped"] = True');
+    expect(source).toContain('entry["skip_reason"]');
+  });
+
+  it("resets attempts on successful download", () => {
+    expect(source).toContain('entry["attempts"] = 0');
+    expect(source).toContain('entry["skipped"] = False');
+  });
+
+  it("has reset_skipped method for manual retry", () => {
+    expect(source).toContain("def reset_skipped(self, filename: str = None):");
+    expect(source).toContain("Reset skip status for all files");
+    expect(source).toContain("Reset skip status for");
+  });
+
+  it("logs warning with instructions to retry when permanently skipping", () => {
+    expect(source).toContain("Permanently skipping");
+    expect(source).toContain("Delete the 'skipped' key in manifest.json to retry");
+  });
+
+  it("checks _is_skipped in sync_once before downloading", () => {
+    expect(source).toContain("if self._is_skipped(filename):");
+  });
+
+  it("calls _record_attempt on both success and failure in _download_log_file", () => {
+    // Success path
+    expect(source).toContain("self._record_attempt(filename, True)");
+    // Failure paths
+    expect(source).toContain("self._record_attempt(filename, False,");
+  });
+
+  it("logs attempt count with max on failure", () => {
+    expect(source).toContain("Download attempt {attempts}/{self.MAX_DOWNLOAD_ATTEMPTS}");
+  });
+});
+
+// ─── FCLogSyncer Network Coexistence ────────────────────────────────────────
+
+describe("FCLogSyncer - Network coexistence for large downloads", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("yields to event loop with asyncio.sleep(0) during download", () => {
+    expect(source).toContain("await asyncio.sleep(0)");
+  });
+
+  it("yields every ~512KB to keep Socket.IO heartbeats alive", () => {
+    expect(source).toContain("512 * 1024");
+    expect(source).toContain("Socket.IO heartbeats");
+  });
+
+  it("uses 600s timeout for very large files", () => {
+    expect(source).toContain("timeout=600");
+  });
+
+  it("checks arm state every ~4MB instead of every ~1MB", () => {
+    expect(source).toContain("4 * 1024 * 1024");
+  });
+});
+
+// ─── Upload Size Restrictions Removed ───────────────────────────────────────
+
+describe("Upload size restrictions - all removed", () => {
+  it("rest-api.ts: multer has no fileSize limit", () => {
+    const restApi = fs.readFileSync("./server/rest-api.ts", "utf-8");
+    expect(restApi).toContain("multer({ storage: multer.memoryStorage() })");
+    expect(restApi).not.toContain("fileSize: 250");
+    expect(restApi).not.toContain("fileSize: 200");
+  });
+
+  it("rest-api.ts: /flightlog/upload has no 100MB limit", () => {
+    const restApi = fs.readFileSync("./server/rest-api.ts", "utf-8");
+    expect(restApi).not.toContain("Maximum size is 100MB");
+  });
+
+  it("rest-api.ts: /logs/fc-upload has no 200MB limit", () => {
+    const restApi = fs.readFileSync("./server/rest-api.ts", "utf-8");
+    expect(restApi).not.toContain("Maximum size is 200MB");
+  });
+
+  it("routers.ts: firmware upload has no 50MB limit", () => {
+    const routers = fs.readFileSync("./server/routers.ts", "utf-8");
+    expect(routers).not.toContain("Maximum size is 50MB");
+    expect(routers).not.toContain("Firmware file too large");
+  });
+
+  it("_core/index.ts: body parser allows 500MB", () => {
+    const index = fs.readFileSync("./server/_core/index.ts", "utf-8");
+    expect(index).toContain('limit: "500mb"');
+  });
+});

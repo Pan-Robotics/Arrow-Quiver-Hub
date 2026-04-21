@@ -21,7 +21,7 @@ import { createHash } from "crypto";
 import { sdk } from "./_core/sdk";
 
 // Multer for multipart file uploads (FC logs, firmware, etc.)
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage() });
 import {
   upsertFcLog,
   updateFcLog,
@@ -554,14 +554,6 @@ router.post("/flightlog/upload", async (req: Request, res: Response) => {
     const buffer = Buffer.from(content, "base64");
     const fileSize = buffer.length;
 
-    // Enforce 100MB limit
-    if (fileSize > 100 * 1024 * 1024) {
-      return res.status(413).json({
-        success: false,
-        error: "File too large. Maximum size is 100MB.",
-      });
-    }
-
     const format = ext === "log" ? "log" as const : "bin" as const;
 
     // Upload to S3
@@ -997,14 +989,6 @@ router.post("/logs/fc-upload", async (req: Request, res: Response) => {
 
     const buffer = Buffer.from(content, "base64");
 
-    // Enforce 200MB limit for FC logs
-    if (buffer.length > 200 * 1024 * 1024) {
-      return res.status(413).json({
-        success: false,
-        error: "File too large. Maximum size is 200MB.",
-      });
-    }
-
     // Compute SHA-256 hash for artefact integrity
     const sha256Hash = createHash("sha256").update(buffer).digest("hex");
 
@@ -1090,14 +1074,6 @@ router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Requ
     }
 
     const buffer = file.buffer;
-
-    // Enforce 200MB limit
-    if (buffer.length > 200 * 1024 * 1024) {
-      return res.status(413).json({
-        success: false,
-        error: "File too large. Maximum size is 200MB.",
-      });
-    }
 
     // Compute SHA-256 hash for artefact integrity
     const sha256Hash = createHash("sha256").update(buffer).digest("hex");

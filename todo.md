@@ -1326,3 +1326,11 @@
   - 10.4 OTA Firmware Flash Workflow (5 steps, stage table)
   - 10.5 Diagnostics & Remote Log Streaming (4 steps, metrics table)
   - 10.6 Integrating External Systems (integration patterns table)
+
+## Fix FCLogSyncer Infinite Download Loop & Remove Size Limits
+- [x] Add MAX_DOWNLOAD_ATTEMPTS=3 retry limit per file in FCLogSyncer — skip file after 3 failures
+- [x] Add persistent skip list in manifest.json (skipped, skip_reason, attempts, last_error fields) — survives service restarts
+- [x] Add reset_skipped() method for manual retry + log warning with manifest.json instructions
+- [x] Improve network coexistence: asyncio.sleep(0) yield every 512KB, arm check every 4MB, 600s timeout
+- [x] Remove all upload size restrictions: multer (was 250MB), /flightlog/upload (was 100MB), /logs/fc-upload (was 200MB), /logs/fc-upload-multipart (was 200MB), firmware (was 50MB), body parser raised to 500MB
+- [x] Write tests: 153 tests pass (18 new for retry logic, network coexistence, and size limit removal)

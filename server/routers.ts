@@ -1508,11 +1508,6 @@ export const appRouter = router({
           throw new Error("Only .abin and .apj firmware files are supported");
         }
 
-        // 50MB limit for firmware
-        if (buffer.length > 50 * 1024 * 1024) {
-          throw new Error("Firmware file too large. Maximum size is 50MB.");
-        }
-
         // Compute SHA-256 hash of the firmware binary for artefact integrity
         const sha256Hash = createHash("sha256").update(buffer).digest("hex");
 

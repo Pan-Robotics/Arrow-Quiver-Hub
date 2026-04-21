@@ -403,6 +403,7 @@ class FCLogSyncer:
     MANIFEST_FILE = "manifest.json"
     SYNC_INTERVAL = 60  # seconds between sync cycles
     DOWNLOAD_CHUNK_SIZE = 65536  # 64KB chunks for streaming download
+    MAX_DOWNLOAD_ATTEMPTS = 3  # Skip file after this many failed attempts
 
     def __init__(self, fc_webserver_url: str = None,
                  log_store_dir: str = None,
@@ -502,10 +503,59 @@ class FCLogSyncer:
             logger.error(f"Failed to fetch FC log directory: {e}")
             return None
 
+    def _is_skipped(self, filename: str) -> bool:
+        """Check if a file has been permanently skipped after too many failures."""
+        entry = self._manifest.get(filename, {})
+        return entry.get("skipped", False)
+
+    def _record_attempt(self, filename: str, success: bool, error: str = None):
+        """Record a download attempt in the manifest. Marks as skipped after MAX_DOWNLOAD_ATTEMPTS failures."""
+        entry = self._manifest.setdefault(filename, {})
+        attempts = entry.get("attempts", 0)
+        if success:
+            entry["attempts"] = 0
+            entry["skipped"] = False
+            entry["skip_reason"] = None
+        else:
+            attempts += 1
+            entry["attempts"] = attempts
+            entry["last_error"] = error or "unknown"
+            if attempts >= self.MAX_DOWNLOAD_ATTEMPTS:
+                entry["skipped"] = True
+                entry["skip_reason"] = (f"Failed {attempts} times, last error: "
+                                         f"{error or 'unknown'}")
+                logger.warning(
+                    f"Permanently skipping {filename} after {attempts} failed attempts "
+                    f"(reason: {error or 'unknown'}). "
+                    f"Delete the 'skipped' key in manifest.json to retry.")
+            else:
+                logger.info(f"Download attempt {attempts}/{self.MAX_DOWNLOAD_ATTEMPTS} "
+                            f"failed for {filename}: {error or 'unknown'}")
+        self._save_manifest()
+
+    def reset_skipped(self, filename: str = None):
+        """Reset skip status for a specific file or all files. Call to retry previously skipped files."""
+        if filename:
+            entry = self._manifest.get(filename)
+            if entry:
+                entry["skipped"] = False
+                entry["attempts"] = 0
+                entry["skip_reason"] = None
+                logger.info(f"Reset skip status for {filename}")
+        else:
+            for fn, entry in self._manifest.items():
+                if entry.get("skipped"):
+                    entry["skipped"] = False
+                    entry["attempts"] = 0
+                    entry["skip_reason"] = None
+            logger.info("Reset skip status for all files")
+        self._save_manifest()
+
     async def _download_log_file(self, entry: Dict[str, Any]) -> bool:
         """
         Download a single log file from the FC webserver to local store.
-        Uses streaming to handle large files without excessive memory.
+        Uses streaming with asyncio.sleep(0) yields to avoid starving
+        the event loop (keeps Socket.IO heartbeats alive during large downloads).
         """
         filename = entry["name"]
         url = f"{self.fc_url}{self.LOGS_PATH}{entry['href']}"
@@ -514,7 +564,7 @@ class FCLogSyncer:
 
         try:
             logger.info(f"Downloading {filename} from FC webserver...")
-            resp = requests.get(url, stream=True, timeout=300)
+            resp = requests.get(url, stream=True, timeout=600)  # 10 min for very large files
             resp.raise_for_status()
 
             total_size = int(resp.headers.get("Content-Length", 0))
@@ -528,8 +578,12 @@ class FCLogSyncer:
                         sha256.update(chunk)
                         downloaded += len(chunk)
 
-                        # Check arm state periodically (every ~1MB)
-                        if downloaded % (1024 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
+                        # Yield to event loop every ~512KB to keep Socket.IO heartbeats alive
+                        if downloaded % (512 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
+                            await asyncio.sleep(0)
+
+                        # Check arm state periodically (every ~4MB)
+                        if downloaded % (4 * 1024 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
                             if not await self._check_arm_state():
                                 logger.warning(
                                     f"Drone ARMED during download of {filename}, "
@@ -538,6 +592,7 @@ class FCLogSyncer:
                                     tmp_path.unlink()
                                 except OSError:
                                     pass
+                                self._record_attempt(filename, False, "Drone armed during download")
                                 return False
 
             # Rename tmp to final
@@ -557,8 +612,12 @@ class FCLogSyncer:
                 "synced": True,
                 "synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "sha256": file_hash,
+                "attempts": 0,
+                "skipped": False,
+                "skip_reason": None,
             }
             self._save_manifest()
+            self._record_attempt(filename, True)
             return True
 
         except Exception as e:
@@ -567,6 +626,7 @@ class FCLogSyncer:
                 tmp_path.unlink()
             except OSError:
                 pass
+            self._record_attempt(filename, False, str(e))
             return False
 
     def _needs_sync(self, entry: Dict[str, Any]) -> bool:
@@ -651,6 +711,13 @@ class FCLogSyncer:
 
             # Download new/changed files
             for entry in entries:
+                filename = entry["name"]
+
+                # Skip files that have exceeded retry limit
+                if self._is_skipped(filename):
+                    summary["files_skipped"] += 1
+                    continue
+
                 if not self._needs_sync(entry):
                     summary["files_skipped"] += 1
                     continue
