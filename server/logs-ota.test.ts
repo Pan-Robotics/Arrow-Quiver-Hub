@@ -1774,3 +1774,71 @@ describe("Module Docstring - HTTP PUT Upload", () => {
     expect(source).toContain(".abin/.apj");
   });
 });
+
+
+// ─── FCLogSyncer: Scan-Only Background Loop ────────────────────────────────
+
+describe("FCLogSyncer - Scan-Only Background Loop (No Auto-Download)", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("sync_once accepts a download parameter defaulting to False", () => {
+    expect(source).toContain("async def sync_once(self, download: bool = False)");
+  });
+
+  it("sync_once only downloads when download=True", () => {
+    // The download block is gated by the download parameter
+    expect(source).toContain("if download:");
+  });
+
+  it("sync_once has scan-only mode that counts files without downloading", () => {
+    expect(source).toContain("# Scan-only mode: count files needing sync without downloading");
+  });
+
+  it("run_sync_loop calls sync_once with download=False (scan-only)", () => {
+    expect(source).toContain("await self.sync_once(download=False)");
+  });
+
+  it("run_sync_loop docstring says scan-only, no downloads", () => {
+    expect(source).toContain("Background loop that periodically scans FC logs (scan-only, no downloads)");
+  });
+
+  it("run_sync_loop docstring explains downloads are user-triggered", () => {
+    expect(source).toContain('Downloads are only triggered by user action ("Scan FC" button)');
+    expect(source).toContain("sync_once(download=True)");
+  });
+
+  it("run_sync_loop logs scan-only mode on startup", () => {
+    expect(source).toContain("FCLogSyncer started (scan-only)");
+  });
+
+  it("run_sync_loop logs scan results, not download results", () => {
+    expect(source).toContain("Scan complete:");
+    expect(source).toContain("files on FC");
+  });
+
+  it("sync_once docstring documents the download parameter", () => {
+    expect(source).toContain("download: If True, download new/changed files from FC.");
+    expect(source).toContain("If False (default), only scan and update the manifest.");
+  });
+
+  it("handle_scan_fc_logs does NOT call sync_once (uses its own HTTP listing)", () => {
+    // handle_scan_fc_logs uses _fetch_directory_listing directly, not sync_once
+    const scanHandler = source.substring(
+      source.indexOf("async def handle_scan_fc_logs"),
+      source.indexOf("async def handle_download_fc_log")
+    );
+    expect(scanHandler).not.toContain("sync_once");
+    expect(scanHandler).toContain("_fetch_directory_listing");
+  });
+
+  it("handle_download_fc_log downloads individual files on demand, not bulk", () => {
+    const dlHandler = source.substring(
+      source.indexOf("async def handle_download_fc_log"),
+      source.indexOf("async def handle_flash_firmware")
+    );
+    // Downloads from cache, HTTP, or MAVFTP — but only the requested file
+    expect(dlHandler).toContain("Serve from local cache");
+    expect(dlHandler).toContain("On-demand HTTP download from FC webserver");
+    expect(dlHandler).not.toContain("sync_once");
+  });
+});

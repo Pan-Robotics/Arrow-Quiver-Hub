@@ -655,13 +655,19 @@ class FCLogSyncer:
             return True
         return False
 
-    async def sync_once(self) -> Dict[str, Any]:
+    async def sync_once(self, download: bool = False) -> Dict[str, Any]:
         """
         Run a single sync cycle:
           1. Check arm state (skip if armed)
           2. Fetch directory listing from FC webserver
-          3. Download any new/changed files
-          4. Update manifest
+          3. Update manifest with discovered files
+          4. If download=True, download any new/changed files
+        
+        Args:
+            download: If True, download new/changed files from FC.
+                      If False (default), only scan and update the manifest.
+                      The background loop uses download=False.
+                      User-triggered "Scan FC" uses download=True.
         
         Returns a summary dict.
         """
@@ -710,30 +716,41 @@ class FCLogSyncer:
                         "sha256": None,
                     }
 
-            # Download new/changed files
-            for entry in entries:
-                filename = entry["name"]
+            # Download new/changed files (only if explicitly requested)
+            if download:
+                for entry in entries:
+                    filename = entry["name"]
 
-                # Skip files that have exceeded retry limit
-                if self._is_skipped(filename):
-                    summary["files_skipped"] += 1
-                    continue
+                    # Skip files that have exceeded retry limit
+                    if self._is_skipped(filename):
+                        summary["files_skipped"] += 1
+                        continue
 
-                if not self._needs_sync(entry):
-                    summary["files_skipped"] += 1
-                    continue
+                    if not self._needs_sync(entry):
+                        summary["files_skipped"] += 1
+                        continue
 
-                # Re-check arm state before each download
-                if not await self._check_arm_state():
-                    summary["armed"] = True
-                    summary["error"] = "Drone ARMED during sync — stopping"
-                    logger.warning(summary["error"])
-                    break
+                    # Re-check arm state before each download
+                    if not await self._check_arm_state():
+                        summary["armed"] = True
+                        summary["error"] = "Drone ARMED during sync — stopping"
+                        logger.warning(summary["error"])
+                        break
 
-                if await self._download_log_file(entry):
-                    summary["files_synced"] += 1
-                else:
-                    summary["files_failed"] += 1
+                    if await self._download_log_file(entry):
+                        summary["files_synced"] += 1
+                    else:
+                        summary["files_failed"] += 1
+            else:
+                # Scan-only mode: count files needing sync without downloading
+                for entry in entries:
+                    filename = entry["name"]
+                    if self._is_skipped(filename):
+                        summary["files_skipped"] += 1
+                    elif self._needs_sync(entry):
+                        summary["files_skipped"] += 1  # Needs sync but not downloading
+                    else:
+                        summary["files_skipped"] += 1
 
             self._save_manifest()
             self._last_sync_time = time.time()
@@ -750,7 +767,11 @@ class FCLogSyncer:
 
     async def run_sync_loop(self, running_flag):
         """
-        Background loop that periodically syncs FC logs.
+        Background loop that periodically scans FC logs (scan-only, no downloads).
+        
+        Downloads are only triggered by user action ("Scan FC" button) which
+        calls sync_once(download=True). This loop only updates the manifest
+        with the current file listing so the dashboard shows accurate info.
         
         Args:
             running_flag: callable that returns True while the service is running
@@ -758,21 +779,21 @@ class FCLogSyncer:
         self._ensure_store_dir()
         self._load_manifest()
 
-        logger.info(f"FCLogSyncer started — store: {self.log_store_dir}, "
+        logger.info(f"FCLogSyncer started (scan-only) — store: {self.log_store_dir}, "
                     f"FC: {self.fc_url}")
 
         while running_flag():
             try:
-                summary = await self.sync_once()
+                # Scan-only: download=False means we only list files, not download them
+                summary = await self.sync_once(download=False)
                 if summary.get("error"):
-                    logger.debug(f"Sync summary: {summary}")
-                elif summary["files_synced"] > 0:
-                    logger.info(
-                        f"Sync complete: {summary['files_synced']} new, "
-                        f"{summary['files_skipped']} up-to-date, "
-                        f"{summary['files_failed']} failed")
+                    logger.debug(f"Scan summary: {summary}")
+                elif summary["files_found"] > 0:
+                    logger.debug(
+                        f"Scan complete: {summary['files_found']} files on FC, "
+                        f"{summary['files_skipped']} in manifest")
                 else:
-                    logger.debug(f"Sync: all {summary['files_skipped']} files up-to-date")
+                    logger.debug(f"Scan: FC not reachable or no files found")
             except Exception as e:
                 logger.error(f"Sync loop error: {e}")
 

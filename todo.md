@@ -1362,3 +1362,10 @@
 - [x] Added _http_upload_firmware() method: requests.put() with ProgressReader for chunked progress, handles 201/405/403 responses, 300s timeout
 - [x] Updated handle_flash_firmware: tries HTTP PUT first (~650 KB/s), falls back to MAVFTP (~5 KB/s), reports uploading_http vs uploading_mavftp stages
 - [x] Write tests: 868 tests pass (45 new for HTTP PUT method, net_webserver_put.lua structure, flash flow integration, module docstring)
+
+## Fix FCLogSyncer Auto-Download Bug
+- [x] FCLogSyncer was re-downloading all logs on startup because run_sync_loop called sync_once() which auto-downloaded
+- [x] Changed sync_once() to accept download=False parameter (default), gating downloads behind explicit flag
+- [x] run_sync_loop now calls sync_once(download=False) — scan-only, updates manifest without downloading
+- [x] User-triggered "Scan FC" uses handle_scan_fc_logs (HTTP listing, no bulk download); individual downloads via handle_download_fc_log
+- [x] 879 tests pass (11 new for scan-only background loop behavior)
