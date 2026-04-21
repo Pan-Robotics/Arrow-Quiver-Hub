@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as fs from "fs";
 
 /**
@@ -1602,19 +1602,29 @@ describe("HTTP PUT Upload - Flash Flow Integration", () => {
     expect(httpPutIdx).toBeLessThan(mavftpIdx);
   });
 
-  it("checks FC reachability before attempting HTTP PUT", () => {
-    expect(flashMethod).toContain("if self._http_fc_reachable():");
-    expect(flashMethod).toContain("Attempting fast HTTP PUT upload");
+  it("tries Approach C first, then HTTP PUT, then MAVFTP", () => {
+    const approachCIdx = flashMethod.indexOf("Approach C");
+    const httpPutIdx = flashMethod.indexOf("HTTP PUT (push");
+    const mavftpIdx = flashMethod.indexOf("Last resort: MAVFTP");
+    expect(approachCIdx).toBeGreaterThan(-1);
+    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
+    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
   });
 
-  it("falls back to MAVFTP when HTTP PUT fails", () => {
-    expect(flashMethod).toContain('if upload_method == "MAVFTP":');
-    expect(flashMethod).toContain("falling back to MAVFTP");
+  it("checks FC reachability before HTTP PUT fallback", () => {
+    expect(flashMethod).toContain("upload_method is None and self._http_fc_reachable()");
+    expect(flashMethod).toContain("HTTP PUT upload (fallback 1)");
   });
 
-  it("tracks upload method (HTTP PUT vs MAVFTP)", () => {
+  it("falls back to MAVFTP as last resort", () => {
+    expect(flashMethod).toContain('upload_method is None:');
     expect(flashMethod).toContain('upload_method = "MAVFTP"');
+  });
+
+  it("tracks upload method for all three methods", () => {
+    expect(flashMethod).toContain('upload_method = "HTTP pull (Approach C)"');
     expect(flashMethod).toContain('upload_method = "HTTP PUT"');
+    expect(flashMethod).toContain('upload_method = "MAVFTP"');
   });
 
   it("reports different flash stages for HTTP vs MAVFTP upload", () => {
@@ -1769,8 +1779,10 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
 describe("Module Docstring - HTTP PUT Upload", () => {
   const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
 
-  it("mentions HTTP PUT in the module description", () => {
-    expect(source).toContain("HTTP PUT (fast) or MAVFTP (fallback)");
+  it("mentions Approach C and all upload methods in the module description", () => {
+    expect(source).toContain("Approach C: FC pulls from companion HTTP server");
+    expect(source).toContain("HTTP PUT to FC web server");
+    expect(source).toContain("MAVFTP");
   });
 
   it("mentions .apj support in the module description", () => {
@@ -1843,5 +1855,257 @@ describe("FCLogSyncer - Scan-Only Background Loop (No Auto-Download)", () => {
     expect(dlHandler).toContain("Serve from local cache");
     expect(dlHandler).toContain("On-demand HTTP download from FC webserver");
     expect(dlHandler).not.toContain("sync_once");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Approach C: FC Pulls Firmware from Companion Pi HTTP Server
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("firmware_puller.lua (FC Lua applet)", () => {
+  let luaContent: string;
+
+  beforeAll(() => {
+    luaContent = fs.readFileSync(
+      "./companion_scripts/firmware_puller.lua",
+      "utf-8"
+    );
+  });
+
+  it("should exist as a Lua file", () => {
+    expect(luaContent).toBeDefined();
+    expect(luaContent.length).toBeGreaterThan(100);
+  });
+
+  it("should use a unique parameter table key (48, not 47)", () => {
+    expect(luaContent).toContain("PARAM_TABLE_KEY = 48");
+    expect(luaContent).toContain('PARAM_TABLE_PREFIX = "FWPULL_"');
+  });
+
+  it("should define FWPULL_ENABLE parameter (default disabled)", () => {
+    expect(luaContent).toContain("FWPULL_ENABLE");
+    expect(luaContent).toMatch(/bind_add_param\("ENABLE",\s*1,\s*0\)/);
+  });
+
+  it("should define companion Pi IP as 4 separate octets", () => {
+    expect(luaContent).toContain("FWPULL_PI_IP0");
+    expect(luaContent).toContain("FWPULL_PI_IP1");
+    expect(luaContent).toContain("FWPULL_PI_IP2");
+    expect(luaContent).toContain("FWPULL_PI_IP3");
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP0",\s*2,\s*192\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP1",\s*3,\s*168\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP2",\s*4,\s*144\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP3",\s*5,\s*20\)/);
+  });
+
+  it("should define firmware server port parameter (default 8070)", () => {
+    expect(luaContent).toContain("FWPULL_PORT");
+    expect(luaContent).toMatch(/bind_add_param\("PORT",\s*6,\s*8070\)/);
+  });
+
+  it("should poll /firmware/status endpoint", () => {
+    expect(luaContent).toContain("/firmware/status");
+  });
+
+  it("should download from /firmware/download endpoint", () => {
+    expect(luaContent).toContain("/firmware/download");
+  });
+
+  it("should acknowledge via /firmware/ack endpoint", () => {
+    expect(luaContent).toContain("/firmware/ack");
+  });
+
+  it("should write firmware to /APM/ardupilot.abin", () => {
+    expect(luaContent).toContain("/APM/ardupilot.abin");
+  });
+
+  it("should have state machine with IDLE, CHECKING, DOWNLOADING, DONE states", () => {
+    expect(luaContent).toContain("STATE_IDLE");
+    expect(luaContent).toContain("STATE_CHECKING");
+    expect(luaContent).toContain("STATE_DOWNLOADING");
+    expect(luaContent).toContain("STATE_DONE");
+  });
+
+  it("should parse ready flag from status response", () => {
+    expect(luaContent).toContain('"ready"');
+  });
+
+  it("should parse firmware size from status response", () => {
+    expect(luaContent).toContain('"size"');
+  });
+
+  it("should enforce 16MB max firmware size", () => {
+    expect(luaContent).toContain("MAX_FIRMWARE_SIZE");
+  });
+
+  it("should send GCS progress messages", () => {
+    expect(luaContent).toContain("FWPull:");
+  });
+
+  it("should remove partial file on abort", () => {
+    expect(luaContent).toContain("os.remove");
+  });
+
+  it("should use HTTP/1.0 for simple connection handling", () => {
+    expect(luaContent).toContain("HTTP/1.0");
+  });
+});
+
+describe("Approach C: Companion Pi firmware HTTP server", () => {
+  let pyContent: string;
+
+  beforeAll(() => {
+    pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+  });
+
+  it("should import aiohttp.web with graceful fallback", () => {
+    expect(pyContent).toContain("from aiohttp import web as aiohttp_web");
+    expect(pyContent).toContain("aiohttp_web = None");
+  });
+
+  it("should define FIRMWARE_SERVER_PORT constant (8070)", () => {
+    expect(pyContent).toContain("FIRMWARE_SERVER_PORT = 8070");
+  });
+
+  it("should define FIRMWARE_SERVER_ACK_TIMEOUT constant", () => {
+    expect(pyContent).toContain("FIRMWARE_SERVER_ACK_TIMEOUT");
+  });
+
+  it("should have _start_firmware_server method", () => {
+    expect(pyContent).toContain("async def _start_firmware_server(self, firmware_path: str) -> bool:");
+  });
+
+  it("should have _stop_firmware_server method", () => {
+    expect(pyContent).toContain("async def _stop_firmware_server(self):");
+  });
+
+  it("should have _wait_for_fc_pull method", () => {
+    expect(pyContent).toContain("async def _wait_for_fc_pull(self, update_id: int");
+  });
+
+  it("should register three HTTP endpoints: status, download, ack", () => {
+    expect(pyContent).toContain('"/firmware/status"');
+    expect(pyContent).toContain('"/firmware/download"');
+    expect(pyContent).toContain('"/firmware/ack"');
+  });
+
+  it("should serve firmware with streaming response", () => {
+    expect(pyContent).toContain("StreamResponse");
+  });
+
+  it("should track bytes sent for progress reporting", () => {
+    expect(pyContent).toContain("_fw_serve_bytes_sent");
+  });
+
+  it("should set downloaded flag on ack", () => {
+    expect(pyContent).toContain("_fw_serve_downloaded = True");
+  });
+
+  it("should listen on 0.0.0.0 for network accessibility", () => {
+    expect(pyContent).toContain('"0.0.0.0"');
+  });
+
+  it("should clean up server runner on stop", () => {
+    expect(pyContent).toContain("_fw_server_runner");
+    expect(pyContent).toContain("cleanup");
+  });
+});
+
+describe("handle_flash_firmware: 3-tier upload priority", () => {
+  let pyContent: string;
+  let flashMethod: string;
+
+  beforeAll(() => {
+    pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+    const startMarker = "# ── Step 3: Upload firmware to FC as ardupilot.abin ──";
+    const endMarker = "# ── Step 4: Monitor flash stages";
+    const startIdx = pyContent.indexOf(startMarker);
+    const endIdx = pyContent.indexOf(endMarker);
+    flashMethod = pyContent.substring(startIdx, endIdx);
+  });
+
+  it("should try Approach C first (firmware HTTP server)", () => {
+    const approachCIdx = flashMethod.indexOf("Approach C");
+    const httpPutIdx = flashMethod.indexOf("HTTP PUT (push");
+    const mavftpIdx = flashMethod.indexOf("Last resort: MAVFTP");
+    expect(approachCIdx).toBeGreaterThan(-1);
+    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
+    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
+  });
+
+  it("should start firmware server and wait for FC pull", () => {
+    expect(flashMethod).toContain("_start_firmware_server(tmp_path)");
+    expect(flashMethod).toContain("_wait_for_fc_pull(update_id");
+  });
+
+  it("should stop firmware server after FC pull attempt", () => {
+    expect(flashMethod).toContain("_stop_firmware_server()");
+  });
+
+  it("should fall back to HTTP PUT if Approach C fails", () => {
+    expect(flashMethod).toContain("upload_method is None and self._http_fc_reachable()");
+    expect(flashMethod).toContain("_http_upload_firmware(tmp_path");
+  });
+
+  it("should fall back to MAVFTP as last resort", () => {
+    expect(flashMethod).toContain("upload_method is None:");
+    expect(flashMethod).toContain("upload_file(tmp_path");
+  });
+
+  it("should report uploading_http_pull stage for Approach C", () => {
+    expect(flashMethod).toContain('flash_stage="uploading_http_pull"');
+  });
+
+  it("should report uploading_http stage for HTTP PUT", () => {
+    expect(flashMethod).toContain('flash_stage="uploading_http"');
+  });
+
+  it("should report uploading_mavftp stage for MAVFTP", () => {
+    expect(flashMethod).toContain('flash_stage="uploading_mavftp"');
+  });
+
+  it("should log the upload method used", () => {
+    expect(flashMethod).toContain("via {upload_method}");
+  });
+
+  it("should check aiohttp_web availability before Approach C", () => {
+    expect(flashMethod).toContain("if aiohttp_web:");
+  });
+});
+
+describe("Module docstring: Approach C documentation", () => {
+  let pyContent: string;
+
+  beforeAll(() => {
+    pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+  });
+
+  it("should mention Approach C in the module docstring", () => {
+    const firstTriple = pyContent.indexOf('"""');
+    const closingTriple = pyContent.indexOf('"""', firstTriple + 3);
+    const docstring = pyContent.substring(firstTriple, closingTriple);
+    expect(docstring).toContain("Approach C");
+    expect(docstring).toContain("FC pulls from companion HTTP server");
+  });
+
+  it("should mention all three upload methods in priority order", () => {
+    const firstTriple = pyContent.indexOf('"""');
+    const closingTriple = pyContent.indexOf('"""', firstTriple + 3);
+    const docstring = pyContent.substring(firstTriple, closingTriple);
+    const approachCIdx = docstring.indexOf("Approach C");
+    const httpPutIdx = docstring.indexOf("HTTP PUT");
+    const mavftpIdx = docstring.indexOf("MAVFTP");
+    expect(approachCIdx).toBeGreaterThan(-1);
+    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
+    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
   });
 });

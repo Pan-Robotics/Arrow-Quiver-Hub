@@ -1384,3 +1384,11 @@
 - [x] Python: timeout changed from 300 to (10, 600) tuple — 10s connect, 600s read
 - [x] Python: added speed logging (KB/s and elapsed time) on successful upload
 - [x] Updated tests: 879 tests pass
+
+## Approach C: FC Pulls Firmware from Companion Pi via HTTP GET
+- [x] Created firmware_puller.lua: FC Lua applet with FWPULL_ params (ENABLE, PI_IP0-3, PORT), polls /firmware/status, downloads via HTTP GET to /APM/ardupilot.abin, sends /firmware/ack, multi-chunk reads per cycle, GCS progress, 16MB max
+- [x] Added _start_firmware_server(): aiohttp.web on port 8070 with /firmware/status (ready+size JSON), /firmware/download (streaming response), /firmware/ack (sets downloaded flag)
+- [x] Updated handle_flash_firmware: 3-tier priority (Approach C → HTTP PUT → MAVFTP), checks aiohttp_web availability
+- [x] Added signaling: /firmware/status returns {ready:true, size:N}, FC Lua polls every 2s; /firmware/ack confirms download complete
+- [x] MAVFTP kept as last-resort fallback
+- [x] 920 tests pass (52 new for firmware_puller.lua, HTTP server, 3-tier priority, module docstring)

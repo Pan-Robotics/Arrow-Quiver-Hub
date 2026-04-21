@@ -5,7 +5,10 @@ Quiver Hub – Logs & OTA Service (Companion Computer)
 Runs on the Raspberry Pi companion computer and provides:
   1. FC log sync       – background sync .BIN files from FC via ArduPilot net_webserver HTTP
   2. FC log serving    – serve locally-cached logs to Hub for user download
-  3. OTA firmware flash – download .abin/.apj from Hub → push to FC via HTTP PUT (fast) or MAVFTP (fallback)
+  3. OTA firmware flash – download .abin/.apj from Hub → transfer to FC via:
+     (a) Approach C: FC pulls from companion HTTP server (~650 KB/s)
+     (b) HTTP PUT to FC web server (~650 KB/s)
+     (c) MAVFTP (~5 KB/s, last resort)
   4. System diagnostics – CPU, memory, disk, temp, services → report to Hub
   5. Remote log stream  – journalctl -f → Socket.IO to browser
 
@@ -80,6 +83,11 @@ try:
 except ImportError:
     System = None
     FtpResult = None
+
+try:
+    from aiohttp import web as aiohttp_web
+except ImportError:
+    aiohttp_web = None
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 
@@ -1086,6 +1094,10 @@ class LogsOtaJobHandler:
     FC_APM_PATH = "/mnt/APM/"
     HTTP_TIMEOUT = 5  # seconds for HTTP HEAD/GET during flash monitoring
 
+    # Firmware HTTP server (Approach C: FC pulls firmware from companion Pi)
+    FIRMWARE_SERVER_PORT = 8070  # port for the lightweight firmware HTTP server
+    FIRMWARE_SERVER_ACK_TIMEOUT = 300  # max seconds to wait for FC to pull firmware
+
     def __init__(self, hub: HubClient, ftp: MavFtpClient,
                  log_syncer: Optional['FCLogSyncer'] = None,
                  log_path: str = "/APM/LOGS"):
@@ -1095,6 +1107,12 @@ class LogsOtaJobHandler:
         self.log_path = log_path
         # Derive FC web server URL from log_syncer if available
         self.fc_url = log_syncer.fc_url if log_syncer else None
+        # Firmware server state (Approach C)
+        self._fw_server_runner = None
+        self._fw_serve_path = None  # path to firmware file being served
+        self._fw_serve_size = 0
+        self._fw_serve_downloaded = False  # set True when FC acks download
+        self._fw_serve_bytes_sent = 0  # track bytes served for progress
 
     @staticmethod
     def _convert_apj_to_abin(apj_data: bytes, output_path: str) -> None:
@@ -1192,6 +1210,147 @@ class LogsOtaJobHandler:
             return resp.status_code == 200
         except Exception:
             return False
+
+    # ── Approach C: Firmware HTTP Server (FC pulls from Pi) ──────────────
+
+    async def _start_firmware_server(self, firmware_path: str) -> bool:
+        """
+        Start a lightweight aiohttp server that serves the firmware file.
+
+        The FC's firmware_puller.lua script polls GET /firmware/status and
+        downloads the file via GET /firmware/download. When the FC sends
+        GET /firmware/ack, we know the download completed.
+
+        Returns True if server started successfully, False otherwise.
+        """
+        if not aiohttp_web:
+            logger.warning("aiohttp not available — cannot start firmware server")
+            return False
+
+        self._fw_serve_path = firmware_path
+        self._fw_serve_size = os.path.getsize(firmware_path)
+        self._fw_serve_downloaded = False
+        self._fw_serve_bytes_sent = 0
+
+        async def handle_status(request):
+            """GET /firmware/status — FC polls this to check for available firmware."""
+            if self._fw_serve_path and os.path.exists(self._fw_serve_path):
+                return aiohttp_web.json_response({
+                    "ready": True,
+                    "filename": "ardupilot.abin",
+                    "size": self._fw_serve_size,
+                })
+            return aiohttp_web.json_response({"ready": False})
+
+        async def handle_download(request):
+            """GET /firmware/download — FC downloads the firmware binary."""
+            if not self._fw_serve_path or not os.path.exists(self._fw_serve_path):
+                return aiohttp_web.Response(status=404, text="No firmware available")
+
+            response = aiohttp_web.StreamResponse(
+                status=200,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(self._fw_serve_size),
+                    "Content-Disposition": 'attachment; filename="ardupilot.abin"',
+                },
+            )
+            await response.prepare(request)
+
+            chunk_size = 32768  # 32KB chunks
+            with open(self._fw_serve_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    await response.write(chunk)
+                    self._fw_serve_bytes_sent += len(chunk)
+
+            await response.write_eof()
+            logger.info(f"Firmware served: {self._fw_serve_bytes_sent} bytes sent to FC")
+            return response
+
+        async def handle_ack(request):
+            """GET /firmware/ack — FC signals download completed."""
+            self._fw_serve_downloaded = True
+            logger.info("FC acknowledged firmware download complete")
+            return aiohttp_web.json_response({"status": "ok"})
+
+        app = aiohttp_web.Application()
+        app.router.add_get("/firmware/status", handle_status)
+        app.router.add_get("/firmware/download", handle_download)
+        app.router.add_get("/firmware/ack", handle_ack)
+
+        try:
+            runner = aiohttp_web.AppRunner(app)
+            await runner.setup()
+            site = aiohttp_web.TCPSite(runner, "0.0.0.0", self.FIRMWARE_SERVER_PORT)
+            await site.start()
+            self._fw_server_runner = runner
+            logger.info(f"Firmware HTTP server started on port {self.FIRMWARE_SERVER_PORT}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start firmware server: {e}")
+            return False
+
+    async def _stop_firmware_server(self):
+        """Stop the firmware HTTP server and clean up state."""
+        if self._fw_server_runner:
+            try:
+                await self._fw_server_runner.cleanup()
+            except Exception as e:
+                logger.warning(f"Error stopping firmware server: {e}")
+            self._fw_server_runner = None
+        self._fw_serve_path = None
+        self._fw_serve_size = 0
+        self._fw_serve_downloaded = False
+        self._fw_serve_bytes_sent = 0
+
+    async def _wait_for_fc_pull(self, update_id: int, timeout: int = None) -> bool:
+        """
+        Wait for the FC's firmware_puller.lua to download the firmware.
+
+        Monitors _fw_serve_downloaded (set by /firmware/ack handler) and
+        _fw_serve_bytes_sent for progress reporting.
+
+        Returns True if FC pulled the firmware, False on timeout.
+        """
+        if timeout is None:
+            timeout = self.FIRMWARE_SERVER_ACK_TIMEOUT
+
+        elapsed = 0
+        poll_interval = 2
+        last_reported_pct = 0
+
+        while elapsed < timeout:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            # Report progress based on bytes served
+            if self._fw_serve_size > 0 and self._fw_serve_bytes_sent > 0:
+                pct = 20 + int(self._fw_serve_bytes_sent / self._fw_serve_size * 40)  # 20-60%
+                if pct > last_reported_pct:
+                    last_reported_pct = pct
+                    self.hub.report_firmware_progress(
+                        update_id, "transferring", min(pct, 60),
+                        flash_stage="uploading_http_pull"
+                    )
+
+            if self._fw_serve_downloaded:
+                logger.info(f"FC pulled firmware in {elapsed}s "
+                            f"({self._fw_serve_bytes_sent} bytes served)")
+                return True
+
+            # Also check if all bytes were served (ack may be lost)
+            if (self._fw_serve_size > 0 and
+                    self._fw_serve_bytes_sent >= self._fw_serve_size):
+                logger.info(f"All firmware bytes served ({self._fw_serve_bytes_sent}), "
+                            f"treating as complete (ack may be delayed)")
+                return True
+
+        logger.warning(f"FC did not pull firmware within {timeout}s "
+                       f"(served {self._fw_serve_bytes_sent} / {self._fw_serve_size} bytes)")
+        return False
 
     def _http_upload_firmware(self, local_path: str, progress_callback=None) -> bool:
         """
@@ -1618,7 +1777,10 @@ class LogsOtaJobHandler:
           - Decompress to raw binary, compute MD5, write .abin header + binary
         
         ArduPilot OTA flash process:
-          1. Upload ardupilot.abin to /APM/ on the FC SD card
+          1. Upload ardupilot.abin to /APM/ on the FC SD card.
+             Upload priority: (a) Approach C — FC pulls from companion HTTP server
+             via firmware_puller.lua (~650 KB/s), (b) HTTP PUT via
+             net_webserver_put.lua (~650 KB/s), (c) MAVFTP (~5 KB/s, last resort).
           2. FC renames to ardupilot-verify.abin (CRC verification)
           3. FC renames to ardupilot-flash.abin (flashing to internal flash)
           4. FC renames to ardupilot-flashed.abin (success, FC reboots)
@@ -1723,32 +1885,60 @@ class LogsOtaJobHandler:
                         await self.ftp.remove_file(f"/APM/{old_name}")
 
                 # ── Step 3: Upload firmware to FC as ardupilot.abin ──
-                # Try HTTP PUT first (fast, ~650 KB/s over Ethernet).
-                # Falls back to MAVFTP if FC doesn't have net_webserver_put.lua.
+                # Priority order:
+                #   1. Approach C — FC pulls from companion Pi HTTP server (~650 KB/s)
+                #      Requires firmware_puller.lua on FC with FWPULL_ENABLE=1
+                #   2. HTTP PUT — companion pushes to FC web server (~650 KB/s)
+                #      Requires net_webserver_put.lua on FC
+                #   3. MAVFTP — traditional MAVLink file transfer (~5 KB/s)
+                #      Always available but very slow
                 self.hub.report_firmware_progress(update_id, "transferring", 20,
                                                    flash_stage="uploading")
 
-                upload_method = "MAVFTP"  # default
+                upload_method = None
 
-                def http_upload_progress(uploaded: int, total: int):
-                    if total > 0:
-                        pct = 20 + int(uploaded / total * 40)  # 20-60%
-                        self.hub.report_firmware_progress(
-                            update_id, "transferring", pct,
-                            flash_stage="uploading_http"
-                        )
+                # ── Approach C: Start firmware HTTP server, let FC pull ──
+                if aiohttp_web:
+                    logger.info("Starting firmware HTTP server for FC pull (Approach C)...")
+                    self.hub.report_firmware_progress(
+                        update_id, "transferring", 20,
+                        flash_stage="uploading_http_pull"
+                    )
+                    server_started = await self._start_firmware_server(tmp_path)
+                    if server_started:
+                        fc_pulled = await self._wait_for_fc_pull(update_id,
+                                                                  self.FIRMWARE_SERVER_ACK_TIMEOUT)
+                        await self._stop_firmware_server()
+                        if fc_pulled:
+                            upload_method = "HTTP pull (Approach C)"
+                            logger.info("Firmware transferred via FC HTTP pull (fast path)")
+                        else:
+                            logger.info("FC did not pull firmware — trying fallback methods")
+                    else:
+                        logger.info("Could not start firmware server — trying fallback methods")
 
-                # Attempt HTTP PUT upload (requires net_webserver_put.lua on FC)
-                if self._http_fc_reachable():
-                    logger.info("Attempting fast HTTP PUT upload...")
+                # ── Fallback: HTTP PUT (push to FC web server) ──
+                if upload_method is None and self._http_fc_reachable():
+                    logger.info("Attempting HTTP PUT upload (fallback 1)...")
+
+                    def http_upload_progress(uploaded: int, total: int):
+                        if total > 0:
+                            pct = 20 + int(uploaded / total * 40)  # 20-60%
+                            self.hub.report_firmware_progress(
+                                update_id, "transferring", pct,
+                                flash_stage="uploading_http"
+                            )
+
                     if self._http_upload_firmware(tmp_path, http_upload_progress):
                         upload_method = "HTTP PUT"
-                        logger.info("Firmware uploaded via HTTP PUT (fast path)")
+                        logger.info("Firmware uploaded via HTTP PUT")
                     else:
                         logger.info("HTTP PUT not available — falling back to MAVFTP")
 
-                if upload_method == "MAVFTP":
-                    # Fallback: MAVFTP upload (slow, ~5 KB/s)
+                # ── Last resort: MAVFTP (slow, ~5 KB/s) ──
+                if upload_method is None:
+                    logger.info("Using MAVFTP upload (slow fallback)...")
+
                     async def mavftp_upload_progress(uploaded: int, total: int):
                         if total > 0:
                             pct = 20 + int(uploaded / total * 40)  # 20-60%
@@ -1759,6 +1949,7 @@ class LogsOtaJobHandler:
 
                     await self.ftp.upload_file(tmp_path, "/APM/",
                                                 mavftp_upload_progress)
+                    upload_method = "MAVFTP"
 
                 logger.info(f"Firmware uploaded to FC as /APM/ardupilot.abin via {upload_method}")
 
