@@ -351,7 +351,7 @@ The companion's `FCLogSyncer` automatically uses this endpoint for background lo
 
 ---
 
-## 9. Building a Custom Payload App (Play-by-Play)
+## 9. Building a Custom Payload App
 
 The App Builder lets you create custom data pipeline apps that receive sensor data, parse it, and display it in real-time widgets. There are three data source modes, each covered step-by-step below.
 
@@ -525,9 +525,9 @@ Mode C (Passthrough):
 
 ---
 
-## 10. Operational Play-by-Plays
+## 10. Operational Walkthroughs
 
-### 10.1 Adding a Custom Job Type (Play-by-Play)
+### 10.1 Adding a Custom Job Type
 
 Custom jobs let you trigger arbitrary tasks on the companion computer from the Hub UI. The job lifecycle is: **create → poll → acknowledge → execute → complete/fail**.
 
@@ -591,7 +591,7 @@ sudo journalctl -u quiver-hub-client -f
 
 ---
 
-### 10.2 Camera Stream Setup (Play-by-Play)
+### 10.2 Camera Stream Setup
 
 This sets up live WebRTC video from the SIYI A8 Mini camera through the Hub.
 
@@ -647,7 +647,7 @@ tailscale funnel status
 
 ---
 
-### 10.3 FC Log Download Workflow (Play-by-Play)
+### 10.3 FC Log Download Workflow
 
 This walks through discovering, downloading, and saving FC logs to your local PC.
 
@@ -671,7 +671,7 @@ This walks through discovering, downloading, and saving FC logs to your local PC
 
 ---
 
-### 10.4 OTA Firmware Flash Workflow (Play-by-Play)
+### 10.4 OTA Firmware Flash Workflow
 
 This walks through uploading new firmware to the flight controller over the air.
 
@@ -697,7 +697,7 @@ Progress is reported in real-time via `POST /api/rest/firmware/progress` and bro
 
 ---
 
-### 10.5 Diagnostics & Remote Log Streaming (Play-by-Play)
+### 10.5 Diagnostics & Remote Log Streaming
 
 This walks through monitoring companion health and streaming service logs remotely.
 
