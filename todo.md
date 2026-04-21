@@ -1349,3 +1349,9 @@
 - [x] Add .apj rejection at flash time with clear error: "Cannot flash .apj files via OTA. ArduPilot SD card flash requires .abin format."
 - [x] Update frontend upload dialog: warns .apj is USB/GCS only, links to firmware.ardupilot.org for .abin downloads
 - [x] Write tests: 793 tests pass (20 new for upload fix, .apj rejection, temp file naming, frontend guidance)
+
+## Server-side .apj → .abin Auto-Conversion
+- [x] Add _convert_apj_to_abin() static method: parses JSON, validates APJFWv1 magic, base64-decodes, zlib-decompresses, validates image_size, computes MD5, writes .abin header + raw binary
+- [x] Update handle_flash_firmware to auto-convert .apj files instead of rejecting (is_apj flag, converting_apj stage, conversion_failed error handling)
+- [x] Update frontend dialog: subtitle says ".abin or .apj", dialog explains auto-conversion, safety warning mentions both formats
+- [x] Write tests: 823 tests pass (30 new for conversion method, integration, frontend messaging, imports)

@@ -1242,7 +1242,7 @@ describe("MavFtpClient.upload_file - async generator fix", () => {
 
 // ─── Fix: .apj file rejection ──────────────────────────────────────────────
 
-describe("Firmware flash - .apj file rejection", () => {
+describe("Firmware flash - .apj detection (auto-conversion)", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
@@ -1253,31 +1253,26 @@ describe("Firmware flash - .apj file rejection", () => {
     source.indexOf("class DiagnosticsCollector")
   );
 
-  it("checks for .apj extension before starting flash", () => {
-    expect(flashMethod).toContain('firmware_filename.lower().endswith(".apj")');
+  it("checks for .apj extension to determine conversion need", () => {
+    expect(flashMethod).toContain('is_apj = firmware_filename.lower().endswith(".apj")');
   });
 
-  it("rejects .apj files with a clear error message", () => {
-    expect(flashMethod).toContain("Cannot flash .apj files via OTA");
-    expect(flashMethod).toContain("ArduPilot SD card flash requires");
-    expect(flashMethod).toContain(".abin format");
+  it("no longer rejects .apj files outright", () => {
+    expect(flashMethod).not.toContain("Cannot flash .apj files via OTA");
+    expect(flashMethod).not.toContain('flash_stage="unsupported_format"');
   });
 
-  it("suggests downloading .abin from firmware.ardupilot.org", () => {
-    expect(flashMethod).toContain("firmware.ardupilot.org");
+  it("calls _convert_apj_to_abin when .apj is detected", () => {
+    expect(flashMethod).toContain("self._convert_apj_to_abin(resp.content, tmp_path)");
   });
 
-  it("reports unsupported_format flash stage on .apj rejection", () => {
-    expect(flashMethod).toContain('flash_stage="unsupported_format"');
+  it("reports converting_apj flash stage", () => {
+    expect(flashMethod).toContain('flash_stage="converting_apj"');
   });
 
-  it("returns False with error message for .apj files", () => {
-    // The .apj check happens before the try block
-    const apjSection = flashMethod.substring(
-      flashMethod.indexOf('firmware_filename.lower().endswith(".apj")'),
-      flashMethod.indexOf("try:")
-    );
-    expect(apjSection).toContain("return False, error_msg");
+  it("handles conversion failure with conversion_failed stage", () => {
+    expect(flashMethod).toContain('flash_stage="conversion_failed"');
+    expect(flashMethod).toContain(".apj conversion failed:");
   });
 });
 
@@ -1328,13 +1323,15 @@ describe("Frontend - firmware upload dialog .apj guidance", () => {
     expect(logsOtaApp).toContain('accept=".abin,.apj"');
   });
 
-  it("explains that only .abin can be flashed via OTA", () => {
+  it("explains that both .abin and .apj are supported", () => {
     expect(logsOtaApp).toContain(".abin");
-    expect(logsOtaApp).toContain("flashed via OTA");
+    expect(logsOtaApp).toContain(".apj");
+    expect(logsOtaApp).toContain("automatically converted to .abin");
   });
 
-  it("notes that .apj is for USB/GCS tools only", () => {
-    expect(logsOtaApp).toContain(".apj files are for USB/GCS tools only");
+  it("mentions both native OTA and auto-converted formats", () => {
+    expect(logsOtaApp).toContain(".abin (native OTA)");
+    expect(logsOtaApp).toContain(".apj (auto-converted)");
   });
 
   it("links to firmware.ardupilot.org for .abin downloads", () => {
@@ -1343,5 +1340,177 @@ describe("Frontend - firmware upload dialog .apj guidance", () => {
 
   it("mentions OTA in the section subtitle", () => {
     expect(logsOtaApp).toContain("via MAVFTP (OTA)");
+  });
+
+  it("subtitle mentions both .abin and .apj", () => {
+    expect(logsOtaApp).toContain(".abin or .apj firmware");
+  });
+});
+
+// ─── .apj → .abin Conversion Logic ──────────────────────────────────────────
+
+describe("APJ to ABIN conversion - _convert_apj_to_abin()", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  // Extract the _convert_apj_to_abin method
+  const convertMethod = source.substring(
+    source.indexOf("def _convert_apj_to_abin("),
+    source.indexOf("def _http_file_exists(")
+  );
+
+  it("is a @staticmethod on LogsOtaJobHandler", () => {
+    expect(source).toContain("@staticmethod\n    def _convert_apj_to_abin(");
+  });
+
+  it("accepts apj_data bytes and output_path string", () => {
+    expect(convertMethod).toContain("def _convert_apj_to_abin(apj_data: bytes, output_path: str)");
+  });
+
+  it("parses the .apj JSON", () => {
+    expect(convertMethod).toContain("json.loads(apj_data)");
+  });
+
+  it("validates the APJFWv1 magic field", () => {
+    expect(convertMethod).toContain('"APJFWv1"');
+    expect(convertMethod).toContain('apj.get("magic")');
+  });
+
+  it("extracts and decodes the base64 image field", () => {
+    expect(convertMethod).toContain('apj.get("image")');
+    expect(convertMethod).toContain("base64.b64decode(image_b64)");
+  });
+
+  it("decompresses the zlib-compressed firmware binary", () => {
+    expect(convertMethod).toContain("zlib.decompress(compressed)");
+  });
+
+  it("validates image_size if present in the .apj", () => {
+    expect(convertMethod).toContain('apj.get("image_size")');
+    expect(convertMethod).toContain("len(raw_bin) != expected_size");
+  });
+
+  it("computes MD5 of the raw binary for the .abin header", () => {
+    expect(convertMethod).toContain("hashlib.md5(raw_bin).hexdigest()");
+  });
+
+  it("writes the .abin header: git version, MD5, separator", () => {
+    expect(convertMethod).toContain('f"git version: {git_hash}\\n"');
+    expect(convertMethod).toContain('f"MD5: {md5_hex}\\n"');
+    expect(convertMethod).toContain('b"--\\n"');
+  });
+
+  it("appends the raw binary after the header", () => {
+    expect(convertMethod).toContain("f.write(raw_bin)");
+  });
+
+  it("extracts git_identity from the .apj metadata", () => {
+    expect(convertMethod).toContain('apj.get("git_identity", "unknown")');
+  });
+
+  it("raises ValueError for invalid JSON", () => {
+    expect(convertMethod).toContain("json.JSONDecodeError");
+    expect(convertMethod).toContain("Invalid .apj file: not valid JSON");
+  });
+
+  it("raises ValueError for missing magic field", () => {
+    expect(convertMethod).toContain("expected magic 'APJFWv1'");
+  });
+
+  it("raises ValueError for missing image field", () => {
+    expect(convertMethod).toContain("missing 'image' field");
+  });
+
+  it("raises ValueError for decode/decompress failures", () => {
+    expect(convertMethod).toContain("Failed to decode/decompress .apj image");
+  });
+
+  it("logs the conversion result with board and git info", () => {
+    expect(convertMethod).toContain("Converted .apj");
+    expect(convertMethod).toContain("board=");
+    expect(convertMethod).toContain("git=");
+  });
+});
+
+// ─── .apj → .abin Integration in handle_flash_firmware ──────────────────────
+
+describe("Firmware flash - .apj auto-conversion integration", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
+  );
+
+  it("detects .apj files by filename extension", () => {
+    expect(flashMethod).toContain('is_apj = firmware_filename.lower().endswith(".apj")');
+  });
+
+  it("does NOT reject .apj files anymore", () => {
+    expect(flashMethod).not.toContain("Cannot flash .apj files via OTA");
+    expect(flashMethod).not.toContain('flash_stage="unsupported_format"');
+  });
+
+  it("reports converting_apj flash stage for .apj files", () => {
+    expect(flashMethod).toContain('flash_stage="converting_apj"');
+  });
+
+  it("calls _convert_apj_to_abin for .apj files", () => {
+    expect(flashMethod).toContain("self._convert_apj_to_abin(resp.content, tmp_path)");
+  });
+
+  it("catches ValueError from conversion and reports failure", () => {
+    expect(flashMethod).toContain("except ValueError as conv_err");
+    expect(flashMethod).toContain(".apj conversion failed:");
+    expect(flashMethod).toContain('flash_stage="conversion_failed"');
+  });
+
+  it("writes raw bytes directly for .abin files (no conversion)", () => {
+    // The else branch writes resp.content directly
+    expect(flashMethod).toContain("else:\n                    with open(tmp_path,");
+  });
+
+  it("SHA-256 check is on original downloaded bytes (before conversion)", () => {
+    expect(flashMethod).toContain("Hash is verified against the original downloaded bytes");
+    expect(flashMethod).toContain("hashlib.sha256(resp.content)");
+  });
+
+  it("docstring mentions .apj auto-conversion support", () => {
+    expect(flashMethod).toContain("Supports both .abin and .apj firmware files");
+    expect(flashMethod).toContain(".apj → .abin conversion");
+  });
+
+  it("logs whether firmware was converted or downloaded", () => {
+    expect(flashMethod).toContain("'Converted' if is_apj else 'Downloaded'");
+  });
+});
+
+// ─── zlib import ─────────────────────────────────────────────────────────────
+
+describe("Module imports for .apj conversion", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  it("imports zlib for .apj decompression", () => {
+    expect(source).toContain("import zlib");
+  });
+
+  it("imports base64 for .apj decoding", () => {
+    expect(source).toContain("import base64");
+  });
+
+  it("imports json for .apj parsing", () => {
+    expect(source).toContain("import json");
+  });
+
+  it("imports hashlib for MD5 computation", () => {
+    expect(source).toContain("import hashlib");
   });
 });

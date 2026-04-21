@@ -52,6 +52,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -1074,6 +1075,70 @@ class LogsOtaJobHandler:
         # Derive FC web server URL from log_syncer if available
         self.fc_url = log_syncer.fc_url if log_syncer else None
 
+    @staticmethod
+    def _convert_apj_to_abin(apj_data: bytes, output_path: str) -> None:
+        """
+        Convert an ArduPilot .apj firmware file to .abin format for OTA SD card flash.
+
+        .apj is a JSON file containing:
+          - "image": base64-encoded, zlib-compressed raw firmware binary
+          - "git_identity": short git hash of the build
+          - "board_id", "summary", etc.
+
+        .abin is a text header + raw binary:
+          Line 1: "git version: <githash>"
+          Line 2: "MD5: <md5 of raw binary>"
+          Line 3: "--"
+          Followed by: raw firmware binary bytes
+
+        The ArduPilot bootloader verifies the MD5 checksum before flashing.
+
+        Raises:
+            ValueError: If the .apj file is invalid or missing required fields.
+            zlib.error: If the firmware image is corrupted.
+        """
+        try:
+            apj = json.loads(apj_data)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise ValueError(f"Invalid .apj file: not valid JSON — {e}")
+
+        if apj.get("magic") != "APJFWv1":
+            raise ValueError(
+                f"Invalid .apj file: expected magic 'APJFWv1', "
+                f"got '{apj.get('magic', '<missing>')}'")
+
+        image_b64 = apj.get("image")
+        if not image_b64:
+            raise ValueError("Invalid .apj file: missing 'image' field")
+
+        # Decode and decompress the firmware binary
+        try:
+            compressed = base64.b64decode(image_b64)
+            raw_bin = zlib.decompress(compressed)
+        except Exception as e:
+            raise ValueError(f"Failed to decode/decompress .apj image: {e}")
+
+        expected_size = apj.get("image_size")
+        if expected_size is not None and len(raw_bin) != expected_size:
+            raise ValueError(
+                f".apj image_size mismatch: header says {expected_size}, "
+                f"decompressed {len(raw_bin)} bytes")
+
+        # Build the .abin file: text header + raw binary
+        git_hash = apj.get("git_identity", "unknown")
+        md5_hex = hashlib.md5(raw_bin).hexdigest()
+
+        with open(output_path, "wb") as f:
+            f.write(f"git version: {git_hash}\n".encode())
+            f.write(f"MD5: {md5_hex}\n".encode())
+            f.write(b"--\n")
+            f.write(raw_bin)
+
+        board = apj.get("summary", "unknown")
+        logger.info(
+            f"Converted .apj → .abin: board={board}, git={git_hash}, "
+            f"size={len(raw_bin)} bytes, md5={md5_hex[:16]}...")
+
     def _http_file_exists(self, filename: str) -> Optional[bool]:
         """Check if a file exists on the FC via HTTP HEAD. Returns None if HTTP unavailable."""
         if not self.fc_url or not requests:
@@ -1399,8 +1464,12 @@ class LogsOtaJobHandler:
         """
         Download firmware from Hub, upload to FC via MAVFTP, and monitor flash stages.
         
-        Only .abin files are supported for OTA flash. .apj files (used by GCS
-        tools like Mission Planner over USB) are rejected with a clear error.
+        Supports both .abin and .apj firmware files. If an .apj file is uploaded,
+        it is automatically converted to .abin format before flashing.
+        
+        .apj → .abin conversion:
+          - Parse JSON, extract base64-encoded zlib-compressed image
+          - Decompress to raw binary, compute MD5, write .abin header + binary
         
         ArduPilot OTA flash process:
           1. Upload ardupilot.abin to /APM/ on the FC SD card
@@ -1420,23 +1489,8 @@ class LogsOtaJobHandler:
         if not update_id or not firmware_url:
             return False, "Missing updateId or firmwareUrl in job payload"
 
-        # ── Validate firmware format ──
-        # ArduPilot OTA SD card flash ONLY supports .abin files.
-        # .apj is a different format (JSON header + binary) used by GCS tools
-        # like Mission Planner over USB — it cannot be used for OTA flash.
-        if firmware_filename.lower().endswith(".apj"):
-            error_msg = (
-                "Cannot flash .apj files via OTA. ArduPilot SD card flash requires "
-                ".abin format. Download the .abin build from firmware.ardupilot.org "
-                "for your board (e.g., CubeOrange, Pixhawk6X)."
-            )
-            logger.error(error_msg)
-            self.hub.report_firmware_progress(
-                update_id, "failed", 0,
-                flash_stage="unsupported_format",
-                error_message=error_msg
-            )
-            return False, error_msg
+        # Determine if we need .apj → .abin conversion
+        is_apj = firmware_filename.lower().endswith(".apj")
 
         try:
             # ── Step 1: Download firmware from Hub ──
@@ -1452,13 +1506,33 @@ class LogsOtaJobHandler:
             try:
                 resp = requests.get(firmware_url, timeout=120)
                 resp.raise_for_status()
-                with open(tmp_path, "wb") as f:
-                    f.write(resp.content)
+
+                # ── .apj → .abin auto-conversion ──
+                if is_apj:
+                    logger.info(f"Detected .apj firmware — converting to .abin")
+                    self.hub.report_firmware_progress(
+                        update_id, "transferring", 7,
+                        flash_stage="converting_apj")
+                    try:
+                        self._convert_apj_to_abin(resp.content, tmp_path)
+                    except ValueError as conv_err:
+                        error_msg = f".apj conversion failed: {conv_err}"
+                        logger.error(error_msg)
+                        self.hub.report_firmware_progress(
+                            update_id, "failed", 0,
+                            flash_stage="conversion_failed",
+                            error_message=error_msg)
+                        return False, error_msg
+                else:
+                    with open(tmp_path, "wb") as f:
+                        f.write(resp.content)
 
                 file_size = os.path.getsize(tmp_path)
-                logger.info(f"Downloaded firmware: {file_size} bytes")
+                logger.info(f"{'Converted' if is_apj else 'Downloaded'} firmware: {file_size} bytes")
 
                 # ── SHA-256 Artefact Integrity Check ──
+                # Hash is verified against the original downloaded bytes (before
+                # any .apj → .abin conversion), matching what the Hub computed.
                 expected_hash = payload.get("sha256Hash")
                 if expected_hash:
                     actual_hash = hashlib.sha256(resp.content).hexdigest()
