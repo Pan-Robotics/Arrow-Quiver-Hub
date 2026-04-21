@@ -86,7 +86,7 @@ Developer-assigned static range: `192.168.144.100` – `192.168.144.199`
 
 ## 4. Companion Services
 
-All services run as systemd units under the `alexd` user, auto-restart on failure, and log to journald. Configuration lives in `/home/alexd/quiver/forwarder.env`.
+All services run as systemd units, auto-restart on failure, and log to journald. Configuration lives in `$HOME/quiver/forwarder.env`.
 
 ### 4.1 Hub Client (`raspberry_pi_client.py`)
 
@@ -253,7 +253,7 @@ Open Quiver Hub → Drone Configuration → select or create a drone → API Key
 
 ### Step 2: Configure the .env File
 
-On the Raspberry Pi, create `/home/alexd/quiver/forwarder.env`:
+On the Raspberry Pi, create `$HOME/quiver/forwarder.env`:
 
 ```
 QUIVER_HUB_URL=https://your-quiver-hub.com
@@ -270,7 +270,7 @@ The Drone Configuration page in Hub has a ".env File" card that generates this f
 Run the install scripts in order. Each prompts for Hub URL, drone ID, and API key, then creates the systemd service.
 
 ```bash
-cd /home/alexd/quiver/companion_scripts
+cd $HOME/quiver/companion_scripts
 chmod +x install_*.sh
 
 ./install_hub_client.sh          # Job polling
@@ -555,12 +555,12 @@ pip3 install requests aiohttp mavsdk dronecan python-socketio python-dotenv
 
 | Path | Purpose |
 |---|---|
-| `/home/alexd/quiver/forwarder.env` | Shared environment configuration |
-| `/home/alexd/quiver/raspberry_pi_client.py` | Hub client script |
-| `/home/alexd/quiver/telemetry_forwarder.py` | Telemetry forwarder script |
-| `/home/alexd/quiver/logs_ota_service.py` | Logs & OTA service script |
-| `/home/alexd/quiver/camera_stream_service.py` | Camera stream service script |
-| `/home/alexd/quiver/siyi_camera_controller.py` | SIYI camera controller script |
+| `$HOME/quiver/forwarder.env` | Shared environment configuration |
+| `$HOME/quiver/raspberry_pi_client.py` | Hub client script |
+| `$HOME/quiver/telemetry_forwarder.py` | Telemetry forwarder script |
+| `$HOME/quiver/logs_ota_service.py` | Logs & OTA service script |
+| `$HOME/quiver/camera_stream_service.py` | Camera stream service script |
+| `$HOME/quiver/siyi_camera_controller.py` | SIYI camera controller script |
 | `/var/lib/quiver/fc_logs/` | Local FC log cache (FCLogSyncer) |
 | `/var/log/quiver/*.log` | Application logs |
 | `/etc/systemd/system/quiver-*.service` | Systemd service files |
