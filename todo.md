@@ -1312,3 +1312,7 @@
 - [x] Update network IPs: FC=192.168.144.51, Pi=192.168.144.50, Camera=192.168.144.25, payloads=.100-.199
 - [x] Replace full code examples with pseudo-code snippets and class reference tables
 - [x] Remove all duplicate information across sections
+
+## Custom Payload App Play-by-Play in SDK Guide
+- [x] Audit App Builder codebase: 3 data source modes, parser upload/test, schema extraction, UI Builder (9 widget types), save/publish, install, AppRenderer WebSocket rendering
+- [x] Rewrite Section 9 with detailed play-by-play: Mode A (Custom Endpoint, 11 steps), Mode B (Stream Subscription, 6 steps), Mode C (Passthrough, 5 steps), plus editing guide, data flow summary, and external integration patterns

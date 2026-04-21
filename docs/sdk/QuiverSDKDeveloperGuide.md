@@ -351,20 +351,165 @@ The companion's `FCLogSyncer` automatically uses this endpoint for background lo
 
 ---
 
-## 9. Extending the System
+## 9. Building a Custom Payload App (Play-by-Play)
 
-### Adding a New Sensor Forwarder
+The App Builder lets you create custom data pipeline apps that receive sensor data, parse it, and display it in real-time widgets. There are three data source modes, each covered step-by-step below.
 
-The pattern for any new data source is:
+### 9.1 Concepts
 
-```pseudo
-1. Read sensor data (serial, I2C, SPI, USB, network)
-2. Format as JSON: {droneId, timestamp, data: {...}}
-3. POST to /api/rest/payload/{appId}/ingest with x-api-key header
-4. Hub broadcasts via WebSocket → custom app UI renders it
+Every custom app has three layers:
+
+| Layer | What It Does |
+|---|---|
+| **Data Source** | How data enters the app — REST endpoint, stream subscription, or passthrough |
+| **Parser** | Python script that transforms raw JSON into typed display fields (SCHEMA dict) |
+| **UI** | Grid of widgets (gauges, charts, LEDs, text, canvas) bound to SCHEMA fields |
+
+The App Builder walks you through all three. The result is a published app that appears in the App Store for any user to install and see in their sidebar.
+
+---
+
+### 9.2 Mode A: Custom Endpoint (External Sensor → REST → Parser → UI)
+
+Use this when you have a sensor on the companion computer (or any external device) that will POST JSON to the Hub.
+
+**Step 1 — Open the App Builder.** In the Hub sidebar, click the "+" button at the bottom → App Store → "Start Building" button.
+
+**Step 2 — Enter app info.** Fill in the app name (e.g., "Weather Station") and a short description. These appear in the App Store listing.
+
+**Step 3 — Select "Custom Endpoint" as the data source.** This is the default. It creates a dedicated REST endpoint at `/api/rest/payload/{appId}/ingest` that accepts JSON POST requests.
+
+**Step 4 — Write or upload a parser.** The parser is a Python script with two required elements:
+
+```python
+def parse_payload(raw_data: dict) -> dict:
+    """Transform raw incoming JSON into display fields."""
+    return {
+        "temperature": raw_data.get("temp_raw", 0) / 100.0,
+        "humidity": raw_data.get("hum_raw", 0) / 100.0,
+    }
+
+SCHEMA = {
+    "temperature": {"type": "number", "unit": "°C", "min": -50, "max": 60},
+    "humidity":    {"type": "number", "unit": "%",  "min": 0,   "max": 100},
+}
 ```
 
-Create a custom app in Hub App Store with a payload parser (Python script that transforms raw JSON into display fields), then build a UI with the drag-and-drop UI Builder.
+The `SCHEMA` dict defines every field the UI Builder can bind to. Supported types: `"number"`, `"string"`, `"boolean"`. You can either type the code in the editor or click the upload button to load a `.py` file from disk.
+
+**Step 5 — Test the parser.** Paste sample JSON into the "Test Data" box (matching what your sensor will actually send) and click "Run Test". The output panel shows the parsed result and execution time. Fix any errors before proceeding.
+
+**Step 6 — Continue to UI Builder.** Click "Continue to UI Builder". The system extracts the SCHEMA from your parser and opens the drag-and-drop UI Builder.
+
+**Step 7 — Design the UI.** The UI Builder has:
+
+| Element | How to Use |
+|---|---|
+| Widget palette (left) | Click a widget type to add it: Text, Gauge, Line Chart, Bar Chart, LED, Canvas, Connection Status |
+| Grid canvas (center) | Widgets appear in a grid. Set row, column, row span, and column span for each |
+| Property editor (right) | Select a widget to configure: title, data binding (pick a SCHEMA field), colors, min/max, units |
+| Layout columns | Adjust the grid column count (default 3) |
+| Preview mode | Toggle to see how the app will look with live data |
+
+Bind each widget to a SCHEMA field using the "Data Field" dropdown. For example, bind a Gauge widget to `temperature` and set min=-50, max=60.
+
+**Step 8 — Save and publish.** Click "Save App". The app is saved to the database with status `published`. It now appears in the App Store under "Custom Apps".
+
+**Step 9 — Install the app.** Go to App Store → find your app → click "Install". The app icon appears in your sidebar.
+
+**Step 10 — Send data from the companion.** On the Raspberry Pi, create a forwarder script:
+
+```python
+import requests, time, os
+
+url = os.environ["QUIVER_HUB_URL"] + "/api/rest/payload/YOUR_APP_ID/ingest"
+headers = {"x-api-key": os.environ["QUIVER_API_KEY"], "Content-Type": "application/json"}
+
+while True:
+    data = read_sensor()  # your sensor reading function
+    requests.post(url, json={"temp_raw": data["temp"], "hum_raw": data["hum"]}, headers=headers)
+    time.sleep(1)
+```
+
+The `appId` is visible in the App Store card or in the browser URL when viewing the app. The Hub executes your parser on each POST, stores the result, and broadcasts it via WebSocket to all connected clients viewing the app.
+
+**Step 11 — Verify.** Open the app in the Hub sidebar. Widgets should update in real-time as the companion sends data. The connection status indicator shows green when data is flowing.
+
+---
+
+### 9.3 Mode B: Stream Subscription (Mix Existing Pipeline Data → UI)
+
+Use this when you want to combine data from existing pipelines (telemetry, LiDAR, camera, other custom apps) into a single dashboard — no companion-side code needed.
+
+**Step 1 — Open App Builder** (same as Mode A, Steps 1–2).
+
+**Step 2 — Select "Subscribe to Streams" as the data source.**
+
+**Step 3 — Pick streams and fields.** The stream picker shows all available data sources:
+
+| Stream | Event | Example Fields |
+|---|---|---|
+| Telemetry | `telemetry_update` | `attitude.roll`, `attitude.pitch`, `position.lat`, `battery.voltage` |
+| Point Cloud | `pointcloud_update` | `points`, `scan_count`, `point_count` |
+| Camera | `camera_status` | `recording`, `connected`, `resolution` |
+| Custom Apps | `app_data` | Fields from other custom apps |
+
+Check the streams you want, then expand each to select individual fields. Fields from different streams are merged into a single flat data object. If field names collide, the system auto-prefixes with the stream name, or you can set custom aliases.
+
+**Step 4 — Continue to UI Builder.** The SCHEMA is auto-generated from your selected fields. Click "Continue to UI Builder".
+
+**Step 5 — Design and save** (same as Mode A, Steps 7–9).
+
+**Step 6 — Verify.** The app automatically subscribes to the selected WebSocket events. No companion-side forwarder is needed — data flows from the existing pipelines through the Hub's WebSocket rooms directly to your app's widgets.
+
+---
+
+### 9.4 Mode C: Passthrough (Raw JSON → UI, No Parser)
+
+Use this for quick prototyping when your sensor already outputs clean JSON matching the display format.
+
+**Step 1 — Open App Builder** (same as Mode A, Steps 1–2).
+
+**Step 2 — Select "Passthrough" as the data source.**
+
+**Step 3 — Define the SCHEMA only.** In the code editor, write just the SCHEMA dict (no `parse_payload` function needed):
+
+```python
+SCHEMA = {
+    "speed":    {"type": "number", "unit": "m/s", "min": 0, "max": 50},
+    "armed":    {"type": "boolean"},
+    "status":   {"type": "string"},
+}
+```
+
+**Step 4 — Continue to UI Builder, design, save, install** (same as Mode A, Steps 6–9).
+
+**Step 5 — Send data.** POST raw JSON to `/api/rest/payload/{appId}/ingest`. The Hub skips the parser and passes the JSON directly to storage and WebSocket broadcast. Your JSON keys must match the SCHEMA field names exactly.
+
+---
+
+### 9.5 Editing an Existing App
+
+Go to the App Management page (App Store → "Manage Apps" button). Click the edit icon on any app to re-open the App Builder in edit mode. Changes are versioned — each save increments the version number. Installed users see the update immediately.
+
+---
+
+### 9.6 Data Flow Summary
+
+```
+Mode A (Custom Endpoint):
+  Sensor → companion script → POST /payload/{appId}/ingest → parser executes → store + broadcast → UI widgets
+
+Mode B (Stream Subscription):
+  Existing pipeline → WebSocket event → Hub routes to app room → UI widgets (no REST, no parser)
+
+Mode C (Passthrough):
+  Sensor → companion script → POST /payload/{appId}/ingest → skip parser → store + broadcast → UI widgets
+```
+
+---
+
+## 10. Extending the System Further
 
 ### Adding a Custom Job Type
 
@@ -387,15 +532,18 @@ Create the job from Hub UI: Drone Configuration → Job History → New Job → 
 
 ### Integrating External Systems
 
-The REST API accepts standard HTTP from any client. Examples:
+The REST API accepts standard HTTP from any client:
 
-- **ROS/ROS2:** Subscribe to a topic, POST to `/api/rest/telemetry/ingest` in the callback
-- **ArduPilot Lua:** Use `net_webserver.lua` CGI handlers to push data to the companion, which forwards to Hub
-- **MQTT bridge:** Subscribe to MQTT topics, forward to Hub REST endpoints
+| System | Integration Pattern |
+|---|---|
+| ROS/ROS2 | Subscribe to a topic, POST to `/api/rest/telemetry/ingest` or `/payload/{appId}/ingest` in the callback |
+| ArduPilot Lua | Use `net_webserver.lua` CGI handlers to push data to the companion, which forwards to Hub |
+| MQTT bridge | Subscribe to MQTT topics, forward to Hub REST endpoints |
+| Node-RED | HTTP request node → Hub REST endpoint |
 
 ---
 
-## 10. Quick Reference
+## 11. Quick Reference
 
 ### Dependencies
 
