@@ -978,14 +978,16 @@ describe("Hybrid OTA flash monitoring - HTTP helper methods", () => {
     );
   });
 
-  it("_http_file_exists uses HEAD request with timeout", () => {
+  it("_http_file_exists uses GET with Range header instead of HEAD (net_webserver only supports GET)", () => {
     expect(source).toContain(
-      "resp = requests.head(url, timeout=self.HTTP_TIMEOUT)"
+      'resp = requests.get(url, headers={"Range": "bytes=0-0"},'
     );
+    expect(source).toContain("stream=True");
+    expect(source).toContain("resp.close()");
   });
 
-  it("_http_file_exists returns True on 200, None on exception", () => {
-    expect(source).toContain("return resp.status_code == 200");
+  it("_http_file_exists returns True on 200 or 206, None on exception", () => {
+    expect(source).toContain("return resp.status_code in (200, 206)");
   });
 
   // ── _http_fc_reachable() ──
@@ -1004,14 +1006,15 @@ describe("Hybrid OTA flash monitoring - HTTP helper methods", () => {
     expect(reachableMethod).toContain("return False");
   });
 
-  it("_http_fc_reachable pings fc_url root with HEAD", () => {
+  it("_http_fc_reachable pings fc_url root with GET (net_webserver only supports GET)", () => {
     const reachableMethod = source.substring(
       source.indexOf("def _http_fc_reachable"),
       source.indexOf("def _check_file_exists")
     );
     expect(reachableMethod).toContain(
-      "resp = requests.head(self.fc_url, timeout=self.HTTP_TIMEOUT)"
+      "resp = requests.get(self.fc_url, timeout=self.HTTP_TIMEOUT, stream=True)"
     );
+    expect(reachableMethod).toContain("resp.close()");
   });
 
   it("_http_fc_reachable returns True on 200, False on exception", () => {

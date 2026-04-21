@@ -1161,22 +1161,34 @@ class LogsOtaJobHandler:
             f"size={len(raw_bin)} bytes, md5={md5_hex[:16]}...")
 
     def _http_file_exists(self, filename: str) -> Optional[bool]:
-        """Check if a file exists on the FC via HTTP HEAD. Returns None if HTTP unavailable."""
+        """Check if a file exists on the FC via HTTP GET (range 0-0). Returns None if HTTP unavailable.
+        
+        Note: ArduPilot net_webserver.lua only supports GET, not HEAD.
+        We use a Range header to avoid downloading the full file.
+        """
         if not self.fc_url or not requests:
             return None
         try:
             url = f"{self.fc_url}{self.FC_APM_PATH}{filename}"
-            resp = requests.head(url, timeout=self.HTTP_TIMEOUT)
-            return resp.status_code == 200
+            resp = requests.get(url, headers={"Range": "bytes=0-0"},
+                                timeout=self.HTTP_TIMEOUT, stream=True)
+            resp.close()
+            # 200 (full file) or 206 (partial content) both mean file exists
+            return resp.status_code in (200, 206)
         except Exception:
             return None
 
     def _http_fc_reachable(self) -> bool:
-        """Ping the FC web server root to check if it's online (e.g., after reboot)."""
+        """Ping the FC web server root to check if it's online (e.g., after reboot).
+        
+        Note: ArduPilot net_webserver.lua only supports GET, not HEAD.
+        We use stream=True and close immediately to avoid downloading the full page.
+        """
         if not self.fc_url or not requests:
             return False
         try:
-            resp = requests.head(self.fc_url, timeout=self.HTTP_TIMEOUT)
+            resp = requests.get(self.fc_url, timeout=self.HTTP_TIMEOUT, stream=True)
+            resp.close()
             return resp.status_code == 200
         except Exception:
             return False
@@ -1199,6 +1211,9 @@ class LogsOtaJobHandler:
         if not self.fc_url or not requests:
             return False
 
+        # PUT path uses /APM/ (not /mnt/APM/) because net_webserver_put.lua
+        # only strips /mnt/ prefix for GET requests, not PUT. The PUT handler
+        # checks startswith("/APM/") and opens io.open(path, "wb") directly.
         url = f"{self.fc_url}/APM/ardupilot.abin"
         file_size = os.path.getsize(local_path)
 

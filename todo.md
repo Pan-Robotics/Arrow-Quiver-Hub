@@ -1369,3 +1369,10 @@
 - [x] run_sync_loop now calls sync_once(download=False) — scan-only, updates manifest without downloading
 - [x] User-triggered "Scan FC" uses handle_scan_fc_logs (HTTP listing, no bulk download); individual downloads via handle_download_fc_log
 - [x] 879 tests pass (11 new for scan-only background loop behavior)
+
+## Fix HTTP PUT Upload Path and Reachability Check
+- [x] Fix _http_upload_firmware URL: kept as /APM/ (correct) — net_webserver_put.lua expects /APM/ prefix for PUT (no /mnt/ stripping for PUT, only GET)
+- [x] Fix _http_fc_reachable: changed HEAD→GET with stream=True+close() — net_webserver.lua only supports GET
+- [x] Fix _http_file_exists: changed HEAD→GET with Range:bytes=0-0 header, checks 200 or 206
+- [x] net_webserver_put.lua already correct: PUT handler checks startswith("/APM/") and opens io.open(path) directly
+- [x] Updated tests: 879 tests pass
