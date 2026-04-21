@@ -1217,17 +1217,21 @@ class LogsOtaJobHandler:
         url = f"{self.fc_url}/APM/ardupilot.abin"
         file_size = os.path.getsize(local_path)
 
+        # Timeout as (connect, read) tuple:
+        # - connect: 10s to establish TCP connection
+        # - read: 600s because the Lua VM on the FC reads data in small chunks
+        #   (32KB per 5ms cycle) and only sends the HTTP 201 response after
+        #   receiving ALL bytes. For 1.6MB at worst-case ~50 KB/s that's ~32s,
+        #   but we allow 600s for safety (slow SD cards, busy FC).
+        put_timeout = (10, 600)
+
         try:
-            # First, check if the FC web server supports PUT with a small test
-            # by sending an OPTIONS or just attempting the PUT directly.
             logger.info(f"Attempting HTTP PUT upload to {url} ({file_size} bytes)")
+            import time as _time
+            t0 = _time.monotonic()
 
             with open(local_path, "rb") as f:
                 if progress_callback:
-                    # Read and send in chunks to report progress
-                    chunk_size = 65536  # 64KB chunks
-                    uploaded = 0
-
                     class ProgressReader:
                         """File-like wrapper that reports progress during upload."""
                         def __init__(self, fobj, total, callback):
@@ -1254,7 +1258,7 @@ class LogsOtaJobHandler:
                             "Content-Length": str(file_size),
                             "Content-Type": "application/octet-stream",
                         },
-                        timeout=300,  # 5 min timeout for large files
+                        timeout=put_timeout,
                     )
                 else:
                     data = f.read()
@@ -1265,11 +1269,16 @@ class LogsOtaJobHandler:
                             "Content-Length": str(file_size),
                             "Content-Type": "application/octet-stream",
                         },
-                        timeout=300,
+                        timeout=put_timeout,
                     )
 
+            elapsed = _time.monotonic() - t0
+            speed_kbs = (file_size / 1024) / elapsed if elapsed > 0 else 0
+
             if resp.status_code == 201:
-                logger.info(f"HTTP PUT upload succeeded: {file_size} bytes to {url}")
+                logger.info(
+                    f"HTTP PUT upload succeeded: {file_size} bytes to {url} "
+                    f"in {elapsed:.1f}s ({speed_kbs:.1f} KB/s)")
                 return True
             elif resp.status_code == 405:
                 # Method Not Allowed — stock net_webserver.lua without PUT support
@@ -1286,7 +1295,7 @@ class LogsOtaJobHandler:
             logger.info("HTTP PUT connection failed — FC web server may not support PUT")
             return False
         except requests.exceptions.Timeout:
-            logger.warning("HTTP PUT timed out")
+            logger.warning("HTTP PUT timed out (connect=%ss, read=%ss)" % put_timeout)
             return False
         except Exception as e:
             logger.warning(f"HTTP PUT failed: {e}")

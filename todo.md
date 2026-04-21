@@ -1376,3 +1376,11 @@
 - [x] Fix _http_file_exists: changed HEAD→GET with Range:bytes=0-0 header, checks 200 or 206
 - [x] net_webserver_put.lua already correct: PUT handler checks startswith("/APM/") and opens io.open(path) directly
 - [x] Updated tests: 879 tests pass
+
+## Fix HTTP PUT Upload Timeout (Lua + Python)
+- [x] Lua: removed per-chunk flush() — now flush once per update cycle (was flushing every 10KB write to SD card)
+- [x] Lua: 32KB recv size (PUT_RECV_SIZE) + multi-read loop (up to 16 reads = 512KB per 5ms cycle)
+- [x] Lua: increased timeout from 60s to 120s for slow SD cards
+- [x] Python: timeout changed from 300 to (10, 600) tuple — 10s connect, 600s read
+- [x] Python: added speed logging (KB/s and elapsed time) on successful upload
+- [x] Updated tests: 879 tests pass

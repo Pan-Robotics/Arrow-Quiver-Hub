@@ -649,8 +649,9 @@ local function Client(sock, idx)
    --]]
    function self.receive_file()
       if put_remaining <= 0 then
-         -- All data received
+         -- All data received — flush once and close
          if put_file then
+            put_file:flush()
             put_file:close()
             put_file = nil
          end
@@ -665,34 +666,55 @@ local function Client(sock, idx)
          return
       end
 
-      -- Read a chunk from the socket
-      local chunk_size = math.min(put_remaining, WEB_BLOCK_SIZE:get())
-      local data = sock:recv(chunk_size)
-      if not data then
-         local now = millis()
-         -- Use a longer timeout for uploads (60 seconds)
-         if not sock:is_connected() or now - start_time > 60000 then
-            gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT timeout after %u bytes", put_received))
-            if put_file then
-               put_file:close()
-               put_file = nil
+      -- Read multiple chunks per update cycle to maximize throughput.
+      -- The Lua VM scheduler gives us a time slice per update(); we drain
+      -- as much data as possible in each slice instead of one recv() per call.
+      local PUT_RECV_SIZE = 32768  -- 32KB per recv (larger than WEB_BLOCK_SIZE)
+      local reads_this_cycle = 0
+      local MAX_READS_PER_CYCLE = 16  -- up to 16 * 32KB = 512KB per cycle
+      local prev_100k = math.floor(put_received / 102400)
+
+      while put_remaining > 0 and reads_this_cycle < MAX_READS_PER_CYCLE do
+         local chunk_size = math.min(put_remaining, PUT_RECV_SIZE)
+         local data = sock:recv(chunk_size)
+         if not data or #data == 0 then
+            -- No data available right now
+            if reads_this_cycle > 0 then
+               -- We already read some data this cycle, flush and return
+               break
             end
-            run = nil
-            self.remove()
+            -- No data at all — check for timeout
+            local now = millis()
+            if not sock:is_connected() or now - start_time > 120000 then
+               gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT timeout after %u bytes", put_received))
+               if put_file then
+                  put_file:close()
+                  put_file = nil
+               end
+               run = nil
+               self.remove()
+            end
+            return
          end
-         return
-      end
-      if #data > 0 then
+
          put_file:write(data)
-         put_file:flush()
          put_remaining = put_remaining - #data
          put_received = put_received + #data
+         reads_this_cycle = reads_this_cycle + 1
          -- Reset timeout on data receipt
          start_time = millis()
-         -- Log progress every 100KB
-         if put_received % 102400 < #data then
-            gcs:send_text(MAV_SEVERITY.INFO, string.format("WebServer: PUT %uKB received", put_received / 1024))
-         end
+      end
+
+      -- Flush once per update cycle (not per chunk) to reduce SD card I/O
+      if reads_this_cycle > 0 then
+         put_file:flush()
+      end
+
+      -- Log progress every ~100KB
+      local curr_100k = math.floor(put_received / 102400)
+      if curr_100k > prev_100k then
+         gcs:send_text(MAV_SEVERITY.INFO, string.format("WebServer: PUT %uKB / %uKB received",
+            put_received / 1024, (put_received + put_remaining) / 1024))
       end
    end
 

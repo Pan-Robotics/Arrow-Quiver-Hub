@@ -1712,7 +1712,7 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
 
   it("logs progress every 100KB during upload", () => {
     expect(source).toContain("102400");
-    expect(source).toContain("PUT %uKB received");
+    expect(source).toContain("PUT %uKB / %uKB received");
   });
 
   it("handles body data that arrives with the header", () => {
@@ -1729,8 +1729,8 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
     expect(source).toContain("put_file:close()");
   });
 
-  it("uses 60 second timeout for upload connections", () => {
-    expect(source).toContain("60000");
+  it("uses 120 second timeout for upload connections", () => {
+    expect(source).toContain("120000");
   });
 
   it("sends GCS messages for upload progress and completion", () => {
