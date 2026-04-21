@@ -1047,6 +1047,10 @@ class LogsOtaJobHandler:
     syncer is not available or the file isn't cached yet.
     """
 
+    # FC web server paths for HTTP-based monitoring
+    FC_APM_PATH = "/mnt/APM/"
+    HTTP_TIMEOUT = 5  # seconds for HTTP HEAD/GET during flash monitoring
+
     def __init__(self, hub: HubClient, ftp: MavFtpClient,
                  log_syncer: Optional['FCLogSyncer'] = None,
                  log_path: str = "/APM/LOGS"):
@@ -1054,6 +1058,70 @@ class LogsOtaJobHandler:
         self.ftp = ftp
         self.log_syncer = log_syncer
         self.log_path = log_path
+        # Derive FC web server URL from log_syncer if available
+        self.fc_url = log_syncer.fc_url if log_syncer else None
+
+    def _http_file_exists(self, filename: str) -> Optional[bool]:
+        """Check if a file exists on the FC via HTTP HEAD. Returns None if HTTP unavailable."""
+        if not self.fc_url or not requests:
+            return None
+        try:
+            url = f"{self.fc_url}{self.FC_APM_PATH}{filename}"
+            resp = requests.head(url, timeout=self.HTTP_TIMEOUT)
+            return resp.status_code == 200
+        except Exception:
+            return None
+
+    def _http_fc_reachable(self) -> bool:
+        """Ping the FC web server root to check if it's online (e.g., after reboot)."""
+        if not self.fc_url or not requests:
+            return False
+        try:
+            resp = requests.head(self.fc_url, timeout=self.HTTP_TIMEOUT)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    async def _check_file_exists(self, filename: str) -> bool:
+        """Check if a file exists on the FC. Uses HTTP first, MAVFTP as fallback."""
+        # Try HTTP first (faster, doesn't compete for MAVLink bandwidth)
+        http_result = self._http_file_exists(filename)
+        if http_result is not None:
+            return http_result
+        # Fallback to MAVFTP
+        return await self.ftp.file_exists(f"/APM/{filename}")
+
+    async def _verify_fc_reboot(self, update_id: int, max_wait: int = 60):
+        """After flash completes, wait for FC web server to come back online.
+        
+        This confirms the FC rebooted successfully with new firmware.
+        Non-blocking: if HTTP is unavailable, logs a note and returns.
+        """
+        if not self.fc_url:
+            logger.info("FC web server URL not configured — skipping reboot verification")
+            return
+
+        logger.info(f"Waiting up to {max_wait}s for FC to reboot and become reachable via HTTP...")
+        self.hub.report_firmware_progress(
+            update_id, "completed", 100,
+            flash_stage="verifying_reboot"
+        )
+
+        elapsed = 0
+        poll_interval = 5
+        while elapsed < max_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+            if self._http_fc_reachable():
+                logger.info(f"FC web server reachable after reboot ({elapsed}s)")
+                self.hub.report_firmware_progress(
+                    update_id, "completed", 100,
+                    flash_stage="reboot_verified"
+                )
+                return
+
+        logger.warning(f"FC web server not reachable after {max_wait}s — "
+                       "FC may still be booting or web server not enabled")
 
     async def handle_scan_fc_logs(self, job: dict) -> Tuple[bool, Optional[str]]:
         """
@@ -1378,9 +1446,15 @@ class LogsOtaJobHandler:
                 else:
                     logger.warning("No SHA-256 hash in job payload — skipping integrity check")
 
-                # ── Step 2: Remove any existing ardupilot*.abin files ──
+                # ── Step 2: Pre-upload check via HTTP, then clean old files via MAVFTP ──
                 self.hub.report_firmware_progress(update_id, "transferring", 10,
                                                    flash_stage="preparing")
+                # Quick HTTP check to verify FC web server is reachable (informational)
+                if self._http_fc_reachable():
+                    logger.info("FC web server reachable — will use HTTP for flash monitoring")
+                else:
+                    logger.info("FC web server not reachable — using MAVFTP for flash monitoring")
+
                 for old_name in [
                     "ardupilot.abin",
                     "ardupilot-verify.abin",
@@ -1408,14 +1482,15 @@ class LogsOtaJobHandler:
 
                 logger.info("Firmware uploaded to FC as ardupilot.abin")
 
-                # ── Step 4: Monitor flash stages ──
+                # ── Step 4: Monitor flash stages (hybrid HTTP + MAVFTP) ──
                 self.hub.report_firmware_progress(update_id, "flashing", 65,
                                                    flash_stage="ardupilot.abin")
 
-                # Poll for stage transitions
+                # Poll for stage transitions using _check_file_exists (HTTP first, MAVFTP fallback)
                 max_wait = 300  # 5 minutes max for flash
                 poll_interval = 2
                 elapsed = 0
+                using_http = self.fc_url is not None
 
                 stages = [
                     ("ardupilot-verify.abin", "verifying", 70),
@@ -1432,8 +1507,9 @@ class LogsOtaJobHandler:
                     stage_file, stage_status, stage_pct = stages[current_stage_idx]
 
                     try:
-                        if await self.ftp.file_exists(f"/APM/{stage_file}"):
-                            logger.info(f"Flash stage: {stage_file}")
+                        if await self._check_file_exists(stage_file):
+                            method = "HTTP" if using_http else "MAVFTP"
+                            logger.info(f"Flash stage ({method}): {stage_file}")
                             self.hub.report_firmware_progress(
                                 update_id, stage_status, stage_pct,
                                 flash_stage=stage_file
@@ -1441,6 +1517,8 @@ class LogsOtaJobHandler:
 
                             if stage_status == "completed":
                                 logger.info("Firmware flash completed successfully!")
+                                # ── Step 5: Post-reboot verification via HTTP ──
+                                await self._verify_fc_reboot(update_id)
                                 return True, None
 
                             current_stage_idx += 1
@@ -1455,6 +1533,8 @@ class LogsOtaJobHandler:
                                 update_id, "completed", 100,
                                 flash_stage="rebooting"
                             )
+                            # Wait and verify FC comes back via HTTP
+                            await self._verify_fc_reboot(update_id)
                             return True, None
                         await asyncio.sleep(5)
                         elapsed += 5
@@ -1462,9 +1542,8 @@ class LogsOtaJobHandler:
                     # Check if the original file was consumed (FC started processing)
                     if elapsed > 30 and current_stage_idx == 0:
                         try:
-                            if not await self.ftp.file_exists("/APM/ardupilot.abin"):
+                            if not await self._check_file_exists("ardupilot.abin"):
                                 # File was consumed but no stage file appeared
-                                # This could mean the FC rejected the firmware
                                 error_msg = "Firmware file consumed but no stage transition detected"
                                 logger.error(error_msg)
                                 self.hub.report_firmware_progress(

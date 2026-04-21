@@ -932,3 +932,273 @@ describe("Upload size restrictions - all removed", () => {
     expect(index).toContain('limit: "500mb"');
   });
 });
+
+// ─── Hybrid MAVFTP + HTTP OTA Flash Monitoring ─────────────────────────────
+
+describe("Hybrid OTA flash monitoring - HTTP helper methods", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  // ── Class constants ──
+
+  it("defines FC_APM_PATH constant for HTTP flash monitoring", () => {
+    expect(source).toContain('FC_APM_PATH = "/mnt/APM/"');
+  });
+
+  it("defines HTTP_TIMEOUT constant (5 seconds)", () => {
+    expect(source).toContain("HTTP_TIMEOUT = 5");
+  });
+
+  // ── fc_url attribute ──
+
+  it("derives fc_url from log_syncer.fc_url in __init__", () => {
+    expect(source).toContain(
+      "self.fc_url = log_syncer.fc_url if log_syncer else None"
+    );
+  });
+
+  // ── _http_file_exists() ──
+
+  it("defines _http_file_exists method", () => {
+    expect(source).toContain("def _http_file_exists(self, filename: str)");
+  });
+
+  it("_http_file_exists returns None when fc_url is not set", () => {
+    // Method checks self.fc_url first
+    expect(source).toContain("if not self.fc_url or not requests:");
+    // And returns None
+    expect(source).toContain("return None");
+  });
+
+  it("_http_file_exists constructs URL from fc_url + FC_APM_PATH + filename", () => {
+    expect(source).toContain(
+      'url = f"{self.fc_url}{self.FC_APM_PATH}{filename}"'
+    );
+  });
+
+  it("_http_file_exists uses HEAD request with timeout", () => {
+    expect(source).toContain(
+      "resp = requests.head(url, timeout=self.HTTP_TIMEOUT)"
+    );
+  });
+
+  it("_http_file_exists returns True on 200, None on exception", () => {
+    expect(source).toContain("return resp.status_code == 200");
+  });
+
+  // ── _http_fc_reachable() ──
+
+  it("defines _http_fc_reachable method", () => {
+    expect(source).toContain("def _http_fc_reachable(self) -> bool:");
+  });
+
+  it("_http_fc_reachable returns False when fc_url is not set", () => {
+    // Method guards on fc_url
+    const reachableMethod = source.substring(
+      source.indexOf("def _http_fc_reachable"),
+      source.indexOf("def _check_file_exists")
+    );
+    expect(reachableMethod).toContain("if not self.fc_url or not requests:");
+    expect(reachableMethod).toContain("return False");
+  });
+
+  it("_http_fc_reachable pings fc_url root with HEAD", () => {
+    const reachableMethod = source.substring(
+      source.indexOf("def _http_fc_reachable"),
+      source.indexOf("def _check_file_exists")
+    );
+    expect(reachableMethod).toContain(
+      "resp = requests.head(self.fc_url, timeout=self.HTTP_TIMEOUT)"
+    );
+  });
+
+  it("_http_fc_reachable returns True on 200, False on exception", () => {
+    const reachableMethod = source.substring(
+      source.indexOf("def _http_fc_reachable"),
+      source.indexOf("def _check_file_exists")
+    );
+    expect(reachableMethod).toContain("return resp.status_code == 200");
+    expect(reachableMethod).toContain("return False");
+  });
+
+  // ── _check_file_exists() ──
+
+  it("defines async _check_file_exists method", () => {
+    expect(source).toContain(
+      "async def _check_file_exists(self, filename: str) -> bool:"
+    );
+  });
+
+  it("_check_file_exists tries HTTP first", () => {
+    const checkMethod = source.substring(
+      source.indexOf("async def _check_file_exists"),
+      source.indexOf("async def _verify_fc_reboot")
+    );
+    expect(checkMethod).toContain(
+      "http_result = self._http_file_exists(filename)"
+    );
+    expect(checkMethod).toContain("if http_result is not None:");
+    expect(checkMethod).toContain("return http_result");
+  });
+
+  it("_check_file_exists falls back to MAVFTP when HTTP returns None", () => {
+    const checkMethod = source.substring(
+      source.indexOf("async def _check_file_exists"),
+      source.indexOf("async def _verify_fc_reboot")
+    );
+    expect(checkMethod).toContain(
+      'await self.ftp.file_exists(f"/APM/{filename}")'
+    );
+  });
+});
+
+describe("Hybrid OTA flash monitoring - _verify_fc_reboot", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  it("defines async _verify_fc_reboot method", () => {
+    expect(source).toContain(
+      "async def _verify_fc_reboot(self, update_id: int, max_wait: int = 60):"
+    );
+  });
+
+  it("skips verification when fc_url is not configured", () => {
+    const method = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(method).toContain("if not self.fc_url:");
+    expect(method).toContain("skipping reboot verification");
+  });
+
+  it("reports verifying_reboot flash stage before polling", () => {
+    const method = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(method).toContain('flash_stage="verifying_reboot"');
+  });
+
+  it("polls every 5 seconds for FC to come back online", () => {
+    const method = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(method).toContain("poll_interval = 5");
+    expect(method).toContain("await asyncio.sleep(poll_interval)");
+    expect(method).toContain("self._http_fc_reachable()");
+  });
+
+  it("reports reboot_verified when FC responds", () => {
+    const method = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(method).toContain('flash_stage="reboot_verified"');
+  });
+
+  it("logs warning if FC not reachable after max_wait", () => {
+    const method = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(method).toContain("FC web server not reachable after");
+    expect(method).toContain("FC may still be booting or web server not enabled");
+  });
+
+  it("default max_wait is 60 seconds", () => {
+    expect(source).toContain("max_wait: int = 60");
+  });
+});
+
+describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
+  );
+
+  // ── Step 2: Pre-upload HTTP check ──
+
+  it("Step 2 checks FC web server reachability before upload", () => {
+    expect(flashMethod).toContain("self._http_fc_reachable()");
+    expect(flashMethod).toContain(
+      "FC web server reachable — will use HTTP for flash monitoring"
+    );
+  });
+
+  it("Step 2 logs fallback to MAVFTP if HTTP unavailable", () => {
+    expect(flashMethod).toContain(
+      "FC web server not reachable — using MAVFTP for flash monitoring"
+    );
+  });
+
+  // ── Step 4: Hybrid stage monitoring ──
+
+  it("Step 4 uses _check_file_exists for stage polling (HTTP first, MAVFTP fallback)", () => {
+    expect(flashMethod).toContain("await self._check_file_exists(stage_file)");
+  });
+
+  it("Step 4 tracks whether HTTP is being used for logging", () => {
+    expect(flashMethod).toContain("using_http = self.fc_url is not None");
+    expect(flashMethod).toContain(
+      'method = "HTTP" if using_http else "MAVFTP"'
+    );
+  });
+
+  it("Step 4 uses _check_file_exists for consumed-file check too", () => {
+    // The ardupilot.abin consumption check also uses the hybrid method
+    expect(flashMethod).toContain(
+      'await self._check_file_exists("ardupilot.abin")'
+    );
+  });
+
+  // ── Step 5: Post-reboot verification ──
+
+  it("Step 5 calls _verify_fc_reboot after flash completion", () => {
+    expect(flashMethod).toContain("await self._verify_fc_reboot(update_id)");
+  });
+
+  it("Step 5 also calls _verify_fc_reboot when FC reboots during flash stage", () => {
+    // When current_stage_idx >= 2 and connection lost, also verify reboot
+    const rebootSection = flashMethod.substring(
+      flashMethod.indexOf("FC likely rebooting with new firmware")
+    );
+    expect(rebootSection).toContain("await self._verify_fc_reboot(update_id)");
+  });
+
+  it("reports flash_stage='rebooting' when connection lost at stage >= 2", () => {
+    expect(flashMethod).toContain('flash_stage="rebooting"');
+  });
+
+  // ── Flash stages unchanged ──
+
+  it("still monitors all three stage files in order", () => {
+    expect(flashMethod).toContain('"ardupilot-verify.abin", "verifying", 70');
+    expect(flashMethod).toContain('"ardupilot-flash.abin", "flashing", 80');
+    expect(flashMethod).toContain('"ardupilot-flashed.abin", "completed", 100');
+  });
+
+  it("still uses MAVFTP for actual firmware upload (ardupilot.abin)", () => {
+    expect(flashMethod).toContain(
+      'await self.ftp.upload_file(tmp_path, "/APM/ardupilot.abin"'
+    );
+  });
+
+  it("still cleans old .abin files via MAVFTP before upload", () => {
+    expect(flashMethod).toContain(
+      'await self.ftp.file_exists(f"/APM/{old_name}")'
+    );
+    expect(flashMethod).toContain(
+      'await self.ftp.remove_file(f"/APM/{old_name}")'
+    );
+  });
+});

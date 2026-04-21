@@ -1334,3 +1334,11 @@
 - [x] Improve network coexistence: asyncio.sleep(0) yield every 512KB, arm check every 4MB, 600s timeout
 - [x] Remove all upload size restrictions: multer (was 250MB), /flightlog/upload (was 100MB), /logs/fc-upload (was 200MB), /logs/fc-upload-multipart (was 200MB), firmware (was 50MB), body parser raised to 500MB
 - [x] Write tests: 153 tests pass (18 new for retry logic, network coexistence, and size limit removal)
+
+## Hybrid MAVFTP + HTTP OTA Firmware Flash Monitoring
+- [x] Add HTTP-based flash stage monitor: _check_file_exists() polls FC web server via HTTP HEAD, MAVFTP fallback
+- [x] Add HTTP-based post-reboot verification: _verify_fc_reboot() polls FC root to confirm reboot (verifying_reboot → reboot_verified)
+- [x] Add HTTP-based pre-upload check: _http_fc_reachable() in Step 2 checks FC web server before upload
+- [x] Keep MAVFTP as fallback when FC web server is unreachable (_check_file_exists falls through to ftp.file_exists)
+- [x] Write tests for hybrid monitoring approach (773 tests pass, 20 new for HTTP helpers, reboot verification, flash integration)
+- [ ] Update SDK guide and LOGS_OTA_PIPELINE docs with hybrid approach
