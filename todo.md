@@ -1305,3 +1305,10 @@
 - [x] Update envSnippet with 28 env vars organized by 9 categories (Core Connection, Core Data Pipelines, Camera Pipeline, Logs & OTA, Flight Analytics, System, WebSocket, tRPC Jobs, FC Web Server)
 - [x] Update Quick Reference with 6 collapsible categories (Core 3, Camera 5, Logs 7, System 6, WebSocket 17 events, FC 2 config) with copy buttons
 - [x] Update tests: 27 tests pass in drone-api-keys.test.ts (was 10, added 17 new)
+
+## Rewrite Quiver SDK Developer Guide
+- [x] Audit current 1828-line guide for verbosity, duplicates, and outdated info
+- [x] Rewrite as concise single doc: system overview, architecture, network config (updated IPs from PAYLOAD_SPEC), companion services, REST API reference, WebSocket events, play-by-play setup guide, FC web server setup, extension patterns, quick reference
+- [x] Update network IPs: FC=192.168.144.51, Pi=192.168.144.50, Camera=192.168.144.25, payloads=.100-.199
+- [x] Replace full code examples with pseudo-code snippets and class reference tables
+- [x] Remove all duplicate information across sections
