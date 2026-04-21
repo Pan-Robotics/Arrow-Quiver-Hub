@@ -1316,3 +1316,13 @@
 ## Custom Payload App Play-by-Play in SDK Guide
 - [x] Audit App Builder codebase: 3 data source modes, parser upload/test, schema extraction, UI Builder (9 widget types), save/publish, install, AppRenderer WebSocket rendering
 - [x] Rewrite Section 9 with detailed play-by-play: Mode A (Custom Endpoint, 11 steps), Mode B (Stream Subscription, 6 steps), Mode C (Passthrough, 5 steps), plus editing guide, data flow summary, and external integration patterns
+
+## SDK Guide: Widget Reference & Play-by-Play Expansions
+- [x] Add widget reference table (9 widgets with type keys, data types, configurable properties, best-for descriptions)
+- [x] Expand Section 10 into "Operational Play-by-Plays" with 6 subsections:
+  - 10.1 Adding a Custom Job Type (6 steps, built-in job types table)
+  - 10.2 Camera Stream Setup (6 steps, stream table, gimbal commands table)
+  - 10.3 FC Log Download Workflow (6 steps, status-action table)
+  - 10.4 OTA Firmware Flash Workflow (5 steps, stage table)
+  - 10.5 Diagnostics & Remote Log Streaming (4 steps, metrics table)
+  - 10.6 Integrating External Systems (integration patterns table)

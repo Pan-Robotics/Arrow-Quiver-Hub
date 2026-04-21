@@ -413,6 +413,22 @@ The `SCHEMA` dict defines every field the UI Builder can bind to. Supported type
 
 Bind each widget to a SCHEMA field using the "Data Field" dropdown. For example, bind a Gauge widget to `temperature` and set min=-50, max=60.
 
+#### Widget Reference
+
+| Widget | Type Key | Data Type | Configurable Properties | Best For |
+|---|---|---|---|---|
+| **Text Display** | `text` | number, string | `label`, `fontSize`, `showUnit`, `decimalPlaces` | Single values, labels, formatted numbers |
+| **Gauge** | `gauge` | number | `label`, `min`, `max`, `showValue` | Bounded numeric values (temperature, pressure, battery) |
+| **Line Chart** | `line-chart` | number | `title`, `maxDataPoints`, `lineColor` | Time-series trends (sensor readings over time) |
+| **Bar Chart** | `bar-chart` | number | `title`, `orientation`, `barColor` | Comparing discrete values side by side |
+| **LED Indicator** | `led` | boolean | `label`, `onColor`, `offColor`, `size` | Binary status (armed/disarmed, connected/disconnected) |
+| **Map** | `map` | number (lat/lon pair) | `zoom`, `markerColor` | Geographic position display |
+| **Video** | `video` | string (URL) | `autoplay`, `controls` | Live camera feeds or recorded video |
+| **Canvas** | `canvas` | any | `backgroundColor`, `renderMode` | Custom visualizations (point clouds, diagrams) |
+| **Connection Status** | `connection_status` | — (auto) | — | Data flow indicator (green when data arriving) |
+
+Every widget except Connection Status requires a data binding to a SCHEMA field. Map widgets need two bindings (latitude and longitude fields). Video widgets bind to a field that contains a stream URL.
+
 **Step 8 — Save and publish.** Click "Save App". The app is saved to the database with status `published`. It now appears in the App Store under "Custom Apps".
 
 **Step 9 — Install the app.** Go to App Store → find your app → click "Install". The app icon appears in your sidebar.
@@ -509,28 +525,205 @@ Mode C (Passthrough):
 
 ---
 
-## 10. Extending the System Further
+## 10. Operational Play-by-Plays
 
-### Adding a Custom Job Type
+### 10.1 Adding a Custom Job Type (Play-by-Play)
 
-Extend `raspberry_pi_client.py`:
+Custom jobs let you trigger arbitrary tasks on the companion computer from the Hub UI. The job lifecycle is: **create → poll → acknowledge → execute → complete/fail**.
+
+**Step 1 — Define the handler.** In `raspberry_pi_client.py`, add a method to the `QuiverHubClient` class:
 
 ```pseudo
-class ExtendedClient(QuiverHubClient):
-    def handle_my_custom_job(self, job):
-        payload = job['payload']
-        # ... execute task ...
-        return (True, None)  # or (False, "error message")
-
-    def process_job(self, job):
-        if job['type'] == 'my_custom_job':
-            return self.handle_my_custom_job(job)
-        return super().process_job(job)
+def handle_my_custom_job(self, job):
+    payload = job['payload']        # JSON payload from Hub
+    # ... execute your task ...
+    return (True, None)             # success
+    # or: return (False, "error")   # failure
 ```
 
-Create the job from Hub UI: Drone Configuration → Job History → New Job → type `my_custom_job` with JSON payload.
+**Step 2 — Register the job type in `process_job()`.** Add an `elif` branch:
 
-### Integrating External Systems
+```pseudo
+def process_job(self, job):
+    if job['type'] == 'my_custom_job':
+        return self.handle_my_custom_job(job)
+    return super().process_job(job)
+```
+
+**Step 3 — Restart the companion service** so it picks up the new handler:
+
+```bash
+sudo systemctl restart quiver-hub-client
+```
+
+**Step 4 — Create the job from Hub UI.** Open Drone Configuration → select the target drone → scroll to Job History → click "New Job". Fill in:
+
+| Field | Value |
+|---|---|
+| Type | `my_custom_job` |
+| Payload | `{"param1": "value1", "param2": 42}` (any valid JSON) |
+
+Click "Create". The job enters `pending` status.
+
+**Step 5 — Watch the lifecycle.** The companion polls every 5 seconds. When it picks up the job:
+
+1. **Acknowledge** — status changes to `in_progress`, `lockedBy` set to this companion's ID (prevents double-execution)
+2. **Execute** — your `handle_my_custom_job()` runs
+3. **Complete** — if `(True, None)` returned, status → `completed`; if `(False, "error")`, status → `failed` with error message
+
+The Job History table in Hub updates in real-time via tRPC polling. Failed jobs can be retried (up to `maxRetries`).
+
+**Step 6 — Verify.** Check the job row in Hub shows `completed`. On the Pi, check logs:
+
+```bash
+sudo journalctl -u quiver-hub-client -f
+```
+
+**Built-in job types for reference:**
+
+| Job Type | Handler | Service | What It Does |
+|---|---|---|---|
+| `upload_file` | `handle_upload_file_job` | `raspberry_pi_client.py` | Download file from Hub S3 → save to target path on Pi |
+| `update_config` | `handle_update_config_job` | `raspberry_pi_client.py` | Write JSON config to a file on Pi |
+| `scan_fc_logs` | `handle_scan_fc_logs` | `logs_ota_service.py` | List cached FC logs from manifest → report to Hub |
+| `download_fc_log` | `handle_download_fc_log` | `logs_ota_service.py` | Serve cached log → upload to Hub S3 (multipart preferred) |
+| `flash_firmware` | `handle_flash_firmware` | `logs_ota_service.py` | Download firmware from S3 → upload to FC via MAVFTP → monitor flash |
+
+---
+
+### 10.2 Camera Stream Setup (Play-by-Play)
+
+This sets up live WebRTC video from the SIYI A8 Mini camera through the Hub.
+
+**Step 1 — Verify camera connectivity.** From the Pi:
+
+```bash
+curl -I rtsp://192.168.144.25:8554/sub.264
+# Or test with ffprobe:
+ffprobe rtsp://192.168.144.25:8554/sub.264
+```
+
+**Step 2 — Install go2rtc.** The install script handles this:
+
+```bash
+cd $HOME/quiver/companion_scripts
+./install_camera_services.sh
+```
+
+This installs go2rtc, sets up the Tailscale funnel, and creates the systemd service.
+
+**Step 3 — Configure the stream.** The service auto-detects the camera and creates a go2rtc config pointing to the RTSP source. Two streams are available:
+
+| Stream | RTSP URL | Resolution |
+|---|---|---|
+| Main | `rtsp://192.168.144.25:8554/main.264` | 4K |
+| Sub | `rtsp://192.168.144.25:8554/sub.264` | 720p (recommended for low-latency) |
+
+Select the stream with `--stream sub` or `--stream main` in the service CLI args.
+
+**Step 4 — Verify Tailscale funnel.** The service auto-detects the funnel URL and registers it with Hub:
+
+```bash
+tailscale funnel status
+# Should show the go2rtc port being funneled
+```
+
+**Step 5 — Verify in Hub.** Open the Camera Feed app in the sidebar. You should see:
+
+- Live WebRTC video stream with latency stats (RTT, jitter, bitrate, FPS)
+- Gimbal controls: pan/tilt joystick, zoom slider (1x–6x), photo capture, video record toggle
+- Connection quality indicator (green/yellow/red bars)
+
+**Step 6 — Gimbal control.** The SIYI camera controller bridges Hub Socket.IO commands to the gimbal via UDP SDK (`192.168.144.25:37260`). Supported commands:
+
+| Command | Socket.IO Event | Effect |
+|---|---|---|
+| Pan/Tilt | `camera_command` → `{type: "rotate", yawSpeed, pitchSpeed}` | Move gimbal |
+| Center | `camera_command` → `{type: "center"}` | Return to forward position |
+| Nadir | `camera_command` → `{type: "nadir"}` | Point straight down |
+| Zoom | `camera_command` → `{type: "zoom", level}` | Set zoom 1x–6x |
+| Photo | `camera_command` → `{type: "photo"}` | Capture still image |
+| Record | `camera_command` → `{type: "recordToggle"}` | Start/stop video recording |
+
+---
+
+### 10.3 FC Log Download Workflow (Play-by-Play)
+
+This walks through discovering, downloading, and saving FC logs to your local PC.
+
+**Step 1 — Open the Logs & OTA app** in the Hub sidebar. Select the target drone from the dropdown.
+
+**Step 2 — Check FC Web Server health.** Look at the health indicator in the FC Logs tab header. A green dot with latency means the FC web server is reachable. Red means unreachable — check the FC is powered and `net_webserver.lua` is running (see Section 8).
+
+**Step 3 — Scan for logs.** Click the "Scan FC Logs" button. This dispatches a `scan_fc_logs` job to the companion. The companion reads its local manifest (populated by `FCLogSyncer` background sync) and reports the log list to Hub. Logs appear in the table within seconds.
+
+**Step 4 — Download a log.** For each log in the table:
+
+| Log Status | Action | What Happens |
+|---|---|---|
+| `discovered` | Click download icon | Dispatches `download_fc_log` job → companion serves cached file → uploads to Hub S3 → auto-triggers browser download when done |
+| `completed` | Click blue save icon | Immediately triggers browser download via proxy (`GET /api/rest/logs/fc-download/{logId}`) — no companion needed |
+| `failed` | Click retry icon | Re-dispatches the download job |
+
+**Step 5 — Monitor progress.** During download, a progress bar shows the upload percentage. Toast notifications track the lifecycle: "Downloading from FC..." → "Uploading to Hub..." → "Ready for download".
+
+**Step 6 — Save to PC.** For completed logs, the blue save icon triggers a browser download via the server-side proxy. The proxy streams the file from S3 with `Content-Disposition: attachment; filename="00000042.BIN"`, so the browser opens a native Save dialog.
+
+---
+
+### 10.4 OTA Firmware Flash Workflow (Play-by-Play)
+
+This walks through uploading new firmware to the flight controller over the air.
+
+**Step 1 — Open the Logs & OTA app** → OTA Updates tab.
+
+**Step 2 — Upload firmware.** Click "Upload Firmware". Select an `.abin` file (ArduPilot binary). Optionally provide a SHA-256 hash for integrity verification. The file uploads to Hub S3.
+
+**Step 3 — Flash firmware.** Click "Flash" on the uploaded firmware entry. This dispatches a `flash_firmware` job to the companion.
+
+**Step 4 — Monitor the flash process.** The companion executes these stages:
+
+| Stage | What Happens |
+|---|---|
+| **Download** | Companion downloads `.abin` from Hub S3 to local temp file |
+| **Verify** | SHA-256 hash check (if hash was provided during upload) |
+| **Upload to FC** | MAVFTP upload of `ardupilot.abin` to `/APM/` on the FC SD card |
+| **Flash** | FC detects the file and begins internal flash process |
+| **Reboot** | FC reboots with new firmware |
+
+Progress is reported in real-time via `POST /api/rest/firmware/progress` and broadcast to the UI via the `firmware_progress` WebSocket event. The progress bar and stage label update live.
+
+**Step 5 — Verify.** After flash completes, the FC reboots. Check the Telemetry app to confirm the FC reconnects and reports the new firmware version.
+
+---
+
+### 10.5 Diagnostics & Remote Log Streaming (Play-by-Play)
+
+This walks through monitoring companion health and streaming service logs remotely.
+
+**Step 1 — Open the Logs & OTA app** → Diagnostics tab.
+
+**Step 2 — View system health.** The diagnostics panel shows real-time metrics reported by the companion every 10 seconds:
+
+| Metric | Source |
+|---|---|
+| CPU usage (%) | `psutil.cpu_percent()` |
+| Memory usage (%) | `psutil.virtual_memory()` |
+| Disk usage (%) | `psutil.disk_usage('/')` |
+| CPU temperature (°C) | `/sys/class/thermal/thermal_zone0/temp` |
+| Network I/O (bytes sent/received) | `psutil.net_io_counters()` |
+| Service statuses | `systemctl is-active` for each Quiver service |
+| FC web server health | HTTP HEAD ping to `http://192.168.144.51:8080` (reachable/unreachable + latency) |
+
+**Step 3 — Stream service logs.** Switch to the Log Stream tab. Select a service from the dropdown (e.g., `logs-ota`, `telemetry-forwarder`, `camera-stream`). Click "Start Streaming".
+
+The companion runs `journalctl -u <service> -f -n <lines>` and streams each line to Hub via Socket.IO (`log_stream_line` event). Lines appear in the terminal-style viewer in real-time with a green "Live" badge.
+
+**Step 4 — Filter and search.** Use the search box to filter log lines by keyword. Click "Clear" to reset the buffer. Click "Stop" to end the stream.
+
+---
+
+### 10.6 Integrating External Systems
 
 The REST API accepts standard HTTP from any client:
 
