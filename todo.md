@@ -1355,3 +1355,10 @@
 - [x] Update handle_flash_firmware to auto-convert .apj files instead of rejecting (is_apj flag, converting_apj stage, conversion_failed error handling)
 - [x] Update frontend dialog: subtitle says ".abin or .apj", dialog explains auto-conversion, safety warning mentions both formats
 - [x] Write tests: 823 tests pass (30 new for conversion method, integration, frontend messaging, imports)
+
+## HTTP PUT Firmware Upload (Speed Optimization)
+- [x] Verified: stock ArduPilot net_webserver.lua only supports GET (line 825: `if cmd[1] ~= "GET" then return`)
+- [x] Created net_webserver_put.lua: modified FC Lua script with PUT support for /APM/ directory (WEB_PUT_ENABLE param, 16MB max, path traversal protection, chunked receive, GCS progress logging)
+- [x] Added _http_upload_firmware() method: requests.put() with ProgressReader for chunked progress, handles 201/405/403 responses, 300s timeout
+- [x] Updated handle_flash_firmware: tries HTTP PUT first (~650 KB/s), falls back to MAVFTP (~5 KB/s), reports uploading_http vs uploading_mavftp stages
+- [x] Write tests: 868 tests pass (45 new for HTTP PUT method, net_webserver_put.lua structure, flash flow integration, module docstring)

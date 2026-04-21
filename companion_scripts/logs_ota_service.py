@@ -5,7 +5,7 @@ Quiver Hub – Logs & OTA Service (Companion Computer)
 Runs on the Raspberry Pi companion computer and provides:
   1. FC log sync       – background sync .BIN files from FC via ArduPilot net_webserver HTTP
   2. FC log serving    – serve locally-cached logs to Hub for user download
-  3. OTA firmware flash – download .abin from Hub → push to FC via MAVFTP
+  3. OTA firmware flash – download .abin/.apj from Hub → push to FC via HTTP PUT (fast) or MAVFTP (fallback)
   4. System diagnostics – CPU, memory, disk, temp, services → report to Hub
   5. Remote log stream  – journalctl -f → Socket.IO to browser
 
@@ -1160,6 +1160,102 @@ class LogsOtaJobHandler:
         except Exception:
             return False
 
+    def _http_upload_firmware(self, local_path: str, progress_callback=None) -> bool:
+        """
+        Upload firmware to FC via HTTP PUT to the net_webserver_put.lua endpoint.
+
+        Requires the modified net_webserver_put.lua running on the FC with
+        WEB_PUT_ENABLE=1. Uploads to /APM/ardupilot.abin at Ethernet speed
+        (~650 KB/s) instead of MAVFTP (~5 KB/s).
+
+        Args:
+            local_path: Path to the local ardupilot.abin file.
+            progress_callback: Optional sync callback(uploaded, total) for progress.
+
+        Returns:
+            True if upload succeeded, False if HTTP PUT is not available/supported.
+        """
+        if not self.fc_url or not requests:
+            return False
+
+        url = f"{self.fc_url}/APM/ardupilot.abin"
+        file_size = os.path.getsize(local_path)
+
+        try:
+            # First, check if the FC web server supports PUT with a small test
+            # by sending an OPTIONS or just attempting the PUT directly.
+            logger.info(f"Attempting HTTP PUT upload to {url} ({file_size} bytes)")
+
+            with open(local_path, "rb") as f:
+                if progress_callback:
+                    # Read and send in chunks to report progress
+                    chunk_size = 65536  # 64KB chunks
+                    uploaded = 0
+
+                    class ProgressReader:
+                        """File-like wrapper that reports progress during upload."""
+                        def __init__(self, fobj, total, callback):
+                            self._fobj = fobj
+                            self._total = total
+                            self._uploaded = 0
+                            self._callback = callback
+
+                        def read(self, size=-1):
+                            data = self._fobj.read(size)
+                            if data:
+                                self._uploaded += len(data)
+                                self._callback(self._uploaded, self._total)
+                            return data
+
+                        def __len__(self):
+                            return self._total
+
+                    reader = ProgressReader(f, file_size, progress_callback)
+                    resp = requests.put(
+                        url,
+                        data=reader,
+                        headers={
+                            "Content-Length": str(file_size),
+                            "Content-Type": "application/octet-stream",
+                        },
+                        timeout=300,  # 5 min timeout for large files
+                    )
+                else:
+                    data = f.read()
+                    resp = requests.put(
+                        url,
+                        data=data,
+                        headers={
+                            "Content-Length": str(file_size),
+                            "Content-Type": "application/octet-stream",
+                        },
+                        timeout=300,
+                    )
+
+            if resp.status_code == 201:
+                logger.info(f"HTTP PUT upload succeeded: {file_size} bytes to {url}")
+                return True
+            elif resp.status_code == 405:
+                # Method Not Allowed — stock net_webserver.lua without PUT support
+                logger.info("FC web server does not support PUT (stock net_webserver.lua)")
+                return False
+            elif resp.status_code == 403:
+                logger.warning(f"HTTP PUT forbidden: {resp.text}")
+                return False
+            else:
+                logger.warning(f"HTTP PUT returned {resp.status_code}: {resp.text}")
+                return False
+
+        except requests.exceptions.ConnectionError:
+            logger.info("HTTP PUT connection failed — FC web server may not support PUT")
+            return False
+        except requests.exceptions.Timeout:
+            logger.warning("HTTP PUT timed out")
+            return False
+        except Exception as e:
+            logger.warning(f"HTTP PUT failed: {e}")
+            return False
+
     async def _check_file_exists(self, filename: str) -> bool:
         """Check if a file exists on the FC. Uses HTTP first, MAVFTP as fallback."""
         # Try HTTP first (faster, doesn't compete for MAVLink bandwidth)
@@ -1462,7 +1558,12 @@ class LogsOtaJobHandler:
 
     async def handle_flash_firmware(self, job: dict) -> Tuple[bool, Optional[str]]:
         """
-        Download firmware from Hub, upload to FC via MAVFTP, and monitor flash stages.
+        Download firmware from Hub, upload to FC, and monitor flash stages.
+        
+        Upload priority:
+          1. HTTP PUT to FC web server (fast, ~650 KB/s over Ethernet)
+             Requires net_webserver_put.lua on FC with WEB_PUT_ENABLE=1
+          2. MAVFTP upload (slow fallback, ~5 KB/s over MAVLink)
         
         Supports both .abin and .apj firmware files. If an .apj file is uploaded,
         it is automatically converted to .abin format before flashing.
@@ -1577,23 +1678,44 @@ class LogsOtaJobHandler:
                         await self.ftp.remove_file(f"/APM/{old_name}")
 
                 # ── Step 3: Upload firmware to FC as ardupilot.abin ──
-                # MAVSDK ftp.upload(local_path, remote_dir) preserves the local
-                # filename, so tmp_path is already named "ardupilot.abin".
+                # Try HTTP PUT first (fast, ~650 KB/s over Ethernet).
+                # Falls back to MAVFTP if FC doesn't have net_webserver_put.lua.
                 self.hub.report_firmware_progress(update_id, "transferring", 20,
                                                    flash_stage="uploading")
 
-                async def upload_progress(uploaded: int, total: int):
+                upload_method = "MAVFTP"  # default
+
+                def http_upload_progress(uploaded: int, total: int):
                     if total > 0:
                         pct = 20 + int(uploaded / total * 40)  # 20-60%
                         self.hub.report_firmware_progress(
                             update_id, "transferring", pct,
-                            flash_stage="uploading"
+                            flash_stage="uploading_http"
                         )
 
-                await self.ftp.upload_file(tmp_path, "/APM/",
-                                            upload_progress)
+                # Attempt HTTP PUT upload (requires net_webserver_put.lua on FC)
+                if self._http_fc_reachable():
+                    logger.info("Attempting fast HTTP PUT upload...")
+                    if self._http_upload_firmware(tmp_path, http_upload_progress):
+                        upload_method = "HTTP PUT"
+                        logger.info("Firmware uploaded via HTTP PUT (fast path)")
+                    else:
+                        logger.info("HTTP PUT not available — falling back to MAVFTP")
 
-                logger.info("Firmware uploaded to FC as /APM/ardupilot.abin")
+                if upload_method == "MAVFTP":
+                    # Fallback: MAVFTP upload (slow, ~5 KB/s)
+                    async def mavftp_upload_progress(uploaded: int, total: int):
+                        if total > 0:
+                            pct = 20 + int(uploaded / total * 40)  # 20-60%
+                            self.hub.report_firmware_progress(
+                                update_id, "transferring", pct,
+                                flash_stage="uploading_mavftp"
+                            )
+
+                    await self.ftp.upload_file(tmp_path, "/APM/",
+                                                mavftp_upload_progress)
+
+                logger.info(f"Firmware uploaded to FC as /APM/ardupilot.abin via {upload_method}")
 
                 # ── Step 4: Monitor flash stages (hybrid HTTP + MAVFTP) ──
                 self.hub.report_firmware_progress(update_id, "flashing", 65,

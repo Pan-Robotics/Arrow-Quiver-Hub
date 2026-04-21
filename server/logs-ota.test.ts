@@ -1514,3 +1514,263 @@ describe("Module imports for .apj conversion", () => {
     expect(source).toContain("import hashlib");
   });
 });
+
+
+// ─── HTTP PUT Firmware Upload ───────────────────────────────────────────────
+
+describe("HTTP PUT Firmware Upload - Companion Script", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("has _http_upload_firmware method", () => {
+    expect(source).toContain("def _http_upload_firmware(self, local_path: str");
+  });
+
+  it("uploads to /APM/ardupilot.abin via HTTP PUT", () => {
+    expect(source).toContain('url = f"{self.fc_url}/APM/ardupilot.abin"');
+  });
+
+  it("uses requests.put for the upload", () => {
+    expect(source).toContain("requests.put(");
+  });
+
+  it("sends Content-Length and Content-Type headers", () => {
+    expect(source).toContain('"Content-Length": str(file_size)');
+    expect(source).toContain('"Content-Type": "application/octet-stream"');
+  });
+
+  it("has a ProgressReader class for chunked progress reporting", () => {
+    expect(source).toContain("class ProgressReader:");
+    expect(source).toContain("def read(self, size=-1):");
+    expect(source).toContain("self._callback(self._uploaded, self._total)");
+  });
+
+  it("returns True on HTTP 201 Created", () => {
+    expect(source).toContain("if resp.status_code == 201:");
+    expect(source).toContain("return True");
+  });
+
+  it("returns False on HTTP 405 Method Not Allowed (stock webserver)", () => {
+    expect(source).toContain("elif resp.status_code == 405:");
+    expect(source).toContain("stock net_webserver.lua");
+  });
+
+  it("returns False on HTTP 403 Forbidden", () => {
+    expect(source).toContain("elif resp.status_code == 403:");
+  });
+
+  it("handles ConnectionError gracefully (no PUT support)", () => {
+    expect(source).toContain("requests.exceptions.ConnectionError");
+  });
+
+  it("has 300 second timeout for large file uploads", () => {
+    expect(source).toContain("timeout=300");
+  });
+
+  it("returns False when fc_url is not available", () => {
+    const methodBlock = source.substring(
+      source.indexOf("def _http_upload_firmware"),
+      source.indexOf("def _http_fc_reachable") > source.indexOf("def _http_upload_firmware")
+        ? source.indexOf("async def _check_file_exists")
+        : source.length
+    );
+    expect(methodBlock).toContain("if not self.fc_url or not requests:");
+    expect(methodBlock).toContain("return False");
+  });
+});
+
+describe("HTTP PUT Upload - Flash Flow Integration", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  // Extract the handle_flash_firmware method
+  const flashStart = source.indexOf("async def handle_flash_firmware");
+  const nextClass = source.indexOf("\nclass ", flashStart + 1);
+  const nextTopLevel = source.indexOf("\n# ═", flashStart + 1);
+  const flashEnd = Math.min(
+    nextClass > flashStart ? nextClass : source.length,
+    nextTopLevel > flashStart ? nextTopLevel : source.length
+  );
+  const flashMethod = source.substring(flashStart, flashEnd);
+
+  it("tries HTTP PUT upload before MAVFTP", () => {
+    const httpPutIdx = flashMethod.indexOf("_http_upload_firmware");
+    const mavftpIdx = flashMethod.indexOf("self.ftp.upload_file");
+    expect(httpPutIdx).toBeGreaterThan(-1);
+    expect(mavftpIdx).toBeGreaterThan(-1);
+    expect(httpPutIdx).toBeLessThan(mavftpIdx);
+  });
+
+  it("checks FC reachability before attempting HTTP PUT", () => {
+    expect(flashMethod).toContain("if self._http_fc_reachable():");
+    expect(flashMethod).toContain("Attempting fast HTTP PUT upload");
+  });
+
+  it("falls back to MAVFTP when HTTP PUT fails", () => {
+    expect(flashMethod).toContain('if upload_method == "MAVFTP":');
+    expect(flashMethod).toContain("falling back to MAVFTP");
+  });
+
+  it("tracks upload method (HTTP PUT vs MAVFTP)", () => {
+    expect(flashMethod).toContain('upload_method = "MAVFTP"');
+    expect(flashMethod).toContain('upload_method = "HTTP PUT"');
+  });
+
+  it("reports different flash stages for HTTP vs MAVFTP upload", () => {
+    expect(flashMethod).toContain('flash_stage="uploading_http"');
+    expect(flashMethod).toContain('flash_stage="uploading_mavftp"');
+  });
+
+  it("logs which upload method was used", () => {
+    expect(flashMethod).toContain("via {upload_method}");
+  });
+
+  it("docstring mentions HTTP PUT as primary upload method", () => {
+    expect(flashMethod).toContain("HTTP PUT to FC web server (fast, ~650 KB/s");
+    expect(flashMethod).toContain("MAVFTP upload (slow fallback, ~5 KB/s");
+  });
+
+  it("docstring mentions net_webserver_put.lua requirement", () => {
+    expect(flashMethod).toContain("net_webserver_put.lua");
+  });
+});
+
+// ─── net_webserver_put.lua (FC Lua Script) ──────────────────────────────────
+
+describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
+  const source = fs.readFileSync("./companion_scripts/net_webserver_put.lua", "utf-8");
+
+  it("exists as a companion script", () => {
+    expect(source.length).toBeGreaterThan(1000);
+  });
+
+  it("identifies as net_webserver_put version", () => {
+    expect(source).toContain('SERVER_VERSION = "net_webserver_put');
+  });
+
+  it("accepts both GET and PUT methods", () => {
+    expect(source).toContain('method ~= "GET" and method ~= "PUT"');
+  });
+
+  it("routes PUT requests to handle_put", () => {
+    expect(source).toContain('if method == "PUT" then');
+    expect(source).toContain("self.handle_put(path)");
+  });
+
+  it("restricts PUT to /APM/ directory only", () => {
+    expect(source).toContain('UPLOAD_PATH_PREFIX = "/APM/"');
+    expect(source).toContain("not startswith(path, UPLOAD_PATH_PREFIX)");
+  });
+
+  it("has WEB_PUT_ENABLE parameter to toggle PUT support", () => {
+    expect(source).toContain("WEB_PUT_ENABLE");
+    expect(source).toContain("PUT_ENABLE");
+  });
+
+  it("has WEB_MAX_UPLOAD parameter for file size limit", () => {
+    expect(source).toContain("WEB_MAX_UPLOAD");
+    expect(source).toContain("MAX_UPLOAD");
+    expect(source).toContain("16777216"); // 16MB default
+  });
+
+  it("requires Content-Length header for PUT", () => {
+    expect(source).toContain("Content-Length");
+    expect(source).toContain("411");
+    expect(source).toContain("Length Required");
+  });
+
+  it("prevents path traversal attacks", () => {
+    expect(source).toContain('string.find(path, "%.%.")');
+    expect(source).toContain("Path traversal not allowed");
+  });
+
+  it("returns 201 Created on successful upload", () => {
+    expect(source).toContain("201");
+    expect(source).toContain("Created");
+  });
+
+  it("returns 403 Forbidden for paths outside /APM/", () => {
+    expect(source).toContain("403");
+    expect(source).toContain("Forbidden");
+  });
+
+  it("returns 405 Method Not Allowed for unsupported methods", () => {
+    expect(source).toContain("405");
+    expect(source).toContain("Method Not Allowed");
+  });
+
+  it("returns 413 Payload Too Large for oversized files", () => {
+    expect(source).toContain("413");
+    expect(source).toContain("Payload Too Large");
+  });
+
+  it("has receive_file function for chunked data reception", () => {
+    expect(source).toContain("function self.receive_file()");
+    expect(source).toContain("sock:recv(chunk_size)");
+  });
+
+  it("logs progress every 100KB during upload", () => {
+    expect(source).toContain("102400");
+    expect(source).toContain("PUT %uKB received");
+  });
+
+  it("handles body data that arrives with the header", () => {
+    expect(source).toContain("put_body_leftover");
+    expect(source).toContain("put_file:write(put_body_leftover)");
+  });
+
+  it("opens file for writing in binary mode", () => {
+    expect(source).toContain('io.open(path, "wb")');
+  });
+
+  it("cleans up put_file on remove", () => {
+    expect(source).toContain("if put_file then");
+    expect(source).toContain("put_file:close()");
+  });
+
+  it("uses 60 second timeout for upload connections", () => {
+    expect(source).toContain("60000");
+  });
+
+  it("sends GCS messages for upload progress and completion", () => {
+    expect(source).toContain("PUT complete");
+    expect(source).toContain("PUT timeout");
+  });
+
+  it("preserves all original GET functionality", () => {
+    expect(source).toContain("self.file_download(path)");
+    expect(source).toContain("self.directory_list(path)");
+    expect(source).toContain("self.moved_permanently");
+    expect(source).toContain("DYNAMIC_PAGES");
+    expect(source).toContain("cgi-bin");
+    expect(source).toContain("sendfile");
+  });
+
+  it("has deployment instructions in header comment", () => {
+    expect(source).toContain("APM/scripts/net_webserver_put.lua");
+    expect(source).toContain("SCR_ENABLE=1");
+    expect(source).toContain("WEB_ENABLE=1");
+  });
+
+  it("includes curl usage example", () => {
+    expect(source).toContain("curl -X PUT");
+    expect(source).toContain("--data-binary");
+  });
+
+  it("has correct param table size for additional params", () => {
+    // Original has 6 params, we added MAX_UPLOAD (7) and PUT_ENABLE (8)
+    expect(source).toContain("PARAM_TABLE_PREFIX, 8)");
+  });
+});
+
+// ─── Module Docstring Updates ───────────────────────────────────────────────
+
+describe("Module Docstring - HTTP PUT Upload", () => {
+  const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+
+  it("mentions HTTP PUT in the module description", () => {
+    expect(source).toContain("HTTP PUT (fast) or MAVFTP (fallback)");
+  });
+
+  it("mentions .apj support in the module description", () => {
+    expect(source).toContain(".abin/.apj");
+  });
+});
