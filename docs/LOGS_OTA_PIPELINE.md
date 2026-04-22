@@ -92,16 +92,22 @@ Once a log reaches `completed` status, the user can save it directly to their lo
 
 The user uploads a firmware file (`.abin` or `.apj`, max 50 MB) through the OTA Updates tab. The file is base64-encoded and sent to `trpc.firmware.upload`, which stores it in S3, **computes a SHA-256 hash** of the file content, and creates a `firmwareUpdates` record with status `uploaded` and the hash stored in the `sha256Hash` column. When the user clicks **Flash to FC**, a `flash_firmware` job is created containing the S3 URL and the `sha256Hash` in the job payload.
 
-The companion script picks up the job, **acknowledges it with a mutex lock** (sending its companion identifier as `lockedBy` to prevent double-execution), downloads the firmware from S3, **verifies the SHA-256 hash** against the server-provided value (aborting with `hash_verification_failed` if there is a mismatch), removes any existing `ardupilot*.abin` files from the FC's `/APM/` directory, and uploads the new firmware as `ardupilot.abin` via MAVFTP. After the flash completes (success or failure), the **downloaded temp file is automatically cleaned up**. ArduPilot then processes the firmware through a well-defined rename sequence that the script monitors by polling for file existence:
+The companion script picks up the job, **acknowledges it with a mutex lock** (sending its companion identifier as `lockedBy` to prevent double-execution), downloads the firmware from S3, **verifies the SHA-256 hash** against the server-provided value (aborting with `hash_verification_failed` if there is a mismatch), and **extracts the git hash** from the `.abin` file header for post-flash verification. After the flash completes (success or failure), the **downloaded temp file is automatically cleaned up** in a `finally` block.
 
-| Stage File | Meaning | Progress |
-|------------|---------|----------|
-| `ardupilot.abin` | Firmware uploaded, waiting for FC to process | 65% |
-| `ardupilot-verify.abin` | FC is verifying CRC integrity | 70% |
-| `ardupilot-flash.abin` | FC is writing firmware to internal flash | 80% |
-| `ardupilot-flashed.abin` | Flash complete, FC will reboot | 100% |
+The flash uses **Approach C (FC HTTP Pull)** exclusively. The companion starts a temporary `aiohttp` HTTP server on port 8080 that serves the firmware file at `/firmware.abin`. The FC runs `firmware_puller.lua` (a Lua scripting applet enabled via `FWPULL_ENABLE=1`) which polls the companion's HTTP server, downloads the firmware to the SD card as `ardupilot.abin`, and signals completion. The companion monitors the pull via download request activity, with a 30-second early-exit if no FC pull activity is detected (indicating `firmware_puller.lua` is not installed or `FWPULL_ENABLE` is disabled).
 
-Each stage transition is reported via `POST /api/rest/firmware/progress` and broadcast to the browser as `firmware_progress` WebSocket events. If the FC reboots during the flash stage (connection lost at stage index >= 2), the script assumes success. The entire process has a 5-minute timeout.
+| Step | What Happens | Progress |
+|------|-------------|----------|
+| **Step 1: Download** | Companion downloads `.abin` from Hub S3, verifies SHA-256, extracts git hash from header | 0–10% |
+| **Step 2: Pre-upload cleanup** | HTTP check for existing `ardupilot*.abin` on FC (via `net_webserver.lua`) | 10–15% |
+| **Step 3: Serve firmware** | Companion starts aiohttp server on port 8080, FC pulls firmware via `firmware_puller.lua` | 15–60% |
+| **Step 4: MAVLink reboot** | Companion sends MAVLink reboot command to FC | 60–65% |
+| **Step 5: Wait for FC** | Poll FC web server (`http://<fc>:8080`) for up to 120s until it comes back online | 65–90% |
+| **Step 6: Version verify** | Reconnect MAVSDK, query `AUTOPILOT_VERSION`, compare `flight_custom_version` git hash against `.abin` header | 90–100% |
+
+Each stage transition is reported via `POST /api/rest/firmware/progress` (which now accepts an optional `firmware_version` field) and broadcast to the browser as `firmware_progress` WebSocket events. The dashboard displays a green **ShieldCheck** badge for verified flashes (git hash match) or an amber **ShieldAlert** for mismatches. The entire process has a 5-minute timeout.
+
+The OTA Updates tab also provides a **Cancel** button for stuck updates (status `transferring`, `flashing`, `verifying`, or `queued`) and a **Clear Failed & Stuck** bulk action that removes all failed and stuck records.
 
 ### Job Reliability
 
@@ -174,13 +180,14 @@ Three tables support the pipeline, all defined in `drizzle/schema.ts`:
 | `storageKey` | `varchar(512)` | S3 storage key |
 | `url` | `varchar(1024)` | S3 download URL |
 | `status` | `enum` | `uploaded` → `queued` → `transferring` → `flashing` → `verifying` → `completed` / `failed` |
-| `flashStage` | `varchar(64)` | ArduPilot rename stage (e.g., `ardupilot-verify.abin`) |
+| `flashStage` | `varchar(64)` | Current flash stage (e.g., `downloading`, `serving`, `rebooting`, `waiting_for_fc`, `verifying_version`, `reboot_verified`) |
 | `progress` | `int` | Flash progress (0–100) |
 | `errorMessage` | `text` | Error details if failed |
 | `initiatedBy` | `int` | User ID who uploaded |
 | `createdAt` | `timestamp` | Upload time |
 | `startedAt` | `timestamp` | Flash start time |
 | `sha256Hash` | `varchar(128)` | SHA-256 hash of firmware file (computed at upload, verified before flash) |
+| `firmwareVersion` | `varchar(128)` | Confirmed firmware version after flash (e.g., git hash from `AUTOPILOT_VERSION`) |
 | `completedAt` | `timestamp` | Flash completion time |
 
 **`droneJobs`** — The job queue table now includes reliability columns:
@@ -239,6 +246,8 @@ These are used by the browser frontend. All require authentication (`protectedPr
 | `firmware` | `get` | Query | Get a single firmware update |
 | `firmware` | `upload` | Mutation | Upload firmware file (base64) to S3 |
 | `firmware` | `requestFlash` | Mutation | Create a `flash_firmware` job |
+| `firmware` | `delete` | Mutation | Delete a firmware update record |
+| `firmware` | `clearFailed` | Mutation | Remove all failed and stuck firmware update records |
 | `diagnostics` | `latest` | Query | Get latest diagnostics snapshot |
 | `diagnostics` | `history` | Query | Get diagnostics history for charts |
 
@@ -251,7 +260,7 @@ All events use the `logs:<droneId>` Socket.IO room for scoping.
 | `subscribe_logs` | Browser → Hub | `droneId` | Join the logs room |
 | `unsubscribe_logs` | Browser → Hub | `droneId` | Leave the logs room |
 | `fc_log_progress` | Hub → Browser | `{drone_id, logId, status, progress, ...}` | FC log download progress |
-| `firmware_progress` | Hub → Browser | `{drone_id, updateId, status, flashStage, progress, ...}` | Firmware flash progress |
+| `firmware_progress` | Hub → Browser | `{drone_id, updateId, status, flashStage, progress, firmwareVersion?, ...}` | Firmware flash progress (includes confirmed version after verification) |
 | `diagnostics` | Hub → Browser | `{drone_id, cpuPercent, memoryPercent, ...}` | Live diagnostics update |
 | `log_stream_request` | Browser → Hub → Pi | `{droneId, service, action, lines}` | Start/stop remote log stream |
 | `log_stream_line` | Pi → Hub | `{drone_id, service, lines[]}` | Buffered log lines from journalctl |
@@ -265,11 +274,11 @@ The companion script is a single-file Python 3 asyncio application (~1900 lines)
 
 **`HubClient`** handles all REST and tRPC communication with the Hub server, including job polling, job acknowledgment/completion, FC log reporting, firmware progress reporting, and diagnostics submission.
 
-**`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports.
+**`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `connect()`, `ensure_ready()` (health check + reconnect with settling delay), `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports. The `ensure_ready()` method performs a `list_directory("/")` health check and, if it fails, reconnects with a 3-second settling delay between attempts (up to 3 retries). This is used after FC reboot to ensure the FTP plugin is initialized before querying `AUTOPILOT_VERSION`.
 
 **`FCLogSyncer`** is a background syncer that downloads FC log files from the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet over HTTP and stores them locally on the companion computer at `/var/lib/quiver/fc_logs/`. The `net_webserver.lua` script is a Lua scripting applet that runs inside ArduPilot on boards with networking support (e.g., Cube Orange with Ethernet). It serves the FC's SD card over HTTP on port 8080 (configurable via the `WEB_BIND_PORT` parameter), providing an HTML directory listing at `/mnt/APM/LOGS/` and direct file downloads at `/mnt/APM/LOGS/<filename>`. The syncer runs a 60-second background loop (only when the drone is **disarmed**, verified via MAVSDK telemetry) that parses the HTML directory listing, compares against a local JSON manifest, and downloads new or changed files using `If-Modified-Since` headers for incremental sync. This approach avoids blocking the MAVLink TCP connection (which MAVFTP does) and provides fast local access for the dashboard. The default FC web server URL is `http://192.168.144.10:8080`, configurable via the `--fc-webserver-url` CLI argument.
 
-**`LogsOtaJobHandler`** implements the three job types using a three-tier resolution strategy (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback): `handle_scan_fc_logs()` reads from the local manifest first, then issues an on-demand HTTP listing, falling back to MAVFTP; `handle_download_fc_log()` serves from the local cache first, then streams via HTTP (also caching locally), falling back to MAVFTP, and uploads to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, uploads it to the FC as `ardupilot.abin`, polls for the ArduPilot rename stage sequence, and **cleans up the temp file** in a `finally` block.
+**`LogsOtaJobHandler`** implements the three job types using a three-tier resolution strategy for log operations (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback): `handle_scan_fc_logs()` reads from the local manifest first, then issues an on-demand HTTP listing, falling back to MAVFTP; `handle_download_fc_log()` serves from the local cache first, then streams via HTTP (also caching locally), falling back to MAVFTP, and uploads to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, **extracts the git hash** from the `.abin` header, serves the firmware via a temporary `aiohttp` HTTP server for the FC to pull (Approach C), sends a MAVLink reboot command, waits for the FC web server to come back online, then **queries `AUTOPILOT_VERSION`** via MAVSDK to compare the `flight_custom_version` git hash against the expected value from the `.abin` header. The confirmed firmware version (or mismatch warning) is reported to the Hub. The **temp file is cleaned up** in a `finally` block.
 
 **`DiagnosticsCollector`** gathers system health metrics using `psutil` (CPU, memory, disk, temperature, network) and checks the status of monitored systemd services (`telemetry-forwarder`, `logs-ota`, `camera-stream`, `siyi-camera`, `quiver-hub-client`, `go2rtc`, `tailscale-funnel`) via `systemctl is-active`.
 

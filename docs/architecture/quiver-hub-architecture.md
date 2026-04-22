@@ -166,7 +166,7 @@ A four-tab interface for flight controller log management, over-the-air firmware
 | Feature | Description |
 |---|---|
 | FC Logs | Three-tier log access: local cache → HTTP via FC `net_webserver.lua` (port 8080) → MAVFTP fallback. Download `.BIN`/`.log` files to S3 (multipart upload with base64 fallback), track progress in real-time, save completed logs to local PC via download proxy, send completed logs to Flight Analytics |
-| OTA Firmware Flash | Upload `.abin`/`.apj` firmware, flash to FC via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed) |
+| OTA Firmware Flash | Upload `.abin`/`.apj` firmware, flash to FC via HTTP pull (Approach C with `firmware_puller.lua`), MAVLink reboot, verify via `AUTOPILOT_VERSION` git hash comparison |
 | System Diagnostics | Live CPU, memory, disk, temperature gauges; systemd service status grid; network interface table |
 | Remote Logs | Stream journalctl output from any companion service in a terminal-style viewer |
 
@@ -309,7 +309,7 @@ All binary data is stored in S3-compatible object storage. The database holds on
 | `flight-logs/{droneId}/{nanoid}-{filename}` | ArduPilot `.BIN` or `.log` flight log files |
 | `flight-logs/{droneId}/notes/{nanoid}-notes.md` | Markdown notes attached to flight logs |
 | `flight-logs/{droneId}/media/{nanoid}-{filename}` | Media files (images, video) attached to flight logs |
-| `fc-logs/{droneId}/{nanoid}-{filename}` | FC SD card log files downloaded via MAVFTP |
+| `fc-logs/{droneId}/{nanoid}-{filename}` | FC SD card log files downloaded via HTTP (primary) or MAVFTP (fallback) |
 | `firmware/{droneId}/{nanoid}-{filename}` | Firmware files (`.abin`, `.apj`) uploaded for OTA flash |
 
 ---
@@ -339,9 +339,9 @@ A polling-based job queue enables the Hub to push tasks to the companion compute
 | `upload_file` | `raspberry_pi_client.py` | Download a file from S3 to a target path on the Pi; supports gzip compression for Python files |
 | `update_config` | `raspberry_pi_client.py` | Update configuration files on the Pi |
 | `restart_service` | `raspberry_pi_client.py` | Restart a service on the Pi |
-| `scan_fc_logs` | `logs_ota_service.py` | Scan FC SD card via MAVFTP and report discovered log files |
-| `download_fc_log` | `logs_ota_service.py` | Download a specific FC log via MAVFTP and upload to Hub S3 |
-| `flash_firmware` | `logs_ota_service.py` | Download firmware from S3, upload to FC via MAVFTP, monitor flash stages |
+| `scan_fc_logs` | `logs_ota_service.py` | Scan FC SD card (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback) and report discovered log files |
+| `download_fc_log` | `logs_ota_service.py` | Download a specific FC log (local cache → HTTP → MAVFTP fallback) and upload to Hub S3 |
+| `flash_firmware` | `logs_ota_service.py` | Download firmware from S3, serve via HTTP for FC pull (Approach C), MAVLink reboot, verify via `AUTOPILOT_VERSION` |
 
 Both `raspberry_pi_client.py` and `logs_ota_service.py` poll `droneJobs.getPendingJobs` at regular intervals, acknowledge each job, execute it, and report completion or failure back to the Hub.
 
@@ -401,7 +401,7 @@ Authentication operates on two separate planes. **User authentication** flows th
 | App Management | **Implemented** | Edit, delete, version history, rollback for custom apps |
 | REST API (Pi Integration) | **Implemented** | Point cloud, telemetry, camera, custom payload, and flight log endpoints |
 | Drone Job Queue | **Implemented** | Two-way Hub-to-Pi communication with file delivery |
-| Logs & OTA Updates | **Implemented** | FC log scan/download via MAVFTP, OTA firmware flash, system diagnostics, remote log streaming, Send to Flight Analytics |
+| Logs & OTA Updates | **Implemented** | FC log scan/download (HTTP primary, MAVFTP fallback), OTA firmware flash (Approach C: FC HTTP pull + version verification), system diagnostics, remote log streaming, Send to Flight Analytics |
 | Mission Planner | **Indicated** | Placeholder UI present; Google Maps component available in codebase |
 | Crosshair Sync | **Indicated** | Hover-linked cursors across Flight Analytics charts |
 | PARM Table View | **Indicated** | Searchable ArduPilot parameter table from DataFlash logs |

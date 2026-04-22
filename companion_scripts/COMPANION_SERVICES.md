@@ -145,7 +145,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 | FC Log Background Sync | `FCLogSyncer` class runs a 60-second background loop (only when drone is disarmed) that parses the HTML directory listing from `net_webserver.lua` at `/mnt/APM/LOGS/`, compares against a local JSON manifest, and downloads new/changed files using `If-Modified-Since` headers to `/var/lib/quiver/fc_logs/` |
 | FC Log Scan | Three-tier resolution: local cache (instant) → HTTP listing from FC `net_webserver.lua` (primary) → MAVFTP fallback |
 | FC Log Download | Three-tier resolution: local cache → HTTP download from FC `net_webserver.lua` (primary, also caches locally) → MAVFTP fallback. Upload to Hub S3 via multipart form-data (preferred, ~33% faster) with base64 JSON fallback |
-| OTA Firmware Flash | Download firmware from Hub S3, **verify SHA-256 hash**, upload to FC as `ardupilot.abin` via MAVFTP, monitor ArduPilot rename stages (verify → flash → flashed), **clean up temp file** |
+| OTA Firmware Flash | Download firmware from Hub S3, **verify SHA-256 hash**, **extract git hash** from `.abin` header, serve via HTTP for FC pull (Approach C via `firmware_puller.lua`), MAVLink reboot, poll FC webserver, **verify firmware version** via `AUTOPILOT_VERSION` git hash comparison, **clean up temp file** |
 | System Diagnostics | Collect CPU, memory, disk, temperature, network, and systemd service status every 10 seconds |
 | Remote Log Streaming | Stream journalctl output from any companion service to the browser in real-time |
 
@@ -155,7 +155,7 @@ A comprehensive companion service that bridges the flight controller and the Hub
 |---|---|---|
 | `scan_fc_logs` | FC Logs tab → "Scan FC Logs" button | Reads from local cache first (instant); on-demand HTTP listing from FC `net_webserver.lua` if cache is stale; MAVFTP fallback if web server unreachable |
 | `download_fc_log` | FC Logs tab → download button on a log row | Serves from local cache first; on-demand HTTP download from FC `net_webserver.lua` (also caches locally); MAVFTP fallback. Uploads via multipart form-data to `fc-upload-multipart` (preferred), falls back to base64 JSON `fc-upload` if unavailable |
-| `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, **verifies SHA-256 hash** against server-computed value, uploads to FC, monitors rename stages, cleans up temp file |
+| `flash_firmware` | OTA tab → "Flash to FC" button | Downloads firmware from S3, **verifies SHA-256 hash**, extracts git hash from `.abin` header, serves via HTTP for FC pull (Approach C), sends MAVLink reboot, waits for FC webserver, **verifies firmware version** via `AUTOPILOT_VERSION`, cleans up temp file |
 
 ### CLI Arguments
 
@@ -201,7 +201,7 @@ The diagnostics collector checks the status of these systemd services:
 | `HubClient` | REST + tRPC communication with the Hub server |
 | `MavFtpClient` | MAVSDK FTP operations (list, download, upload, exists, remove) |
 | `FCLogSyncer` | Background HTTP sync from FC `net_webserver.lua` to local cache; HTML directory parsing, incremental download with `If-Modified-Since`, JSON manifest tracking |
-| `LogsOtaJobHandler` | Implements scan, download, and flash job handlers using three-tier resolution (cache → HTTP → MAVFTP) |
+| `LogsOtaJobHandler` | Implements scan, download, and flash job handlers. Log operations use three-tier resolution (cache → HTTP → MAVFTP). Flash uses Approach C (FC HTTP pull + MAVLink reboot + `AUTOPILOT_VERSION` verification) |
 | `DiagnosticsCollector` | System health metrics via psutil + systemctl |
 | `RemoteLogStreamer` | Manages journalctl subprocess streams via Socket.IO |
 | `LogsOtaService` | Main orchestrator — FC connection, job polling, diagnostics loop, FC log background sync |
