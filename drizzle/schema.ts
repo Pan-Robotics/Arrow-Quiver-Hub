@@ -353,6 +353,8 @@ export const firmwareUpdates = mysqlTable("firmwareUpdates", {
   completedAt: timestamp("completedAt"),
   /** SHA-256 hash of the firmware binary (computed at upload, verified before flash) */
   sha256Hash: varchar("sha256Hash", { length: 64 }),
+  /** Confirmed firmware version after flash (e.g. "4.5.7 (d940850a)") — set by post-reboot AUTOPILOT_VERSION readback */
+  firmwareVersion: varchar("firmwareVersion", { length: 128 }),
 });
 
 export type FirmwareUpdate = typeof firmwareUpdates.$inferSelect;

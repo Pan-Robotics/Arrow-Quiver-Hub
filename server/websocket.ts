@@ -336,6 +336,7 @@ export function broadcastFirmwareProgress(droneId: string, data: {
   flashStage?: string;
   progress: number;
   errorMessage?: string;
+  firmwareVersion?: string;
 }) {
   if (!io) return;
   io.to(`logs:${droneId}`).emit('firmware_progress', { drone_id: droneId, ...data });

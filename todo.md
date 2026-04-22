@@ -1436,3 +1436,15 @@
 - [x] Update frontend subtitle from "via MAVFTP" to "via FC HTTP pull"
 - [x] Fix 45+ failing tests to match new Approach C-only architecture
 - [x] 959 tests passing across 25 test files
+
+## Firmware Version Readback + Cancel/Remove Stuck Updates
+- [x] Add firmwareVersion column to firmwareUpdates schema
+- [x] Extract git hash from .abin header pre-flash (Step 1) via _extract_abin_git_hash()
+- [x] Query AUTOPILOT_VERSION via MAVSDK post-reboot (Step 6) and extract flight_custom_version git hash
+- [x] Compare expected vs actual git hash and report verified/unverified status
+- [x] Add firmware_version field to report_firmware_progress API and HubClient
+- [x] Display confirmed firmware version + ShieldCheck/ShieldAlert verification badge on completed OTA cards
+- [x] Add cancel/remove button for stuck flashing/transferring/verifying/queued updates
+- [x] Expand clearFailedFirmwareUpdates to include stuck statuses (transferring, flashing, verifying)
+- [x] Delete button on completed cards, fallback message for pre-feature flash records
+- [x] 995 tests passing (36 new tests for version readback, cancel button, schema, REST, WebSocket)

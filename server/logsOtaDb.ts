@@ -129,7 +129,7 @@ export async function createFirmwareUpdate(update: InsertFirmwareUpdate) {
  */
 export async function updateFirmwareStatus(
   id: number,
-  updates: Partial<Pick<InsertFirmwareUpdate, "status" | "flashStage" | "progress" | "errorMessage" | "startedAt" | "completedAt">>
+  updates: Partial<Pick<InsertFirmwareUpdate, "status" | "flashStage" | "progress" | "errorMessage" | "startedAt" | "completedAt" | "firmwareVersion">>
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -257,7 +257,9 @@ export async function deleteFirmwareUpdate(id: number): Promise<boolean> {
 }
 
 /**
- * Clear all failed and uploaded (never-started) firmware updates for a drone
+ * Clear all failed, uploaded (never-started), and stuck (transferring/flashing/verifying)
+ * firmware updates for a drone. Stuck updates are those in an active state but likely
+ * abandoned (e.g. from a previous development attempt or service restart).
  */
 export async function clearFailedFirmwareUpdates(droneId: string): Promise<number> {
   const db = await getDb();
@@ -267,7 +269,7 @@ export async function clearFailedFirmwareUpdates(droneId: string): Promise<numbe
     .where(
       and(
         eq(firmwareUpdates.droneId, droneId),
-        sql`${firmwareUpdates.status} IN ('failed', 'uploaded')`
+        sql`${firmwareUpdates.status} IN ('failed', 'uploaded', 'transferring', 'flashing', 'verifying')`
       )
     );
   return (result[0] as any).affectedRows;

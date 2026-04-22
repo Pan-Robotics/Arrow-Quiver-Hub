@@ -1250,12 +1250,13 @@ router.get("/logs/fc-download/:logId", async (req: Request, res: Response) => {
  *   status: "transferring" | "flashing" | "verifying" | "completed" | "failed",
  *   flash_stage?: string (ardupilot.abin rename stage),
  *   progress: number (0-100),
- *   error_message?: string
+ *   error_message?: string,
+ *   firmware_version?: string (confirmed version after flash, e.g. "4.5.7 (d940850a)")
  * }
  */
 router.post("/firmware/progress", async (req: Request, res: Response) => {
   try {
-    const { api_key, drone_id, update_id, status, flash_stage, progress, error_message } = req.body;
+    const { api_key, drone_id, update_id, status, flash_stage, progress, error_message, firmware_version } = req.body;
 
     if (!api_key || !drone_id || !update_id || !status) {
       return res.status(400).json({
@@ -1278,6 +1279,7 @@ router.post("/firmware/progress", async (req: Request, res: Response) => {
       errorMessage: error_message || null,
     };
     if (flash_stage) updates.flashStage = flash_stage;
+    if (firmware_version) updates.firmwareVersion = firmware_version;
     if (status === "transferring" || status === "flashing") {
       updates.startedAt = new Date();
     }
@@ -1294,6 +1296,7 @@ router.post("/firmware/progress", async (req: Request, res: Response) => {
       flashStage: flash_stage,
       progress: progress ?? 0,
       errorMessage: error_message,
+      firmwareVersion: firmware_version,
     });
 
     return res.status(200).json({ success: true });

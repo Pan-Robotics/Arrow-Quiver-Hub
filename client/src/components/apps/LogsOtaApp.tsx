@@ -62,6 +62,9 @@ import {
   Save,
   Globe,
   Signal,
+  ShieldCheck,
+  ShieldAlert,
+  Ban,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectionStatus, useLastDataTimestamp } from "@/components/ui/ConnectionStatus";
@@ -98,6 +101,7 @@ interface FirmwareUpdate {
   createdAt: Date;
   startedAt: Date | null;
   completedAt: Date | null;
+  firmwareVersion: string | null;
 }
 
 interface DiagnosticsSnapshot {
@@ -130,6 +134,7 @@ interface FirmwareProgressEvent {
   flashStage?: string;
   progress: number;
   errorMessage?: string;
+  firmwareVersion?: string;
 }
 
 interface FcWebserverHealth {
@@ -727,7 +732,7 @@ function OtaUpdatesTab({
               disabled={clearFailedMutation.isPending}
             >
               <Trash2 size={14} />
-              Clear Failed
+              Clear Failed & Stuck
             </Button>
           )}
           <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-1">
@@ -857,13 +862,66 @@ function OtaUpdatesTab({
                         </Button>
                       </div>
                     )}
+                    {/* Cancel/remove button for stuck in-progress updates */}
+                    {(fw.status === "transferring" || fw.status === "flashing" || fw.status === "verifying" || fw.status === "queued") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-red-400 hover:text-red-500 hover:border-red-400"
+                        onClick={() => {
+                          if (confirm(`Cancel and remove this ${fw.status} firmware update?`)) {
+                            deleteFwMutation.mutate({ id: fw.id });
+                          }
+                        }}
+                        disabled={deleteFwMutation.isPending}
+                      >
+                        <Ban size={14} />
+                        Cancel
+                      </Button>
+                    )}
+                    {/* Delete button for completed updates */}
+                    {fw.status === "completed" && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-muted-foreground hover:text-red-400"
+                        onClick={() => deleteFwMutation.mutate({ id: fw.id })}
+                        disabled={deleteFwMutation.isPending}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    )}
                   </div>
                 </div>
+                {/* Progress bar for active transfers */}
                 {(fw.status === "transferring" || fw.status === "flashing" || fw.status === "verifying") && (
                   <div className="mt-3 flex items-center gap-2">
                     <Progress value={fw.progress || 0} className="h-2 flex-1" />
                     <span className="text-xs text-muted-foreground w-8">
                       {fw.progress || 0}%
+                    </span>
+                  </div>
+                )}
+                {/* Firmware version readback for completed updates */}
+                {fw.status === "completed" && fw.firmwareVersion && (
+                  <div className="mt-2 flex items-center gap-2">
+                    {fw.firmwareVersion.includes("\u2713") || fw.firmwareVersion.toLowerCase().includes("verified") ? (
+                      <ShieldCheck size={14} className="text-green-500" />
+                    ) : fw.firmwareVersion.toLowerCase().includes("mismatch") ? (
+                      <ShieldAlert size={14} className="text-amber-500" />
+                    ) : (
+                      <ShieldCheck size={14} className="text-blue-400" />
+                    )}
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {fw.firmwareVersion}
+                    </span>
+                  </div>
+                )}
+                {fw.status === "completed" && !fw.firmwareVersion && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <ShieldAlert size={14} className="text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground italic">
+                      Version readback not available (flashed before this feature)
                     </span>
                   </div>
                 )}

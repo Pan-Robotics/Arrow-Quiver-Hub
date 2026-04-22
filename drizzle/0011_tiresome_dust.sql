@@ -1,0 +1,1 @@
+ALTER TABLE `firmwareUpdates` ADD `firmwareVersion` varchar(128);

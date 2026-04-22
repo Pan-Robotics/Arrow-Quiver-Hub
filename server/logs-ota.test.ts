@@ -1201,7 +1201,8 @@ describe("OTA flash flow - handle_flash_firmware integration", () => {
   it("Step 5 polls FC webserver to confirm reboot", () => {
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
     expect(flashMethod).toContain("FC back online after");
-    expect(flashMethod).toContain('flash_stage="reboot_verified"');
+    // flash_stage is now set dynamically: "verified" if git hash matches, "reboot_verified" otherwise
+    expect(flashMethod).toContain('flash_stage = "verified" if verified else "reboot_verified"');
   });
 
   it("Step 5 has 120s timeout for FC to come back", () => {
@@ -2146,8 +2147,9 @@ describe("No MAVFTP upload in flash path (Tier 2/3 removed)", () => {
     expect(flashMethod).not.toContain("self.ftp.upload_file(tmp_path");
   });
 
-  it("does NOT use ftp.ensure_ready in flash path", () => {
-    expect(flashMethod).not.toContain("self.ftp.ensure_ready(");
+  it("uses ftp.ensure_ready for MAVSDK reconnection during version readback", () => {
+    // ensure_ready is now used to reconnect MAVSDK after FC reboot for AUTOPILOT_VERSION query
+    expect(flashMethod).toContain("self.ftp.ensure_ready(");
   });
 
   it("does NOT have Tier 2 or Tier 3 markers", () => {
@@ -2479,5 +2481,295 @@ describe("firmware_puller.lua ack endpoint", () => {
 
   it("closes ack socket after sending", () => {
     expect(source).toContain("ack_sock:close()");
+  });
+});
+
+// ─── Firmware Version Readback ─────────────────────────────────────────────
+
+describe("Firmware version readback - companion script", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware("),
+    source.indexOf("class DiagnosticsCollector")
+  );
+
+  // ── Step 1: Git hash extraction from .abin header ──
+
+  it("extracts git hash from .abin header in Step 1", () => {
+    expect(flashMethod).toContain("_extract_abin_git_hash");
+    expect(flashMethod).toContain("expected_git_hash");
+  });
+
+  it("_extract_abin_git_hash static method exists", () => {
+    expect(source).toContain("def _extract_abin_git_hash(");
+    expect(source).toContain("git version:");
+  });
+
+  it("_extract_abin_git_hash reads first lines of .abin file", () => {
+    const method = source.substring(
+      source.indexOf("def _extract_abin_git_hash("),
+      source.indexOf("\n\n", source.indexOf("def _extract_abin_git_hash(") + 50)
+    );
+    // Should open the file and read the header
+    expect(method).toContain("open(");
+    expect(method).toContain("git version:");
+  });
+
+  // ── Step 6: AUTOPILOT_VERSION query after reboot ──
+
+  it("queries AUTOPILOT_VERSION after FC comes back online", () => {
+    expect(flashMethod).toContain("_query_autopilot_version");
+    expect(flashMethod).toContain("AUTOPILOT_VERSION");
+  });
+
+  it("_query_autopilot_version method exists", () => {
+    expect(source).toContain("async def _query_autopilot_version(");
+  });
+
+  it("compares expected vs actual git hash", () => {
+    expect(flashMethod).toContain("expected_git_hash");
+    expect(flashMethod).toContain("actual_git");
+    expect(flashMethod).toContain("flight_custom_version");
+  });
+
+  it("sets verified=True when git hashes match", () => {
+    expect(flashMethod).toContain("verified = True");
+    expect(flashMethod).toContain("Firmware VERIFIED");
+  });
+
+  it("warns on git hash mismatch", () => {
+    expect(flashMethod).toContain("MISMATCH");
+    expect(flashMethod).toContain("flash may have failed");
+  });
+
+  it("reports firmware_version in final progress call", () => {
+    expect(flashMethod).toContain("firmware_version=firmware_version_str");
+  });
+
+  it("sets flash_stage based on verification result", () => {
+    expect(flashMethod).toContain('flash_stage = "verified" if verified else "reboot_verified"');
+  });
+
+  it("uses ensure_ready to reconnect MAVSDK before version query", () => {
+    // After FC reboot, MAVSDK connection is lost — need to reconnect
+    const versionBlock = flashMethod.substring(
+      flashMethod.indexOf("_query_autopilot_version")
+    );
+    // ensure_ready should come before the version query
+    const ensureReadyInFlash = flashMethod.indexOf("ensure_ready");
+    const versionQueryInFlash = flashMethod.indexOf("_query_autopilot_version()");
+    expect(ensureReadyInFlash).toBeGreaterThan(-1);
+    expect(versionQueryInFlash).toBeGreaterThan(ensureReadyInFlash);
+  });
+
+  it("handles version readback failure gracefully", () => {
+    expect(flashMethod).toContain("Could not read AUTOPILOT_VERSION");
+    expect(flashMethod).toContain("version unverified");
+  });
+
+  it("skips verification when no expected git hash available", () => {
+    expect(flashMethod).toContain("no expected git hash");
+    expect(flashMethod).toContain("skipping verification");
+  });
+});
+
+// ── HubClient report_firmware_progress supports firmware_version ──
+
+describe("HubClient.report_firmware_progress - firmware_version field", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  it("accepts firmware_version parameter", () => {
+    const method = source.substring(
+      source.indexOf("def report_firmware_progress("),
+      source.indexOf("\n\n", source.indexOf("def report_firmware_progress(") + 50)
+    );
+    expect(method).toContain("firmware_version");
+  });
+
+  it("includes firmware_version in POST data when provided", () => {
+    const method = source.substring(
+      source.indexOf("def report_firmware_progress("),
+      source.indexOf("def report_diagnostics(")
+    );
+    expect(method).toContain('data["firmware_version"]');
+  });
+});
+
+// ── Schema: firmwareVersion column ──
+
+describe("firmwareUpdates schema - firmwareVersion column", () => {
+  const schema = fs.readFileSync("./drizzle/schema.ts", "utf-8");
+
+  it("has firmwareVersion column in firmwareUpdates table", () => {
+    expect(schema).toContain("firmwareVersion");
+    expect(schema).toContain('varchar("firmwareVersion"');
+  });
+
+  it("firmwareVersion column allows null (optional)", () => {
+    // varchar without .notNull() is nullable by default
+    const fwVersionLine = schema.split("\n").find(l => l.includes('firmwareVersion'));
+    expect(fwVersionLine).toBeDefined();
+    expect(fwVersionLine).not.toContain(".notNull()");
+  });
+});
+
+// ── REST endpoint: firmware/progress accepts firmware_version ──
+
+describe("firmware/progress REST endpoint - firmware_version field", () => {
+  const restApi = fs.readFileSync("./server/rest-api.ts", "utf-8");
+
+  it("destructures firmware_version from request body", () => {
+    const progressHandler = restApi.substring(
+      restApi.indexOf('router.post("/firmware/progress"'),
+      restApi.indexOf("// ─── System Diagnostics")
+    );
+    expect(progressHandler).toContain("firmware_version");
+  });
+
+  it("sets firmwareVersion in updates when provided", () => {
+    const progressHandler = restApi.substring(
+      restApi.indexOf('router.post("/firmware/progress"'),
+      restApi.indexOf("// ─── System Diagnostics")
+    );
+    expect(progressHandler).toContain("updates.firmwareVersion = firmware_version");
+  });
+
+  it("broadcasts firmwareVersion via WebSocket", () => {
+    const progressHandler = restApi.substring(
+      restApi.indexOf('router.post("/firmware/progress"'),
+      restApi.indexOf("// ─── System Diagnostics")
+    );
+    expect(progressHandler).toContain("firmwareVersion: firmware_version");
+  });
+});
+
+// ── Cancel/remove stuck firmware updates ──
+
+describe("Cancel/remove stuck firmware updates", () => {
+  it("clearFailedFirmwareUpdates includes stuck statuses", () => {
+    const dbSource = fs.readFileSync("./server/logsOtaDb.ts", "utf-8");
+    const clearFn = dbSource.substring(
+      dbSource.indexOf("async function clearFailedFirmwareUpdates"),
+      dbSource.indexOf("\n}", dbSource.indexOf("async function clearFailedFirmwareUpdates")) + 2
+    );
+    expect(clearFn).toContain("'failed'");
+    expect(clearFn).toContain("'uploaded'");
+    expect(clearFn).toContain("'transferring'");
+    expect(clearFn).toContain("'flashing'");
+    expect(clearFn).toContain("'verifying'");
+  });
+
+  it("deleteFirmwareUpdate can delete any firmware update by ID", () => {
+    const dbSource = fs.readFileSync("./server/logsOtaDb.ts", "utf-8");
+    expect(dbSource).toContain("async function deleteFirmwareUpdate(id: number)");
+    // Should not filter by status — allows deleting any record
+    const deleteFn = dbSource.substring(
+      dbSource.indexOf("async function deleteFirmwareUpdate(id: number)"),
+      dbSource.indexOf("\n}", dbSource.indexOf("async function deleteFirmwareUpdate(id: number)")) + 2
+    );
+    expect(deleteFn).not.toContain("status");
+  });
+
+  it("firmware router has delete mutation", () => {
+    const routers = fs.readFileSync("./server/routers.ts", "utf-8");
+    expect(routers).toContain("deleteFirmwareUpdate");
+  });
+
+  it("firmware router has clearFailed mutation", () => {
+    const routers = fs.readFileSync("./server/routers.ts", "utf-8");
+    expect(routers).toContain("clearFailedFirmwareUpdates");
+  });
+});
+
+// ── Frontend: firmware version display and cancel button ──
+
+describe("Frontend OTA Updates tab - version display and cancel button", () => {
+  const frontendSource = fs.readFileSync(
+    "./client/src/components/apps/LogsOtaApp.tsx",
+    "utf-8"
+  );
+
+  it("FirmwareUpdate interface includes firmwareVersion field", () => {
+    expect(frontendSource).toContain("firmwareVersion: string | null");
+  });
+
+  it("displays firmware version on completed cards", () => {
+    expect(frontendSource).toContain("fw.firmwareVersion");
+  });
+
+  it("shows ShieldCheck icon for verified firmware", () => {
+    expect(frontendSource).toContain("ShieldCheck");
+    expect(frontendSource).toContain("verified");
+  });
+
+  it("shows ShieldAlert icon for mismatched firmware", () => {
+    expect(frontendSource).toContain("ShieldAlert");
+    expect(frontendSource).toContain("mismatch");
+  });
+
+  it("shows fallback message when version readback not available", () => {
+    expect(frontendSource).toContain("Version readback not available");
+  });
+
+  it("has cancel button for stuck in-progress updates", () => {
+    expect(frontendSource).toContain("Cancel and remove this");
+    expect(frontendSource).toContain("<Ban");
+  });
+
+  it("cancel button appears for transferring, flashing, verifying, and queued statuses", () => {
+    // Check that the condition includes all stuck statuses
+    expect(frontendSource).toContain('fw.status === "transferring"');
+    expect(frontendSource).toContain('fw.status === "flashing"');
+    expect(frontendSource).toContain('fw.status === "verifying"');
+    expect(frontendSource).toContain('fw.status === "queued"');
+  });
+
+  it("has delete button for completed updates", () => {
+    // Completed updates should have a trash icon for cleanup
+    expect(frontendSource).toContain('fw.status === "completed"');
+    expect(frontendSource).toContain("Trash2");
+  });
+
+  it("Clear Failed & Stuck button includes stuck statuses", () => {
+    expect(frontendSource).toContain("Clear Failed & Stuck");
+  });
+
+  it("FirmwareProgressEvent includes firmwareVersion", () => {
+    expect(frontendSource).toContain("firmwareVersion?: string");
+  });
+});
+
+// ── WebSocket: broadcastFirmwareProgress includes firmwareVersion ──
+
+describe("WebSocket broadcastFirmwareProgress - firmwareVersion", () => {
+  const wsSource = fs.readFileSync("./server/websocket.ts", "utf-8");
+
+  it("broadcastFirmwareProgress type includes firmwareVersion", () => {
+    const fnDef = wsSource.substring(
+      wsSource.indexOf("function broadcastFirmwareProgress"),
+      wsSource.indexOf("}", wsSource.indexOf("function broadcastFirmwareProgress")) + 1
+    );
+    expect(fnDef).toContain("firmwareVersion?: string");
+  });
+});
+
+// ── updateFirmwareStatus supports firmwareVersion ──
+
+describe("updateFirmwareStatus - firmwareVersion field", () => {
+  const dbSource = fs.readFileSync("./server/logsOtaDb.ts", "utf-8");
+
+  it("updateFirmwareStatus type includes firmwareVersion", () => {
+    const fnDef = dbSource.substring(
+      dbSource.indexOf("async function updateFirmwareStatus"),
+      dbSource.indexOf("{", dbSource.indexOf("async function updateFirmwareStatus")) + 1
+    );
+    expect(fnDef).toContain("firmwareVersion");
   });
 });

@@ -272,7 +272,8 @@ class HubClient:
 
     def report_firmware_progress(self, update_id: int, status: str,
                                   progress: int, flash_stage: Optional[str] = None,
-                                  error_message: Optional[str] = None) -> bool:
+                                  error_message: Optional[str] = None,
+                                  firmware_version: Optional[str] = None) -> bool:
         """Report firmware flash progress."""
         data: dict = {
             "api_key": self.api_key,
@@ -285,6 +286,8 @@ class HubClient:
             data["flash_stage"] = flash_stage
         if error_message:
             data["error_message"] = error_message
+        if firmware_version:
+            data["firmware_version"] = firmware_version
         result = self._rest_post("firmware/progress", data)
         return result is not None and result.get("success", False)
 
@@ -1163,6 +1166,81 @@ class LogsOtaJobHandler:
         self._fw_serve_bytes_sent = 0  # track bytes served for progress
 
     @staticmethod
+    def _extract_abin_git_hash(abin_path: str) -> Optional[str]:
+        """
+        Extract git version hash from .abin file header.
+        
+        The first two lines of an .abin file contain:
+          git version: d940850...
+          MD5: 3703b33f...
+        
+        Returns the git hash string (e.g. 'd940850') or None if not found.
+        """
+        try:
+            with open(abin_path, 'rb') as f:
+                # Read first 512 bytes — header is in the first ~100 bytes
+                header = f.read(512)
+            # Try to decode as text (header is ASCII)
+            try:
+                header_text = header.decode('ascii', errors='replace')
+            except Exception:
+                return None
+            for line in header_text.split('\n'):
+                line = line.strip()
+                if line.lower().startswith('git version:'):
+                    git_hash = line.split(':', 1)[1].strip()
+                    # Clean up — take first word (hash may be followed by other data)
+                    git_hash = git_hash.split()[0] if git_hash else None
+                    if git_hash:
+                        logger.info(f"Extracted git hash from .abin header: {git_hash}")
+                        return git_hash
+            logger.warning("No 'git version:' line found in .abin header")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to read .abin header: {e}")
+            return None
+
+    async def _query_autopilot_version(self) -> Optional[dict]:
+        """
+        Query AUTOPILOT_VERSION via MAVSDK after FC reboot.
+        
+        Returns dict with:
+          - flight_sw_version: int (build number)
+          - flight_custom_version: str (git hash from flight_custom_version bytes)
+          - os_custom_version: str (git hash from os_custom_version bytes)
+          - board_version: int
+        Or None if query fails.
+        """
+        if not self.ftp.connected or not self.ftp.system:
+            logger.warning("Cannot query AUTOPILOT_VERSION — MAVSDK not connected")
+            return None
+
+        try:
+            # MAVSDK info plugin provides get_version() and get_flight_information()
+            version = await asyncio.wait_for(
+                self.ftp.system.info.get_version(),
+                timeout=10
+            )
+            # version is a Version object with:
+            #   flight_sw_major, flight_sw_minor, flight_sw_patch
+            #   os_sw_major, os_sw_minor, os_sw_patch
+            #   flight_custom_version (str), os_custom_version (str)
+            result = {
+                "flight_sw_version": f"{version.flight_sw_major}.{version.flight_sw_minor}.{version.flight_sw_patch}",
+                "flight_custom_version": getattr(version, 'flight_custom_version', ''),
+                "os_custom_version": getattr(version, 'os_custom_version', ''),
+            }
+            logger.info(f"AUTOPILOT_VERSION: sw={result['flight_sw_version']}, "
+                        f"git={result['flight_custom_version']}")
+            return result
+        except asyncio.TimeoutError:
+            logger.warning("AUTOPILOT_VERSION query timed out (10s)")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to query AUTOPILOT_VERSION: {e}")
+            return None
+
+    @staticmethod
     def _convert_apj_to_abin(apj_data: bytes, output_path: str) -> None:
         """
         Convert an ArduPilot .apj firmware file to .abin format for OTA SD card flash.
@@ -1943,6 +2021,15 @@ class LogsOtaJobHandler:
                 else:
                     logger.warning("No SHA-256 hash in job payload — skipping integrity check")
 
+                # ── Extract expected git hash from .abin header ──
+                # Used after reboot to verify the correct firmware was flashed
+                expected_git_hash = self._extract_abin_git_hash(tmp_path)
+                if expected_git_hash:
+                    logger.info(f"Expected firmware git hash: {expected_git_hash}")
+                else:
+                    logger.warning("Could not extract git hash from .abin — "
+                                   "post-flash verification will be skipped")
+
                 # ── Step 2: Pre-upload check (HTTP only, no MAVFTP) ──
                 # NEVER use MAVFTP here — it corrupts sequence numbers and
                 # breaks all subsequent MAVFTP operations in this session.
@@ -2065,10 +2152,6 @@ class LogsOtaJobHandler:
                         if await asyncio.to_thread(self._http_fc_reachable):
                             fc_back = True
                             logger.info(f"FC back online after {elapsed}s — firmware flash complete!")
-                            self.hub.report_firmware_progress(
-                                update_id, "completed", 100,
-                                flash_stage="reboot_verified"
-                            )
                             break
                     except Exception:
                         pass
@@ -2080,7 +2163,58 @@ class LogsOtaJobHandler:
                         flash_stage="waiting_for_reboot"
                     )
 
-                if not fc_back:
+                # ── Step 6: Firmware version verification ──
+                # After FC is back (or timed out), attempt to read AUTOPILOT_VERSION
+                # and compare git hash to what was in the .abin header.
+                firmware_version_str = None
+                verified = False
+
+                if fc_back and expected_git_hash:
+                    logger.info("Querying AUTOPILOT_VERSION for firmware verification...")
+                    self.hub.report_firmware_progress(
+                        update_id, "verifying", 95,
+                        flash_stage="reading_version"
+                    )
+
+                    # MAVSDK needs to reconnect after FC reboot
+                    try:
+                        await self.ftp.ensure_ready(retries=3, delay=5)
+                    except Exception as reconn_err:
+                        logger.warning(f"MAVSDK reconnect for version check failed: {reconn_err}")
+
+                    version_info = await self._query_autopilot_version()
+                    if version_info:
+                        actual_git = version_info.get("flight_custom_version", "")
+                        sw_version = version_info.get("flight_sw_version", "")
+                        firmware_version_str = f"{sw_version} ({actual_git[:8]})" if actual_git else sw_version
+
+                        # Compare git hashes (prefix match — .abin may have longer hash)
+                        min_len = min(len(expected_git_hash), len(actual_git))
+                        if min_len >= 6 and expected_git_hash[:min_len] == actual_git[:min_len]:
+                            verified = True
+                            logger.info(f"Firmware VERIFIED: git hash {actual_git[:8]} matches .abin header")
+                        elif actual_git:
+                            logger.warning(
+                                f"Firmware git hash MISMATCH: expected {expected_git_hash[:8]}, "
+                                f"got {actual_git[:8]} — flash may have failed or old firmware is running"
+                            )
+                        else:
+                            logger.warning("AUTOPILOT_VERSION returned no git hash")
+                    else:
+                        logger.warning("Could not read AUTOPILOT_VERSION — version unverified")
+                elif fc_back:
+                    # FC is back but we don't have an expected hash to compare
+                    logger.info("FC back online but no expected git hash — skipping verification")
+
+                # Final status report
+                if fc_back:
+                    flash_stage = "verified" if verified else "reboot_verified"
+                    self.hub.report_firmware_progress(
+                        update_id, "completed", 100,
+                        flash_stage=flash_stage,
+                        firmware_version=firmware_version_str
+                    )
+                elif not fc_back:
                     if reboot_sent:
                         # Reboot was sent, FC hasn't come back — could be slow flash
                         logger.warning(f"FC not back after {max_wait}s — may still be flashing. "
