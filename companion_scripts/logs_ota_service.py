@@ -88,6 +88,10 @@ try:
     from aiohttp import web as aiohttp_web
 except ImportError:
     aiohttp_web = None
+    logging.getLogger("logs_ota").warning(
+        "aiohttp not installed — Approach C (fast HTTP pull) disabled. "
+        "Install with: pip install --break-system-packages aiohttp"
+    )
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 
@@ -1057,6 +1061,44 @@ class MavFtpClient:
             logger.error(f"MAVFTP upload failed: {e}")
             raise
 
+    async def ensure_ready(self, retries: int = 3, delay: float = 3.0) -> bool:
+        """Ensure the FTP client is connected and ready for operations.
+        
+        After MAVSDK gRPC restarts or MAVFTP sequence corruption, the FTP
+        plugin may need a fresh connection. This method checks connectivity
+        and reconnects with a delay if needed.
+        
+        Args:
+            retries: Number of reconnection attempts.
+            delay: Seconds to wait between attempts (gives MAVSDK time to settle).
+        
+        Returns:
+            True if the FTP client is ready, False otherwise.
+        """
+        if self.connected:
+            # Quick health check: try a lightweight FTP operation
+            try:
+                await self.system.ftp.list_directory("/APM/")
+                return True
+            except Exception as e:
+                logger.warning(f"FTP health check failed: {e} — will reconnect")
+                self._connected = False
+
+        for attempt in range(1, retries + 1):
+            logger.info(f"FTP reconnect attempt {attempt}/{retries} "
+                        f"(waiting {delay}s for MAVSDK to settle)...")
+            await asyncio.sleep(delay)
+            try:
+                success = await self.connect()
+                if success:
+                    logger.info("FTP reconnected successfully")
+                    return True
+            except Exception as e:
+                logger.warning(f"FTP reconnect attempt {attempt} failed: {e}")
+
+        logger.error(f"FTP reconnection failed after {retries} attempts")
+        return False
+
     async def file_exists(self, remote_path: str) -> bool:
         """Check if a file exists on the FC by listing its parent directory."""
         try:
@@ -1764,10 +1806,13 @@ class LogsOtaJobHandler:
         """
         Download firmware from Hub, upload to FC, and monitor flash stages.
         
-        Upload priority:
-          1. HTTP PUT to FC web server (fast, ~650 KB/s over Ethernet)
-             Requires net_webserver_put.lua on FC with WEB_PUT_ENABLE=1
-          2. MAVFTP upload (slow fallback, ~5 KB/s over MAVLink)
+        3-tier upload priority:
+          Tier 1: Approach C — FC pulls from companion Pi HTTP server (~650 KB/s)
+                  Requires firmware_puller.lua on FC with FWPULL_ENABLE=1
+          Tier 2: HTTP PUT to FC web server (~650 KB/s over Ethernet)
+                  Requires net_webserver_put.lua on FC with WEB_PUT_ENABLE=1
+          Tier 3: MAVFTP upload (slow fallback, ~5 KB/s over MAVLink)
+                  Always available; ensure_ready() reconnects if needed
         
         Supports both .abin and .apj firmware files. If an .apj file is uploaded,
         it is automatically converted to .abin format before flashing.
@@ -1777,17 +1822,19 @@ class LogsOtaJobHandler:
           - Decompress to raw binary, compute MD5, write .abin header + binary
         
         ArduPilot OTA flash process:
-          1. Upload ardupilot.abin to /APM/ on the FC SD card.
-             Upload priority: (a) Approach C — FC pulls from companion HTTP server
-             via firmware_puller.lua (~650 KB/s), (b) HTTP PUT via
-             net_webserver_put.lua (~650 KB/s), (c) MAVFTP (~5 KB/s, last resort).
-          2. FC renames to ardupilot-verify.abin (CRC verification)
-          3. FC renames to ardupilot-flash.abin (flashing to internal flash)
-          4. FC renames to ardupilot-flashed.abin (success, FC reboots)
+          Step 1: Download firmware from Hub, verify SHA-256, convert .apj if needed
+          Step 2: Pre-upload cleanup via HTTP (no MAVFTP to avoid sequence corruption)
+          Step 3: Upload ardupilot.abin to /APM/ using 3-tier priority
+          Step 4: Monitor flash stages (HTTP first, MAVFTP fallback):
+                  ardupilot.abin → ardupilot-verify.abin → ardupilot-flash.abin
+                  → ardupilot-flashed.abin
+          Step 5: Verify FC reboots successfully via HTTP
           
-        If any stage fails, the file may remain or be deleted.
-        We poll for stage file existence to track progress (HTTP first, MAVFTP fallback).
-        After flash, we verify FC reboots successfully via HTTP.
+        MAVFTP cleanup avoidance: Step 2 does NOT use MAVFTP file_exists() or
+        remove_file() because those operations corrupt MAVFTP sequence numbers,
+        causing Step 3 uploads to fail with "Ftp plugin has not been initialized".
+        Instead, we check via HTTP (no side effects) and let the bootloader
+        overwrite old files.
         """
         payload = job.get("payload", {})
         update_id = payload.get("updateId")
@@ -1865,41 +1912,50 @@ class LogsOtaJobHandler:
                 else:
                     logger.warning("No SHA-256 hash in job payload — skipping integrity check")
 
-                # ── Step 2: Pre-upload check via HTTP, then clean old files via MAVFTP ──
+                # ── Step 2: Pre-upload cleanup (HTTP-safe) ──
+                # IMPORTANT: We avoid using MAVFTP file_exists() + remove_file()
+                # here because those operations corrupt MAVFTP sequence numbers,
+                # causing the subsequent upload in Step 3 to fail with
+                # "Ftp plugin has not been initialized".
+                # Instead, we check via HTTP (no MAVFTP side effects) and skip
+                # removal — the bootloader will overwrite old files anyway.
                 self.hub.report_firmware_progress(update_id, "transferring", 10,
                                                    flash_stage="preparing")
-                # Quick HTTP check to verify FC web server is reachable (informational)
-                if self._http_fc_reachable():
-                    logger.info("FC web server reachable — will use HTTP for flash monitoring")
-                else:
-                    logger.info("FC web server not reachable — using MAVFTP for flash monitoring")
 
-                for old_name in [
-                    "ardupilot.abin",
-                    "ardupilot-verify.abin",
-                    "ardupilot-flash.abin",
-                    "ardupilot-flashed.abin",
-                ]:
-                    if await self.ftp.file_exists(f"/APM/{old_name}"):
-                        logger.info(f"Removing old {old_name}")
-                        await self.ftp.remove_file(f"/APM/{old_name}")
+                http_available = self._http_fc_reachable()
+                if http_available:
+                    logger.info("FC web server reachable — using HTTP for monitoring & cleanup check")
+                    # Check for leftover firmware files via HTTP (informational only)
+                    for old_name in [
+                        "ardupilot.abin",
+                        "ardupilot-verify.abin",
+                        "ardupilot-flash.abin",
+                        "ardupilot-flashed.abin",
+                    ]:
+                        exists = self._http_file_exists(old_name)
+                        if exists:
+                            logger.info(f"Old file {old_name} found on FC (will be overwritten)")
+                else:
+                    logger.info("FC web server not reachable — skipping pre-upload cleanup "
+                                "(bootloader will overwrite old files)")
 
                 # ── Step 3: Upload firmware to FC as ardupilot.abin ──
-                # Priority order:
-                #   1. Approach C — FC pulls from companion Pi HTTP server (~650 KB/s)
-                #      Requires firmware_puller.lua on FC with FWPULL_ENABLE=1
-                #   2. HTTP PUT — companion pushes to FC web server (~650 KB/s)
-                #      Requires net_webserver_put.lua on FC
-                #   3. MAVFTP — traditional MAVLink file transfer (~5 KB/s)
-                #      Always available but very slow
+                # 3-tier upload priority:
+                #   Tier 1: Approach C — FC pulls from companion Pi HTTP server (~650 KB/s)
+                #           Requires firmware_puller.lua on FC with FWPULL_ENABLE=1
+                #   Tier 2: HTTP PUT — companion pushes to FC web server (~650 KB/s)
+                #           Requires net_webserver_put.lua on FC
+                #   Tier 3: MAVFTP — traditional MAVLink file transfer (~5 KB/s)
+                #           Always available but very slow
                 self.hub.report_firmware_progress(update_id, "transferring", 20,
                                                    flash_stage="uploading")
 
                 upload_method = None
 
-                # ── Approach C: Start firmware HTTP server, let FC pull ──
+                # ── Tier 1: Approach C — FC pulls firmware from companion HTTP server ──
                 if aiohttp_web:
-                    logger.info("Starting firmware HTTP server for FC pull (Approach C)...")
+                    logger.info("=== Tier 1: Approach C (FC HTTP pull) ===")
+                    logger.info("Starting firmware HTTP server for FC pull...")
                     self.hub.report_firmware_progress(
                         update_id, "transferring", 20,
                         flash_stage="uploading_http_pull"
@@ -1917,9 +1973,9 @@ class LogsOtaJobHandler:
                     else:
                         logger.info("Could not start firmware server — trying fallback methods")
 
-                # ── Fallback: HTTP PUT (push to FC web server) ──
+                # ── Tier 2: HTTP PUT (push to FC web server) ──
                 if upload_method is None and self._http_fc_reachable():
-                    logger.info("Attempting HTTP PUT upload (fallback 1)...")
+                    logger.info("=== Tier 2: HTTP PUT (push to FC web server) ===")
 
                     def http_upload_progress(uploaded: int, total: int):
                         if total > 0:
@@ -1935,9 +1991,21 @@ class LogsOtaJobHandler:
                     else:
                         logger.info("HTTP PUT not available — falling back to MAVFTP")
 
-                # ── Last resort: MAVFTP (slow, ~5 KB/s) ──
+                # ── Tier 3: MAVFTP (slow last resort, ~5 KB/s) ──
                 if upload_method is None:
-                    logger.info("Using MAVFTP upload (slow fallback)...")
+                    logger.info("=== Tier 3: MAVFTP (slow fallback, ~5 KB/s) ===")
+
+                    # Ensure FTP client is healthy before upload.
+                    # Previous operations (or gRPC restarts) may have corrupted
+                    # the MAVFTP sequence numbers. ensure_ready() does a health
+                    # check and reconnects with a settling delay if needed.
+                    if not await self.ftp.ensure_ready(retries=3, delay=3.0):
+                        error_msg = ("MAVFTP not ready after reconnection attempts — "
+                                     "cannot upload firmware")
+                        logger.error(error_msg)
+                        self.hub.report_firmware_progress(
+                            update_id, "failed", 0, error_message=error_msg)
+                        return False, error_msg
 
                     async def mavftp_upload_progress(uploaded: int, total: int):
                         if total > 0:

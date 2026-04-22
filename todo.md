@@ -1392,3 +1392,12 @@
 - [x] Added signaling: /firmware/status returns {ready:true, size:N}, FC Lua polls every 2s; /firmware/ack confirms download complete
 - [x] MAVFTP kept as last-resort fallback
 - [x] 920 tests pass (52 new for firmware_puller.lua, HTTP server, 3-tier priority, module docstring)
+
+## Fix Flash Failures: aiohttp Missing, MAVFTP Reconnection Race
+- [x] Approach C skipped because aiohttp not installed on Pi — add explicit warning log when aiohttp_web is None at startup
+- [x] MAVFTP sequence corruption in Step 2 — replaced MAVFTP file_exists/remove_file with HTTP-based checks (bootloader overwrites old files)
+- [x] MAVFTP fails after reconnection — added MavFtpClient.ensure_ready() with health check + reconnect + settling delay
+- [x] Add MAVSDK FTP plugin readiness check with retry/delay before upload attempt (ensure_ready in Tier 3)
+- [x] Log which upload tier is being attempted for easier debugging (=== Tier 1/2/3 === markers)
+- [x] Make MAVFTP reconnection more robust — ensure_ready() does list_directory health check, reconnects with 3s delay between attempts
+- [x] 357 tests passing (23 new tests for cleanup fix, ensure_ready, tier logging, aiohttp warning)

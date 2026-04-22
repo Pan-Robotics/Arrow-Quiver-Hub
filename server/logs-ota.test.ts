@@ -1134,13 +1134,24 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
   it("Step 2 checks FC web server reachability before upload", () => {
     expect(flashMethod).toContain("self._http_fc_reachable()");
     expect(flashMethod).toContain(
-      "FC web server reachable — will use HTTP for flash monitoring"
+      "FC web server reachable"
     );
   });
 
-  it("Step 2 logs fallback to MAVFTP if HTTP unavailable", () => {
+  it("Step 2 uses HTTP for cleanup check instead of MAVFTP", () => {
+    // Step 2 now avoids MAVFTP file_exists/remove_file to prevent
+    // sequence corruption. Uses HTTP to check for old files (informational)
+    // and lets the bootloader overwrite them.
+    expect(flashMethod).toContain("self._http_file_exists(old_name)");
+    expect(flashMethod).toContain("will be overwritten");
+  });
+
+  it("Step 2 logs skip message when HTTP unavailable", () => {
     expect(flashMethod).toContain(
-      "FC web server not reachable — using MAVFTP for flash monitoring"
+      "FC web server not reachable"
+    );
+    expect(flashMethod).toContain(
+      "bootloader will overwrite old files"
     );
   });
 
@@ -1196,13 +1207,19 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
     );
   });
 
-  it("still cleans old .abin files via MAVFTP before upload", () => {
-    expect(flashMethod).toContain(
+  it("avoids MAVFTP cleanup to prevent sequence corruption", () => {
+    // Step 2 no longer uses MAVFTP file_exists/remove_file because those
+    // operations corrupt MAVFTP sequence numbers, causing Step 3 upload
+    // to fail with "Ftp plugin has not been initialized".
+    // Instead, HTTP is used for informational checks only.
+    expect(flashMethod).not.toContain(
       'await self.ftp.file_exists(f"/APM/{old_name}")'
     );
-    expect(flashMethod).toContain(
+    expect(flashMethod).not.toContain(
       'await self.ftp.remove_file(f"/APM/{old_name}")'
     );
+    // Verify HTTP-based check is used instead
+    expect(flashMethod).toContain("self._http_file_exists(old_name)");
   });
 });
 
@@ -1603,9 +1620,9 @@ describe("HTTP PUT Upload - Flash Flow Integration", () => {
   });
 
   it("tries Approach C first, then HTTP PUT, then MAVFTP", () => {
-    const approachCIdx = flashMethod.indexOf("Approach C");
-    const httpPutIdx = flashMethod.indexOf("HTTP PUT (push");
-    const mavftpIdx = flashMethod.indexOf("Last resort: MAVFTP");
+    const approachCIdx = flashMethod.indexOf("Tier 1: Approach C");
+    const httpPutIdx = flashMethod.indexOf("Tier 2: HTTP PUT");
+    const mavftpIdx = flashMethod.indexOf("Tier 3: MAVFTP");
     expect(approachCIdx).toBeGreaterThan(-1);
     expect(httpPutIdx).toBeGreaterThan(approachCIdx);
     expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
@@ -1613,7 +1630,7 @@ describe("HTTP PUT Upload - Flash Flow Integration", () => {
 
   it("checks FC reachability before HTTP PUT fallback", () => {
     expect(flashMethod).toContain("upload_method is None and self._http_fc_reachable()");
-    expect(flashMethod).toContain("HTTP PUT upload (fallback 1)");
+    expect(flashMethod).toContain("Tier 2: HTTP PUT");
   });
 
   it("falls back to MAVFTP as last resort", () => {
@@ -1636,9 +1653,9 @@ describe("HTTP PUT Upload - Flash Flow Integration", () => {
     expect(flashMethod).toContain("via {upload_method}");
   });
 
-  it("docstring mentions HTTP PUT as primary upload method", () => {
-    expect(flashMethod).toContain("HTTP PUT to FC web server (fast, ~650 KB/s");
-    expect(flashMethod).toContain("MAVFTP upload (slow fallback, ~5 KB/s");
+  it("docstring mentions 3-tier upload priority", () => {
+    expect(flashMethod).toContain("Tier 2: HTTP PUT to FC web server");
+    expect(flashMethod).toContain("Tier 3: MAVFTP upload (slow fallback");
   });
 
   it("docstring mentions net_webserver_put.lua requirement", () => {
@@ -2031,9 +2048,9 @@ describe("handle_flash_firmware: 3-tier upload priority", () => {
   });
 
   it("should try Approach C first (firmware HTTP server)", () => {
-    const approachCIdx = flashMethod.indexOf("Approach C");
-    const httpPutIdx = flashMethod.indexOf("HTTP PUT (push");
-    const mavftpIdx = flashMethod.indexOf("Last resort: MAVFTP");
+    const approachCIdx = flashMethod.indexOf("Tier 1: Approach C");
+    const httpPutIdx = flashMethod.indexOf("Tier 2: HTTP PUT");
+    const mavftpIdx = flashMethod.indexOf("Tier 3: MAVFTP");
     expect(approachCIdx).toBeGreaterThan(-1);
     expect(httpPutIdx).toBeGreaterThan(approachCIdx);
     expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
@@ -2107,5 +2124,186 @@ describe("Module docstring: Approach C documentation", () => {
     expect(approachCIdx).toBeGreaterThan(-1);
     expect(httpPutIdx).toBeGreaterThan(approachCIdx);
     expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
+  });
+});
+
+// ─── Fix: MAVFTP cleanup corruption & reconnection race ──────────────────────
+
+describe("Fix: MAVFTP cleanup corruption in Step 2", () => {
+  let pyContent: string;
+  let flashMethod: string;
+
+  beforeAll(() => {
+    pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+    const startMarker = "async def handle_flash_firmware";
+    const endMarker = "\n# ─── System Diagnostics Collector";
+    const startIdx = pyContent.indexOf(startMarker);
+    const endIdx = pyContent.indexOf(endMarker);
+    flashMethod = pyContent.substring(startIdx, endIdx);
+  });
+
+  it("Step 2 does NOT use MAVFTP file_exists for old file cleanup", () => {
+    // The old code used ftp.file_exists() which corrupts MAVFTP sequence numbers
+    const step2Start = flashMethod.indexOf("Step 2:");
+    const step3Start = flashMethod.indexOf("Step 3:");
+    const step2 = flashMethod.substring(step2Start, step3Start);
+    expect(step2).not.toContain("await self.ftp.file_exists");
+    expect(step2).not.toContain("await self.ftp.remove_file");
+  });
+
+  it("Step 2 uses HTTP _http_file_exists for old file checks", () => {
+    // The Step 2 code section uses _http_file_exists instead of MAVFTP
+    expect(flashMethod).toContain("self._http_file_exists(old_name)");
+  });
+
+  it("Step 2 explains why MAVFTP cleanup is avoided (sequence corruption)", () => {
+    expect(flashMethod).toContain("corrupt MAVFTP sequence numbers");
+    expect(flashMethod).toContain("Ftp plugin has not been initialized");
+  });
+
+  it("Step 2 notes bootloader will overwrite old files", () => {
+    expect(flashMethod).toContain("bootloader will overwrite old files");
+  });
+
+  it("docstring documents MAVFTP cleanup avoidance", () => {
+    expect(flashMethod).toContain("MAVFTP cleanup avoidance");
+    expect(flashMethod).toContain("does NOT use MAVFTP file_exists");
+  });
+});
+
+describe("MavFtpClient.ensure_ready - reconnection guard", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  const classStart = source.indexOf("class MavFtpClient:");
+  const classEnd = source.indexOf("\n# ─── Job Handlers", classStart);
+  const mavFtpClass = source.substring(classStart, classEnd);
+
+  it("has ensure_ready method on MavFtpClient", () => {
+    expect(mavFtpClass).toContain("async def ensure_ready(self");
+  });
+
+  it("ensure_ready accepts retries and delay parameters", () => {
+    expect(mavFtpClass).toContain("retries: int = 3");
+    expect(mavFtpClass).toContain("delay: float = 3.0");
+  });
+
+  it("ensure_ready does a health check via list_directory", () => {
+    expect(mavFtpClass).toContain('list_directory("/APM/")');
+  });
+
+  it("ensure_ready reconnects with delay if health check fails", () => {
+    expect(mavFtpClass).toContain("await asyncio.sleep(delay)");
+    expect(mavFtpClass).toContain("await self.connect()");
+  });
+
+  it("ensure_ready sets _connected = False on health check failure", () => {
+    expect(mavFtpClass).toContain("self._connected = False");
+  });
+
+  it("ensure_ready logs reconnection attempts", () => {
+    expect(mavFtpClass).toContain("FTP reconnect attempt");
+    expect(mavFtpClass).toContain("MAVSDK to settle");
+  });
+
+  it("ensure_ready returns True on successful reconnection", () => {
+    expect(mavFtpClass).toContain("FTP reconnected successfully");
+  });
+
+  it("ensure_ready returns False after all retries exhausted", () => {
+    expect(mavFtpClass).toContain("FTP reconnection failed after");
+  });
+});
+
+describe("Tier 3 MAVFTP reconnection guard in handle_flash_firmware", () => {
+  let flashMethod: string;
+
+  beforeAll(() => {
+    const pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+    const startMarker = "# ── Step 3: Upload firmware to FC as ardupilot.abin ──";
+    const endMarker = "# ── Step 4: Monitor flash stages";
+    const startIdx = pyContent.indexOf(startMarker);
+    const endIdx = pyContent.indexOf(endMarker);
+    flashMethod = pyContent.substring(startIdx, endIdx);
+  });
+
+  it("calls ensure_ready before MAVFTP upload", () => {
+    expect(flashMethod).toContain("await self.ftp.ensure_ready(");
+  });
+
+  it("passes retries=3 and delay=3.0 to ensure_ready", () => {
+    expect(flashMethod).toContain("ensure_ready(retries=3, delay=3.0)");
+  });
+
+  it("reports failure if MAVFTP not ready after reconnection", () => {
+    expect(flashMethod).toContain("MAVFTP not ready after reconnection attempts");
+    expect(flashMethod).toContain("cannot upload firmware");
+  });
+
+  it("returns False on MAVFTP reconnection failure", () => {
+    const tier3Start = flashMethod.indexOf("Tier 3: MAVFTP");
+    const tier3Section = flashMethod.substring(tier3Start);
+    expect(tier3Section).toContain("return False, error_msg");
+  });
+});
+
+describe("Tier logging markers in flash flow", () => {
+  let flashMethod: string;
+
+  beforeAll(() => {
+    const pyContent = fs.readFileSync(
+      "./companion_scripts/logs_ota_service.py",
+      "utf-8"
+    );
+    const startMarker = "async def handle_flash_firmware";
+    const endMarker = "\n# ─── System Diagnostics Collector";
+    const startIdx = pyContent.indexOf(startMarker);
+    const endIdx = pyContent.indexOf(endMarker);
+    flashMethod = pyContent.substring(startIdx, endIdx);
+  });
+
+  it("has Tier 1 marker for Approach C", () => {
+    expect(flashMethod).toContain("=== Tier 1: Approach C (FC HTTP pull) ===");
+  });
+
+  it("has Tier 2 marker for HTTP PUT", () => {
+    expect(flashMethod).toContain("=== Tier 2: HTTP PUT (push to FC web server) ===");
+  });
+
+  it("has Tier 3 marker for MAVFTP", () => {
+    expect(flashMethod).toContain("=== Tier 3: MAVFTP (slow fallback, ~5 KB/s) ===");
+  });
+
+  it("docstring uses Tier 1/2/3 terminology", () => {
+    expect(flashMethod).toContain("Tier 1: Approach C");
+    expect(flashMethod).toContain("Tier 2: HTTP PUT");
+    expect(flashMethod).toContain("Tier 3: MAVFTP");
+  });
+});
+
+describe("aiohttp import warning", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+
+  it("warns when aiohttp is not installed", () => {
+    // The import block should log a warning when aiohttp is missing
+    const importBlock = source.substring(0, source.indexOf("# ─── Logging"));
+    expect(importBlock).toContain("aiohttp not installed");
+    expect(importBlock).toContain("Approach C (fast HTTP pull) disabled");
+  });
+
+  it("suggests installation command", () => {
+    const importBlock = source.substring(0, source.indexOf("# ─── Logging"));
+    expect(importBlock).toContain("pip install --break-system-packages aiohttp");
   });
 });
