@@ -654,6 +654,22 @@ function OtaUpdatesTab({
     onError: (e) => toast.error(`Flash failed: ${e.message}`),
   });
 
+  const deleteFwMutation = trpc.firmware.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Firmware update deleted");
+      utils.firmware.list.invalidate();
+    },
+    onError: (e) => toast.error(`Delete failed: ${e.message}`),
+  });
+
+  const clearFailedMutation = trpc.firmware.clearFailed.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Cleared ${data.deletedCount} failed/stale update(s)`);
+      utils.firmware.list.invalidate();
+    },
+    onError: (e) => toast.error(`Clear failed: ${e.message}`),
+  });
+
   // Listen for real-time firmware progress
   useEffect(() => {
     if (!socket) return;
@@ -698,13 +714,27 @@ function OtaUpdatesTab({
         <div>
           <h3 className="text-lg font-semibold text-foreground">OTA Firmware Updates</h3>
           <p className="text-sm text-muted-foreground">
-            Upload .abin or .apj firmware and flash to the flight controller via MAVFTP (OTA)
+            Upload .abin or .apj firmware and flash to the flight controller via FC HTTP pull (OTA)
           </p>
         </div>
-        <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-1">
-          <Upload size={14} />
-          Upload Firmware
-        </Button>
+        <div className="flex items-center gap-2">
+          {updates && updates.some((fw: FirmwareUpdate) => fw.status === "failed" || fw.status === "uploaded") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-red-400 hover:text-red-300"
+              onClick={() => clearFailedMutation.mutate({ droneId })}
+              disabled={clearFailedMutation.isPending}
+            >
+              <Trash2 size={14} />
+              Clear Failed
+            </Button>
+          )}
+          <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-1">
+            <Upload size={14} />
+            Upload Firmware
+          </Button>
+        </div>
       </div>
 
       {/* Upload Dialog */}
@@ -805,16 +835,27 @@ function OtaUpdatesTab({
                       </Badge>
                     )}
                     {(fw.status === "uploaded" || fw.status === "failed") && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1"
-                        onClick={() => flashMutation.mutate({ droneId, updateId: fw.id })}
-                        disabled={flashMutation.isPending}
-                      >
-                        <Zap size={14} />
-                        Flash
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => flashMutation.mutate({ droneId, updateId: fw.id })}
+                          disabled={flashMutation.isPending}
+                        >
+                          <Zap size={14} />
+                          Flash
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-muted-foreground hover:text-red-400"
+                          onClick={() => deleteFwMutation.mutate({ id: fw.id })}
+                          disabled={deleteFwMutation.isPending}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>

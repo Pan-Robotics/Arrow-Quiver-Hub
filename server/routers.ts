@@ -41,6 +41,8 @@ import {
   getFirmwareUpdatesForDrone,
   getFirmwareUpdateById,
   createFirmwareUpdate,
+  deleteFirmwareUpdate,
+  clearFailedFirmwareUpdates,
   getLatestDiagnostics,
   getDiagnosticsHistory,
 } from "./logsOtaDb";
@@ -1555,6 +1557,22 @@ export const appRouter = router({
         });
 
         return { success: true, message: "Firmware flash job created" };
+      }),
+
+    // Delete a single firmware update record
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const deleted = await deleteFirmwareUpdate(input.id);
+        return { success: deleted };
+      }),
+
+    // Clear all failed and uploaded (never-started) firmware updates for a drone
+    clearFailed: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .mutation(async ({ input }) => {
+        const count = await clearFailedFirmwareUpdates(input.droneId);
+        return { success: true, deletedCount: count };
       }),
   }),
 

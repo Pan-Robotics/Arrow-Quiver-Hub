@@ -1416,3 +1416,23 @@
 - [x] Issue #11 (LOW): Tier 1 firmware server not stopped on exception — wrapped in try/finally
 - [x] Issue #12 (LOW): firmware_puller.lua docstring says POST, code uses GET — fixed to GET
 - [x] 975 tests passing (31 new tests for audit fixes)
+
+## Incorporate External Script Updates + Clear OTA Artifacts
+- [x] Diff and incorporate updated logs_ota_service.py (Approach C-only, StreamResponse→Response, 30s early-exit, MAVLink reboot + webserver polling)
+- [x] Diff and incorporate updated firmware_puller.lua (30s stall timeout, ack endpoint, param-based IP config)
+- [x] Diff and incorporate updated net_webserver_put.lua (30s stall timeout, partial file cleanup, client slot break fix)
+- [x] Copy OTA_Setup_Guide.md to docs/ and companion_scripts/
+- [x] Update FLASH_FLOW_AUDIT.md to reflect Approach C-only architecture
+- [x] Update LOGS_OTA_PIPELINE.md to reflect new Step 4/5 (MAVLink reboot + webserver polling)
+- [x] Update COMPANION_SERVICES.md with new flash architecture description
+- [x] Update quiver-hub-architecture.md OTA references
+- [x] Update QuiverSDKDeveloperGuide.md firmware flash references
+- [x] Update JOB_SECURITY_ANALYSIS.md flash_firmware description
+- [x] Update docs/README.md OTA reference
+- [x] Add deleteFirmwareUpdate and clearFailedFirmwareUpdates DB functions
+- [x] Add delete and clearFailed tRPC mutations to firmware router
+- [x] Add delete button (trash icon) on each failed/uploaded firmware update card
+- [x] Add "Clear Failed" bulk button in OTA Updates tab header
+- [x] Update frontend subtitle from "via MAVFTP" to "via FC HTTP pull"
+- [x] Fix 45+ failing tests to match new Approach C-only architecture
+- [x] 959 tests passing across 25 test files

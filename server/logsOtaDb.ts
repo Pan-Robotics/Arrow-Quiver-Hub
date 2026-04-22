@@ -243,3 +243,32 @@ export async function cleanupOldDiagnostics(droneId: string, keepCount: number =
       );
   }
 }
+
+// ─── Firmware Update Cleanup ──────────────────────────────────────────────────
+
+/**
+ * Delete a single firmware update by ID
+ */
+export async function deleteFirmwareUpdate(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.delete(firmwareUpdates).where(eq(firmwareUpdates.id, id));
+  return (result[0] as any).affectedRows > 0;
+}
+
+/**
+ * Clear all failed and uploaded (never-started) firmware updates for a drone
+ */
+export async function clearFailedFirmwareUpdates(droneId: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .delete(firmwareUpdates)
+    .where(
+      and(
+        eq(firmwareUpdates.droneId, droneId),
+        sql`${firmwareUpdates.status} IN ('failed', 'uploaded')`
+      )
+    );
+  return (result[0] as any).affectedRows;
+}

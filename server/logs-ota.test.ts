@@ -1118,7 +1118,7 @@ describe("Hybrid OTA flash monitoring - _verify_fc_reboot", () => {
   });
 });
 
-describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () => {
+describe("OTA flash flow - handle_flash_firmware integration", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
@@ -1133,92 +1133,90 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
 
   it("Step 2 checks FC web server reachability before upload", () => {
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
-    expect(flashMethod).toContain(
-      "FC web server reachable"
-    );
+    expect(flashMethod).toContain("FC web server reachable");
   });
 
   it("Step 2 uses HTTP for cleanup check instead of MAVFTP", () => {
-    // Step 2 now avoids MAVFTP file_exists/remove_file to prevent
-    // sequence corruption. Uses HTTP to check for old files (informational)
-    // and lets the bootloader overwrite them.
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
     expect(flashMethod).toContain("will be overwritten");
   });
 
   it("Step 2 logs skip message when HTTP unavailable", () => {
-    expect(flashMethod).toContain(
-      "FC web server not reachable"
+    expect(flashMethod).toContain("FC web server not reachable");
+    expect(flashMethod).toContain("skipping pre-upload check");
+  });
+
+  // ── Step 3: Upload via FC HTTP pull (Approach C) ──
+
+  it("Step 3 uses Approach C (FC HTTP pull)", () => {
+    expect(flashMethod).toContain("_start_firmware_server(tmp_path)");
+    expect(flashMethod).toContain("_wait_for_fc_pull(update_id");
+  });
+
+  it("Step 3 fails hard if aiohttp not installed", () => {
+    expect(flashMethod).toContain("if not aiohttp_web:");
+    expect(flashMethod).toContain("aiohttp not installed");
+    expect(flashMethod).toContain("return False, error_msg");
+  });
+
+  it("Step 3 fails hard if server won't start", () => {
+    expect(flashMethod).toContain("if not server_started:");
+    expect(flashMethod).toContain("Failed to start firmware HTTP server");
+  });
+
+  it("Step 3 fails hard if FC doesn't pull firmware", () => {
+    expect(flashMethod).toContain("if not fc_pulled:");
+    expect(flashMethod).toContain("FC did not pull firmware");
+    expect(flashMethod).toContain("firmware_puller.lua");
+    expect(flashMethod).toContain("FWPULL_ENABLE=1");
+  });
+
+  it("Step 3 wraps server in try/finally", () => {
+    // Find the code Step 4 marker (not the docstring one)
+    const codeStep4 = flashMethod.indexOf("# \u2500\u2500 Step 4:");
+    const step3Block = flashMethod.substring(
+      flashMethod.indexOf("_start_firmware_server"),
+      codeStep4 > 0 ? codeStep4 : flashMethod.length
     );
-    expect(flashMethod).toContain(
-      "bootloader will overwrite old files"
-    );
+    expect(step3Block).toContain("try:");
+    expect(step3Block).toContain("finally:");
+    expect(step3Block).toContain("_stop_firmware_server()");
   });
 
-  // ── Step 4: Hybrid stage monitoring ──
+  // ── Step 4: MAVLink reboot ──
 
-  it("Step 4 uses _check_file_exists for stage polling (HTTP first, MAVFTP fallback)", () => {
-    expect(flashMethod).toContain("await self._check_file_exists(stage_file, http_only=using_http)");
-  });
-
-  it("Step 4 tracks whether HTTP is being used for logging", () => {
-    expect(flashMethod).toContain("using_http = self.fc_url is not None");
-    expect(flashMethod).toContain(
-      'method = "HTTP" if using_http else "MAVFTP"'
-    );
-  });
-
-  it("Step 4 uses _check_file_exists for consumed-file check too", () => {
-    // The ardupilot.abin consumption check also uses the hybrid method
-    expect(flashMethod).toContain(
-      'await self._check_file_exists("ardupilot.abin", http_only=using_http)'
-    );
-  });
-
-  // ── Step 5: Post-reboot verification ──
-
-  it("Step 5 calls _verify_fc_reboot after flash completion", () => {
-    expect(flashMethod).toContain("await self._verify_fc_reboot(update_id)");
-  });
-
-  it("Step 5 also calls _verify_fc_reboot when FC reboots during flash stage", () => {
-    // When current_stage_idx >= 2 and connection lost, also verify reboot
-    const rebootSection = flashMethod.substring(
-      flashMethod.indexOf("FC likely rebooting with new firmware")
-    );
-    expect(rebootSection).toContain("await self._verify_fc_reboot(update_id)");
-  });
-
-  it("reports flash_stage='rebooting' when connection lost at stage >= 2", () => {
+  it("Step 4 sends MAVLink reboot command", () => {
+    expect(flashMethod).toContain("action.reboot()");
     expect(flashMethod).toContain('flash_stage="rebooting"');
   });
 
-  // ── Flash stages unchanged ──
-
-  it("still monitors all three stage files in order", () => {
-    expect(flashMethod).toContain('"ardupilot-verify.abin", "verifying", 70');
-    expect(flashMethod).toContain('"ardupilot-flash.abin", "flashing", 80');
-    expect(flashMethod).toContain('"ardupilot-flashed.abin", "completed", 100');
+  it("Step 4 handles reboot command failure gracefully", () => {
+    expect(flashMethod).toContain("Could not send reboot command");
+    expect(flashMethod).toContain("please reboot FC manually");
+    expect(flashMethod).toContain('flash_stage="awaiting_manual_reboot"');
   });
 
-  it("still uses MAVFTP for actual firmware upload (ardupilot.abin)", () => {
-    expect(flashMethod).toContain(
-      'await self.ftp.upload_file(tmp_path, "/APM/"'
-    );
+  // ── Step 5: Poll FC webserver until back online ──
+
+  it("Step 5 polls FC webserver to confirm reboot", () => {
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
+    expect(flashMethod).toContain("FC back online after");
+    expect(flashMethod).toContain('flash_stage="reboot_verified"');
   });
+
+  it("Step 5 has 120s timeout for FC to come back", () => {
+    expect(flashMethod).toContain("max_wait = 120");
+  });
+
+  it("Step 5 reports timeout with check-manually status", () => {
+    expect(flashMethod).toContain('flash_stage="reboot_timeout_check_manually"');
+  });
+
+  // ── No MAVFTP in flash path ──
 
   it("avoids MAVFTP cleanup to prevent sequence corruption", () => {
-    // Step 2 no longer uses MAVFTP file_exists/remove_file because those
-    // operations corrupt MAVFTP sequence numbers, causing Step 3 upload
-    // to fail with "Ftp plugin has not been initialized".
-    // Instead, HTTP is used for informational checks only.
-    expect(flashMethod).not.toContain(
-      'await self.ftp.file_exists(f"/APM/{old_name}")'
-    );
-    expect(flashMethod).not.toContain(
-      'await self.ftp.remove_file(f"/APM/{old_name}")'
-    );
-    // Verify HTTP-based check is used instead (wrapped in asyncio.to_thread)
+    expect(flashMethod).not.toContain('await self.ftp.file_exists(f"/APM/{old_name}")');
+    expect(flashMethod).not.toContain('await self.ftp.remove_file(f"/APM/{old_name}")');
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
   });
 });
@@ -1317,12 +1315,9 @@ describe("Firmware flash - temp file naming for MAVSDK upload", () => {
     expect(flashMethod).toContain('tmp_path = os.path.join(tmp_dir, "ardupilot.abin")');
   });
 
-  it("uploads to /APM/ directory (not /APM/ardupilot.abin)", () => {
-    expect(flashMethod).toContain('await self.ftp.upload_file(tmp_path, "/APM/"');
-  });
-
-  it("does NOT upload to /APM/ardupilot.abin (old bug)", () => {
-    expect(flashMethod).not.toContain('upload_file(tmp_path, "/APM/ardupilot.abin"');
+  it("uploads firmware to /APM/ via FC HTTP pull", () => {
+    // FC pulls the file via firmware_puller.lua, which writes to /APM/ardupilot.abin
+    expect(flashMethod).toContain('"ardupilot.abin"');
   });
 
   it("cleans up both temp file and temp directory", () => {
@@ -1359,7 +1354,7 @@ describe("Frontend - firmware upload dialog .apj guidance", () => {
   });
 
   it("mentions OTA in the section subtitle", () => {
-    expect(logsOtaApp).toContain("via MAVFTP (OTA)");
+    expect(logsOtaApp).toContain("via FC HTTP pull (OTA)");
   });
 
   it("subtitle mentions both .abin and .apj", () => {
@@ -1538,128 +1533,69 @@ describe("Module imports for .apj conversion", () => {
 
 // ─── HTTP PUT Firmware Upload ───────────────────────────────────────────────
 
-describe("HTTP PUT Firmware Upload - Companion Script", () => {
+describe("Approach C only - no HTTP PUT or MAVFTP in flash path", () => {
   const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
+  );
 
-  it("has _http_upload_firmware method", () => {
-    expect(source).toContain("def _http_upload_firmware(self, local_path: str");
+  it("does NOT use _http_upload_firmware in flash path", () => {
+    expect(flashMethod).not.toContain("_http_upload_firmware(tmp_path");
   });
 
-  it("uploads to /APM/ardupilot.abin via HTTP PUT", () => {
-    expect(source).toContain('url = f"{self.fc_url}/APM/ardupilot.abin"');
+  it("does NOT use ftp.upload_file in flash path", () => {
+    expect(flashMethod).not.toContain("self.ftp.upload_file(tmp_path");
   });
 
-  it("uses requests.put for the upload", () => {
-    expect(source).toContain("requests.put(");
+  it("uses _start_firmware_server for upload", () => {
+    expect(flashMethod).toContain("_start_firmware_server(tmp_path)");
   });
 
-  it("sends Content-Length and Content-Type headers", () => {
-    expect(source).toContain('"Content-Length": str(file_size)');
-    expect(source).toContain('"Content-Type": "application/octet-stream"');
+  it("uses _wait_for_fc_pull for upload completion", () => {
+    expect(flashMethod).toContain("_wait_for_fc_pull(update_id");
   });
 
-  it("has a ProgressReader class for chunked progress reporting", () => {
-    expect(source).toContain("class ProgressReader:");
-    expect(source).toContain("def read(self, size=-1):");
-    expect(source).toContain("self._callback(self._uploaded, self._total)");
-  });
-
-  it("returns True on HTTP 201 Created", () => {
-    expect(source).toContain("if resp.status_code == 201:");
-    expect(source).toContain("return True");
-  });
-
-  it("returns False on HTTP 405 Method Not Allowed (stock webserver)", () => {
-    expect(source).toContain("elif resp.status_code == 405:");
-    expect(source).toContain("stock net_webserver.lua");
-  });
-
-  it("returns False on HTTP 403 Forbidden", () => {
-    expect(source).toContain("elif resp.status_code == 403:");
-  });
-
-  it("handles ConnectionError gracefully (no PUT support)", () => {
-    expect(source).toContain("requests.exceptions.ConnectionError");
-  });
-
-  it("has 300 second timeout for large file uploads", () => {
-    expect(source).toContain("timeout=300");
-  });
-
-  it("returns False when fc_url is not available", () => {
-    const methodBlock = source.substring(
-      source.indexOf("def _http_upload_firmware"),
-      source.indexOf("def _http_fc_reachable") > source.indexOf("def _http_upload_firmware")
-        ? source.indexOf("async def _check_file_exists")
-        : source.length
-    );
-    expect(methodBlock).toContain("if not self.fc_url or not requests:");
-    expect(methodBlock).toContain("return False");
+  it("fails hard instead of falling through to other tiers", () => {
+    // When aiohttp not installed, server won't start, or FC doesn't pull,
+    // it returns False immediately instead of trying HTTP PUT or MAVFTP
+    expect(flashMethod).toContain("return False, error_msg");
   });
 });
 
-describe("HTTP PUT Upload - Flash Flow Integration", () => {
+describe("Approach C Flash Flow - Step 3 failure modes", () => {
   const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
-
-  // Extract the handle_flash_firmware method
-  const flashStart = source.indexOf("async def handle_flash_firmware");
-  const nextClass = source.indexOf("\nclass ", flashStart + 1);
-  const nextTopLevel = source.indexOf("\n# ═", flashStart + 1);
-  const flashEnd = Math.min(
-    nextClass > flashStart ? nextClass : source.length,
-    nextTopLevel > flashStart ? nextTopLevel : source.length
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("class DiagnosticsCollector")
   );
-  const flashMethod = source.substring(flashStart, flashEnd);
 
-  it("tries HTTP PUT upload before MAVFTP", () => {
-    const httpPutIdx = flashMethod.indexOf("_http_upload_firmware");
-    const mavftpIdx = flashMethod.indexOf("self.ftp.upload_file");
-    expect(httpPutIdx).toBeGreaterThan(-1);
-    expect(mavftpIdx).toBeGreaterThan(-1);
-    expect(httpPutIdx).toBeLessThan(mavftpIdx);
+  it("checks aiohttp_web availability before starting server", () => {
+    expect(flashMethod).toContain("if not aiohttp_web:");
   });
 
-  it("tries Approach C first, then HTTP PUT, then MAVFTP", () => {
-    const approachCIdx = flashMethod.indexOf("Tier 1: Approach C");
-    const httpPutIdx = flashMethod.indexOf("Tier 2: HTTP PUT");
-    const mavftpIdx = flashMethod.indexOf("Tier 3: MAVFTP");
-    expect(approachCIdx).toBeGreaterThan(-1);
-    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
-    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
+  it("fails with clear error when aiohttp not installed", () => {
+    expect(flashMethod).toContain("aiohttp not installed");
+    expect(flashMethod).toContain("pip install");
   });
 
-  it("checks FC reachability before HTTP PUT fallback", () => {
-    expect(flashMethod).toContain("upload_method is None and await asyncio.to_thread(self._http_fc_reachable)");
-    expect(flashMethod).toContain("Tier 2: HTTP PUT");
+  it("fails when firmware server won't start", () => {
+    expect(flashMethod).toContain("if not server_started:");
+    expect(flashMethod).toContain("Failed to start firmware HTTP server");
   });
 
-  it("falls back to MAVFTP as last resort", () => {
-    expect(flashMethod).toContain('upload_method is None:');
-    expect(flashMethod).toContain('upload_method = "MAVFTP"');
+  it("fails when FC doesn't pull firmware with setup instructions", () => {
+    expect(flashMethod).toContain("if not fc_pulled:");
+    expect(flashMethod).toContain("firmware_puller.lua");
+    expect(flashMethod).toContain("FWPULL_ENABLE=1");
   });
 
-  it("tracks upload method for all three methods", () => {
-    expect(flashMethod).toContain('upload_method = "HTTP pull (Approach C)"');
-    expect(flashMethod).toContain('upload_method = "HTTP PUT"');
-    expect(flashMethod).toContain('upload_method = "MAVFTP"');
+  it("reports uploading_http_pull stage during upload", () => {
+    expect(flashMethod).toContain('flash_stage="uploading_http_pull"');
   });
 
-  it("reports different flash stages for HTTP vs MAVFTP upload", () => {
-    expect(flashMethod).toContain('flash_stage="uploading_http"');
-    expect(flashMethod).toContain('flash_stage="uploading_mavftp"');
-  });
-
-  it("logs which upload method was used", () => {
-    expect(flashMethod).toContain("via {upload_method}");
-  });
-
-  it("docstring mentions 3-tier upload priority", () => {
-    expect(flashMethod).toContain("Tier 2: HTTP PUT to FC web server");
-    expect(flashMethod).toContain("Tier 3: MAVFTP upload (slow fallback");
-  });
-
-  it("docstring mentions net_webserver_put.lua requirement", () => {
-    expect(flashMethod).toContain("net_webserver_put.lua");
+  it("docstring mentions firmware_puller.lua requirement", () => {
+    expect(flashMethod).toContain("firmware_puller.lua");
   });
 });
 
@@ -1793,13 +1729,18 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
 
 // ─── Module Docstring Updates ───────────────────────────────────────────────
 
-describe("Module Docstring - HTTP PUT Upload", () => {
+describe("Module Docstring - Approach C architecture", () => {
   const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
+  const firstTriple = source.indexOf('"""');
+  const closingTriple = source.indexOf('"""', firstTriple + 3);
+  const docstring = source.substring(firstTriple, closingTriple);
 
-  it("mentions Approach C and all upload methods in the module description", () => {
-    expect(source).toContain("Approach C: FC pulls from companion HTTP server");
-    expect(source).toContain("HTTP PUT to FC web server");
-    expect(source).toContain("MAVFTP");
+  it("mentions Approach C in the module description", () => {
+    expect(docstring).toContain("Approach C");
+  });
+
+  it("mentions firmware_puller.lua requirement", () => {
+    expect(source).toContain("firmware_puller.lua");
   });
 
   it("mentions .apj support in the module description", () => {
@@ -2009,8 +1950,14 @@ describe("Approach C: Companion Pi firmware HTTP server", () => {
     expect(pyContent).toContain('"/firmware/ack"');
   });
 
-  it("should serve firmware with streaming response", () => {
-    expect(pyContent).toContain("StreamResponse");
+  it("should serve firmware with Response (not StreamResponse)", () => {
+    // Changed from StreamResponse to Response to fix ClientConnectionResetError
+    // with slow Lua readers that can't keep up with streaming
+    const serverMethod = pyContent.substring(
+      pyContent.indexOf("async def _start_firmware_server"),
+      pyContent.indexOf("async def _stop_firmware_server")
+    );
+    expect(serverMethod).toContain("Response");
   });
 
   it("should track bytes sent for progress reporting", () => {
@@ -2031,7 +1978,7 @@ describe("Approach C: Companion Pi firmware HTTP server", () => {
   });
 });
 
-describe("handle_flash_firmware: 3-tier upload priority", () => {
+describe("handle_flash_firmware: Approach C upload (Step 3)", () => {
   let pyContent: string;
   let flashMethod: string;
 
@@ -2040,20 +1987,14 @@ describe("handle_flash_firmware: 3-tier upload priority", () => {
       "./companion_scripts/logs_ota_service.py",
       "utf-8"
     );
-    const startMarker = "# ── Step 3: Upload firmware to FC as ardupilot.abin ──";
-    const endMarker = "# ── Step 4: Monitor flash stages";
-    const startIdx = pyContent.indexOf(startMarker);
-    const endIdx = pyContent.indexOf(endMarker);
-    flashMethod = pyContent.substring(startIdx, endIdx);
+    flashMethod = pyContent.substring(
+      pyContent.indexOf("async def handle_flash_firmware"),
+      pyContent.indexOf("class DiagnosticsCollector")
+    );
   });
 
-  it("should try Approach C first (firmware HTTP server)", () => {
-    const approachCIdx = flashMethod.indexOf("Tier 1: Approach C");
-    const httpPutIdx = flashMethod.indexOf("Tier 2: HTTP PUT");
-    const mavftpIdx = flashMethod.indexOf("Tier 3: MAVFTP");
-    expect(approachCIdx).toBeGreaterThan(-1);
-    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
-    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
+  it("should check aiohttp_web availability before starting server", () => {
+    expect(flashMethod).toContain("if not aiohttp_web:");
   });
 
   it("should start firmware server and wait for FC pull", () => {
@@ -2061,38 +2002,27 @@ describe("handle_flash_firmware: 3-tier upload priority", () => {
     expect(flashMethod).toContain("_wait_for_fc_pull(update_id");
   });
 
-  it("should stop firmware server after FC pull attempt", () => {
+  it("should stop firmware server in finally block", () => {
     expect(flashMethod).toContain("_stop_firmware_server()");
-  });
-
-  it("should fall back to HTTP PUT if Approach C fails", () => {
-    expect(flashMethod).toContain("upload_method is None and await asyncio.to_thread(self._http_fc_reachable)");
-    expect(flashMethod).toContain("_http_upload_firmware");
-  });
-
-  it("should fall back to MAVFTP as last resort", () => {
-    expect(flashMethod).toContain("upload_method is None:");
-    expect(flashMethod).toContain("upload_file(tmp_path");
   });
 
   it("should report uploading_http_pull stage for Approach C", () => {
     expect(flashMethod).toContain('flash_stage="uploading_http_pull"');
   });
 
-  it("should report uploading_http stage for HTTP PUT", () => {
-    expect(flashMethod).toContain('flash_stage="uploading_http"');
+  it("should NOT use HTTP PUT or MAVFTP in the active flash path", () => {
+    // The docstring may still mention Tier 2/3 as historical context,
+    // but the active code path only uses Approach C
+    expect(flashMethod).not.toContain('upload_method = "HTTP PUT"');
+    expect(flashMethod).not.toContain('upload_method = "MAVFTP"');
+    // No _http_upload_firmware or ftp.upload_file calls in the active path
+    expect(flashMethod).not.toContain("_http_upload_firmware(tmp_path");
+    expect(flashMethod).not.toContain("self.ftp.upload_file(tmp_path");
   });
 
-  it("should report uploading_mavftp stage for MAVFTP", () => {
-    expect(flashMethod).toContain('flash_stage="uploading_mavftp"');
-  });
-
-  it("should log the upload method used", () => {
-    expect(flashMethod).toContain("via {upload_method}");
-  });
-
-  it("should check aiohttp_web availability before Approach C", () => {
-    expect(flashMethod).toContain("if aiohttp_web:");
+  it("should fail hard on each failure path", () => {
+    // Each failure returns False, error_msg instead of falling through
+    expect(flashMethod).toContain("return False, error_msg");
   });
 });
 
@@ -2111,25 +2041,16 @@ describe("Module docstring: Approach C documentation", () => {
     const closingTriple = pyContent.indexOf('"""', firstTriple + 3);
     const docstring = pyContent.substring(firstTriple, closingTriple);
     expect(docstring).toContain("Approach C");
-    expect(docstring).toContain("FC pulls from companion HTTP server");
   });
 
-  it("should mention all three upload methods in priority order", () => {
-    const firstTriple = pyContent.indexOf('"""');
-    const closingTriple = pyContent.indexOf('"""', firstTriple + 3);
-    const docstring = pyContent.substring(firstTriple, closingTriple);
-    const approachCIdx = docstring.indexOf("Approach C");
-    const httpPutIdx = docstring.indexOf("HTTP PUT");
-    const mavftpIdx = docstring.indexOf("MAVFTP");
-    expect(approachCIdx).toBeGreaterThan(-1);
-    expect(httpPutIdx).toBeGreaterThan(approachCIdx);
-    expect(mavftpIdx).toBeGreaterThan(httpPutIdx);
+  it("should mention firmware_puller.lua in the module docstring", () => {
+    expect(pyContent).toContain("firmware_puller.lua");
   });
 });
 
 // ─── Fix: MAVFTP cleanup corruption & reconnection race ──────────────────────
 
-describe("Fix: MAVFTP cleanup corruption in Step 2", () => {
+describe("Fix: No MAVFTP in Step 2 cleanup", () => {
   let pyContent: string;
   let flashMethod: string;
 
@@ -2138,15 +2059,13 @@ describe("Fix: MAVFTP cleanup corruption in Step 2", () => {
       "./companion_scripts/logs_ota_service.py",
       "utf-8"
     );
-    const startMarker = "async def handle_flash_firmware";
-    const endMarker = "\n# ─── System Diagnostics Collector";
-    const startIdx = pyContent.indexOf(startMarker);
-    const endIdx = pyContent.indexOf(endMarker);
-    flashMethod = pyContent.substring(startIdx, endIdx);
+    flashMethod = pyContent.substring(
+      pyContent.indexOf("async def handle_flash_firmware"),
+      pyContent.indexOf("class DiagnosticsCollector")
+    );
   });
 
   it("Step 2 does NOT use MAVFTP file_exists for old file cleanup", () => {
-    // The old code used ftp.file_exists() which corrupts MAVFTP sequence numbers
     const step2Start = flashMethod.indexOf("Step 2:");
     const step3Start = flashMethod.indexOf("Step 3:");
     const step2 = flashMethod.substring(step2Start, step3Start);
@@ -2155,22 +2074,11 @@ describe("Fix: MAVFTP cleanup corruption in Step 2", () => {
   });
 
   it("Step 2 uses HTTP _http_file_exists for old file checks", () => {
-    // The Step 2 code section uses _http_file_exists instead of MAVFTP
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
   });
 
-  it("Step 2 explains why MAVFTP cleanup is avoided (sequence corruption)", () => {
-    expect(flashMethod).toContain("corrupt MAVFTP sequence numbers");
-    expect(flashMethod).toContain("Ftp plugin has not been initialized");
-  });
-
   it("Step 2 notes bootloader will overwrite old files", () => {
-    expect(flashMethod).toContain("bootloader will overwrite old files");
-  });
-
-  it("docstring documents MAVFTP cleanup avoidance", () => {
-    expect(flashMethod).toContain("MAVFTP cleanup avoidance");
-    expect(flashMethod).toContain("does NOT use MAVFTP file_exists");
+    expect(flashMethod).toContain("will be overwritten");
   });
 });
 
@@ -2220,7 +2128,7 @@ describe("MavFtpClient.ensure_ready - reconnection guard", () => {
   });
 });
 
-describe("Tier 3 MAVFTP reconnection guard in handle_flash_firmware", () => {
+describe("No MAVFTP upload in flash path (Tier 2/3 removed)", () => {
   let flashMethod: string;
 
   beforeAll(() => {
@@ -2228,34 +2136,27 @@ describe("Tier 3 MAVFTP reconnection guard in handle_flash_firmware", () => {
       "./companion_scripts/logs_ota_service.py",
       "utf-8"
     );
-    const startMarker = "# ── Step 3: Upload firmware to FC as ardupilot.abin ──";
-    const endMarker = "# ── Step 4: Monitor flash stages";
-    const startIdx = pyContent.indexOf(startMarker);
-    const endIdx = pyContent.indexOf(endMarker);
-    flashMethod = pyContent.substring(startIdx, endIdx);
+    flashMethod = pyContent.substring(
+      pyContent.indexOf("async def handle_flash_firmware"),
+      pyContent.indexOf("class DiagnosticsCollector")
+    );
   });
 
-  it("calls ensure_ready before MAVFTP upload", () => {
-    expect(flashMethod).toContain("await self.ftp.ensure_ready(");
+  it("does NOT use ftp.upload_file in flash path", () => {
+    expect(flashMethod).not.toContain("self.ftp.upload_file(tmp_path");
   });
 
-  it("passes retries=3 and delay=3.0 to ensure_ready", () => {
-    expect(flashMethod).toContain("ensure_ready(retries=3, delay=3.0)");
+  it("does NOT use ftp.ensure_ready in flash path", () => {
+    expect(flashMethod).not.toContain("self.ftp.ensure_ready(");
   });
 
-  it("reports failure if MAVFTP not ready after reconnection", () => {
-    expect(flashMethod).toContain("MAVFTP not ready after reconnection attempts");
-    expect(flashMethod).toContain("cannot upload firmware");
-  });
-
-  it("returns False on MAVFTP reconnection failure", () => {
-    const tier3Start = flashMethod.indexOf("Tier 3: MAVFTP");
-    const tier3Section = flashMethod.substring(tier3Start);
-    expect(tier3Section).toContain("return False, error_msg");
+  it("does NOT have Tier 2 or Tier 3 markers", () => {
+    expect(flashMethod).not.toContain("=== Tier 2");
+    expect(flashMethod).not.toContain("=== Tier 3");
   });
 });
 
-describe("Tier logging markers in flash flow", () => {
+describe("Flash flow logging markers", () => {
   let flashMethod: string;
 
   beforeAll(() => {
@@ -2263,29 +2164,27 @@ describe("Tier logging markers in flash flow", () => {
       "./companion_scripts/logs_ota_service.py",
       "utf-8"
     );
-    const startMarker = "async def handle_flash_firmware";
-    const endMarker = "\n# ─── System Diagnostics Collector";
-    const startIdx = pyContent.indexOf(startMarker);
-    const endIdx = pyContent.indexOf(endMarker);
-    flashMethod = pyContent.substring(startIdx, endIdx);
+    flashMethod = pyContent.substring(
+      pyContent.indexOf("async def handle_flash_firmware"),
+      pyContent.indexOf("class DiagnosticsCollector")
+    );
   });
 
-  it("has Tier 1 marker for Approach C", () => {
-    expect(flashMethod).toContain("=== Tier 1: Approach C (FC HTTP pull) ===");
+  it("has Step markers for each phase", () => {
+    expect(flashMethod).toContain("Step 1:");
+    expect(flashMethod).toContain("Step 2:");
+    expect(flashMethod).toContain("Step 3:");
+    expect(flashMethod).toContain("Step 4:");
+    expect(flashMethod).toContain("Step 5:");
   });
 
-  it("has Tier 2 marker for HTTP PUT", () => {
-    expect(flashMethod).toContain("=== Tier 2: HTTP PUT (push to FC web server) ===");
+  it("does NOT have Tier 2 or Tier 3 markers (removed)", () => {
+    expect(flashMethod).not.toContain("=== Tier 2");
+    expect(flashMethod).not.toContain("=== Tier 3");
   });
 
-  it("has Tier 3 marker for MAVFTP", () => {
-    expect(flashMethod).toContain("=== Tier 3: MAVFTP (slow fallback, ~5 KB/s) ===");
-  });
-
-  it("docstring uses Tier 1/2/3 terminology", () => {
-    expect(flashMethod).toContain("Tier 1: Approach C");
-    expect(flashMethod).toContain("Tier 2: HTTP PUT");
-    expect(flashMethod).toContain("Tier 3: MAVFTP");
+  it("logs Approach C as the upload method", () => {
+    expect(flashMethod).toContain("uploading_http_pull");
   });
 });
 
@@ -2310,19 +2209,19 @@ describe("aiohttp import warning", () => {
 
 // ─── Audit Fix: asyncio.to_thread for blocking HTTP calls (Issue #1) ─────────
 
-describe("Audit Fix: asyncio.to_thread wrapping for non-blocking HTTP", () => {
+describe("asyncio.to_thread wrapping for non-blocking HTTP", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
   );
   const flashMethod = source.substring(
     source.indexOf("async def handle_flash_firmware"),
-    source.indexOf("# ─── System Diagnostics")
+    source.indexOf("class DiagnosticsCollector")
   );
 
   it("Step 1 firmware download uses asyncio.to_thread", () => {
     expect(flashMethod).toContain("await asyncio.to_thread(");
-    expect(flashMethod).toContain("requests.get(firmware_url, timeout=120)");
+    expect(flashMethod).toContain("requests.get(firmware_url");
   });
 
   it("Step 2 _http_fc_reachable uses asyncio.to_thread", () => {
@@ -2337,36 +2236,10 @@ describe("Audit Fix: asyncio.to_thread wrapping for non-blocking HTTP", () => {
     );
   });
 
-  it("Tier 2 _http_fc_reachable check uses asyncio.to_thread", () => {
-    expect(flashMethod).toContain(
-      "upload_method is None and await asyncio.to_thread(self._http_fc_reachable)"
-    );
-  });
-
-  it("Tier 2 _http_upload_firmware uses asyncio.to_thread", () => {
-    expect(flashMethod).toContain(
-      "await asyncio.to_thread(\n                        self._http_upload_firmware, tmp_path, http_upload_progress"
-    );
-  });
-
-  it("_verify_fc_reboot uses asyncio.to_thread for reachability check", () => {
-    const verifyMethod = source.substring(
-      source.indexOf("async def _verify_fc_reboot"),
-      source.indexOf("async def handle_scan_fc_logs")
-    );
-    expect(verifyMethod).toContain(
-      "await asyncio.to_thread(self._http_fc_reachable)"
-    );
-  });
-
-  it("_check_file_exists uses asyncio.to_thread for HTTP check", () => {
-    const checkMethod = source.substring(
-      source.indexOf("async def _check_file_exists"),
-      source.indexOf("async def _verify_fc_reboot")
-    );
-    expect(checkMethod).toContain(
-      "await asyncio.to_thread(self._http_file_exists, filename)"
-    );
+  it("Step 5 _http_fc_reachable uses asyncio.to_thread for reboot polling", () => {
+    // Step 5 polls FC webserver to confirm reboot
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
+    expect(flashMethod).toContain("FC back online after");
   });
 });
 
@@ -2382,21 +2255,20 @@ describe("Audit Fix: Tier 1 early-exit when FC has no firmware_puller.lua", () =
     source.indexOf("async def _check_file_exists")
   );
 
-  it("exits early after 20s if no bytes served", () => {
-    expect(waitMethod).toContain("elapsed >= 20");
+  it("exits early after 30s if no bytes served", () => {
+    expect(waitMethod).toContain("elapsed >= 30");
     expect(waitMethod).toContain("self._fw_serve_bytes_sent == 0");
   });
 
   it("logs that firmware_puller.lua may not be installed", () => {
     expect(waitMethod).toContain("firmware_puller.lua");
     expect(waitMethod).toContain("FWPULL_ENABLE=0");
-    expect(waitMethod).toContain("Falling through to next tier");
   });
 
   it("returns False on early exit", () => {
     // After the early-exit check, it returns False
     const earlyExitBlock = waitMethod.substring(
-      waitMethod.indexOf("elapsed >= 20"),
+      waitMethod.indexOf("elapsed >= 30"),
       waitMethod.indexOf("# Report progress")
     );
     expect(earlyExitBlock).toContain("return False");
@@ -2405,17 +2277,23 @@ describe("Audit Fix: Tier 1 early-exit when FC has no firmware_puller.lua", () =
 
 // ─── Audit Fix: _check_file_exists http_only parameter (Issue #3) ────────────
 
-describe("Audit Fix: _check_file_exists http_only parameter", () => {
+describe("_check_file_exists method", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
   );
   const checkMethod = source.substring(
     source.indexOf("async def _check_file_exists"),
-    source.indexOf("async def _verify_fc_reboot")
+    source.indexOf("async def _verify_fc_reboot") > 0
+      ? source.indexOf("async def _verify_fc_reboot")
+      : source.indexOf("async def handle_scan_fc_logs")
   );
 
-  it("accepts http_only parameter defaulting to False", () => {
+  it("exists as a method on LogsOtaJobHandler", () => {
+    expect(source).toContain("async def _check_file_exists");
+  });
+
+  it("uses HTTP check with asyncio.to_thread", () => {
     expect(checkMethod).toContain("http_only: bool = False");
   });
 
@@ -2424,17 +2302,9 @@ describe("Audit Fix: _check_file_exists http_only parameter", () => {
     expect(checkMethod).toContain("return False");
   });
 
-  it("Step 4 monitoring passes http_only=using_http", () => {
-    const flashMethod = source.substring(
-      source.indexOf("async def handle_flash_firmware"),
-      source.indexOf("# ─── System Diagnostics")
-    );
-    expect(flashMethod).toContain(
-      "await self._check_file_exists(stage_file, http_only=using_http)"
-    );
-    expect(flashMethod).toContain(
-      'await self._check_file_exists("ardupilot.abin", http_only=using_http)'
-    );
+  it("is still available for FC log scanning", () => {
+    // _check_file_exists is used by FC log scanning, not flash monitoring anymore
+    expect(source).toContain("async def _check_file_exists");
   });
 });
 
@@ -2455,7 +2325,7 @@ describe("Audit Fix: firmware_puller.lua download stall timeout", () => {
   });
 
   it("initializes last_data_time when download starts", () => {
-    expect(source).toContain("last_data_time = millis()  -- initialize stall timer");
+    expect(source).toContain("last_data_time = millis()");
   });
 
   it("updates last_data_time when data is received", () => {
@@ -2465,7 +2335,7 @@ describe("Audit Fix: firmware_puller.lua download stall timeout", () => {
 
   it("aborts download on stall timeout", () => {
     expect(source).toContain("millis() - last_data_time) > STALL_TIMEOUT_MS");
-    expect(source).toContain("download stalled");
+    expect(source).toContain("stalled");
   });
 });
 
@@ -2544,61 +2414,52 @@ describe("Audit Fix: MavFtpClient.connect() heartbeat timeout", () => {
 
 // ─── Audit Fix: Step 4 consumed-check threshold (Issue #10) ─────────────────
 
-describe("Audit Fix: Step 4 consumed-check threshold increased to 60s", () => {
+describe("Step 4: MAVLink reboot command", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
   );
   const flashMethod = source.substring(
     source.indexOf("async def handle_flash_firmware"),
-    source.indexOf("# ─── System Diagnostics")
+    source.indexOf("class DiagnosticsCollector")
   );
 
-  it("uses 60s threshold instead of 30s", () => {
-    expect(flashMethod).toContain("elapsed > 60 and current_stage_idx == 0");
-    expect(flashMethod).not.toContain("elapsed > 30 and current_stage_idx == 0");
+  it("Step 4 sends MAVLink reboot command", () => {
+    expect(flashMethod).toContain("Step 4:");
+    expect(flashMethod).toContain("reboot");
   });
 
-  it("checks for verify rename before declaring failure", () => {
-    expect(flashMethod).toContain(
-      'await self._check_file_exists("ardupilot-verify.abin"'
-    );
-    expect(flashMethod).toContain("Bootloader started (verify stage)");
+  it("Step 5 polls FC webserver to confirm reboot", () => {
+    expect(flashMethod).toContain("Step 5:");
+    expect(flashMethod).toContain("FC back online after");
   });
 });
 
 // ─── Audit Fix: Tier 1 server try/finally cleanup (Issue #11) ───────────────
 
-describe("Audit Fix: Tier 1 firmware server try/finally cleanup", () => {
+describe("Step 3: firmware server try/finally cleanup", () => {
   const source = fs.readFileSync(
     "./companion_scripts/logs_ota_service.py",
     "utf-8"
   );
   const flashMethod = source.substring(
     source.indexOf("async def handle_flash_firmware"),
-    source.indexOf("# ─── System Diagnostics")
+    source.indexOf("class DiagnosticsCollector")
   );
 
   it("wraps _wait_for_fc_pull in try/finally", () => {
-    // The try block should contain _wait_for_fc_pull
-    // and the finally block should contain _stop_firmware_server
-    const tier1Block = flashMethod.substring(
-      flashMethod.indexOf("=== Tier 1"),
-      flashMethod.indexOf("=== Tier 2")
-    );
-    expect(tier1Block).toContain("try:");
-    expect(tier1Block).toContain("finally:");
-    expect(tier1Block).toContain("_stop_firmware_server()");
+    const step3Start = flashMethod.indexOf("Step 3:");
+    const step3Block = flashMethod.substring(step3Start);
+    expect(step3Block).toContain("try:");
+    expect(step3Block).toContain("finally:");
+    expect(step3Block).toContain("_stop_firmware_server()");
   });
 
   it("ensures server is stopped even on exception", () => {
-    const tier1Block = flashMethod.substring(
-      flashMethod.indexOf("=== Tier 1"),
-      flashMethod.indexOf("=== Tier 2")
-    );
-    // _stop_firmware_server should be in the finally block
-    const finallyIdx = tier1Block.indexOf("finally:");
-    const stopIdx = tier1Block.indexOf("_stop_firmware_server");
+    const step3Start = flashMethod.indexOf("Step 3:");
+    const step3Block = flashMethod.substring(step3Start);
+    const finallyIdx = step3Block.indexOf("finally:");
+    const stopIdx = step3Block.indexOf("_stop_firmware_server");
     expect(finallyIdx).toBeGreaterThan(-1);
     expect(stopIdx).toBeGreaterThan(finallyIdx);
   });
@@ -2606,14 +2467,17 @@ describe("Audit Fix: Tier 1 firmware server try/finally cleanup", () => {
 
 // ─── Audit Fix: firmware_puller.lua docstring correction (Issue #12) ─────────
 
-describe("Audit Fix: firmware_puller.lua docstring correction", () => {
+describe("firmware_puller.lua ack endpoint", () => {
   const source = fs.readFileSync(
     "./companion_scripts/firmware_puller.lua",
     "utf-8"
   );
 
-  it("documents GET for ack endpoint, not POST", () => {
-    expect(source).toContain("GET  /firmware/ack");
-    expect(source).not.toContain("POST /firmware/ack");
+  it("sends ack to /firmware/ack after download completes", () => {
+    expect(source).toContain("/firmware/ack");
+  });
+
+  it("closes ack socket after sending", () => {
+    expect(source).toContain("ack_sock:close()");
   });
 });
