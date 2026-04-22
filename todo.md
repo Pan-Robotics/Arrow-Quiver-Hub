@@ -1401,3 +1401,18 @@
 - [x] Log which upload tier is being attempted for easier debugging (=== Tier 1/2/3 === markers)
 - [x] Make MAVFTP reconnection more robust — ensure_ready() does list_directory health check, reconnects with 3s delay between attempts
 - [x] 357 tests passing (23 new tests for cleanup fix, ensure_ready, tier logging, aiohttp warning)
+
+## Flash Flow Full Audit — 12 Issues Found & Fixed
+- [x] Issue #1 (HIGH): requests.get() blocks async event loop — wrapped all HTTP calls in asyncio.to_thread()
+- [x] Issue #2 (HIGH): Tier 1 waits 300s when FC has no puller — added 20s early-exit in _wait_for_fc_pull()
+- [x] Issue #3 (MEDIUM): Step 4 MAVFTP fallback during FC reboot — added http_only param to _check_file_exists()
+- [x] Issue #4 (MEDIUM): firmware_puller.lua no download stall timeout — added 30s STALL_TIMEOUT_MS
+- [x] Issue #5 (MEDIUM): net_webserver_put.lua 120s stall too generous — reduced to 30s + delete partial file
+- [x] Issue #6 (MEDIUM): firmware_puller.lua no integrity verification — accepted risk (bootloader CRC covers)
+- [x] Issue #7 (MEDIUM): net_webserver_put.lua client slot leak — added break after client insertion
+- [x] Issue #8 (LOW): _http_fc_reachable downloads full page — accepted as-is (negligible overhead)
+- [x] Issue #9 (LOW): MavFtpClient.connect() hangs without heartbeat — added 15s asyncio.timeout
+- [x] Issue #10 (LOW): Step 4 consumed-check too aggressive at 30s — increased to 60s + verify rename check
+- [x] Issue #11 (LOW): Tier 1 firmware server not stopped on exception — wrapped in try/finally
+- [x] Issue #12 (LOW): firmware_puller.lua docstring says POST, code uses GET — fixed to GET
+- [x] 975 tests passing (31 new tests for audit fixes)

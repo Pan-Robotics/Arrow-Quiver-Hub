@@ -294,6 +294,7 @@ local function Client(sock, idx)
    
    -- PUT upload state
    local put_file = nil
+   local put_path = nil     -- track path for cleanup on timeout
    local put_remaining = 0
    local put_received = 0
    local put_body_leftover = nil
@@ -685,11 +686,16 @@ local function Client(sock, idx)
             end
             -- No data at all — check for timeout
             local now = millis()
-            if not sock:is_connected() or now - start_time > 120000 then
-               gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT timeout after %u bytes", put_received))
+            if not sock:is_connected() or now - start_time > 30000 then
+               gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT stall timeout after %u bytes", put_received))
                if put_file then
                   put_file:close()
                   put_file = nil
+               end
+               -- Delete partial file to prevent bootloader from flashing corrupt firmware
+               if put_path then
+                  os.remove(put_path)
+                  gcs:send_text(MAV_SEVERITY.WARNING, "WebServer: deleted partial upload file")
                end
                run = nil
                self.remove()
@@ -779,6 +785,7 @@ local function Client(sock, idx)
       gcs:send_text(MAV_SEVERITY.INFO, string.format("WebServer: PUT %s (%u bytes)", path, file_size))
 
       -- Open file for writing (binary mode)
+      put_path = path  -- save for cleanup on timeout
       put_file = io.open(path, "wb")
       if not put_file then
          gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT failed to open %s for writing", path))
@@ -958,6 +965,7 @@ local function check_new_clients()
             local client = Client(sock, idx)
             DEBUG(string.format("%u: New client", idx))
             clients[idx] = client
+            break  -- one socket per slot, don't insert into multiple gaps
          end
       end
    end

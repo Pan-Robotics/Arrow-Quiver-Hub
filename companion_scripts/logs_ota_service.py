@@ -900,13 +900,19 @@ class MavFtpClient:
             logger.info(f"Connecting to FC: {self.connection_string}")
             await self.system.connect(system_address=self.connection_string)
 
-            # Wait for connection with timeout
-            logger.info("Waiting for FC heartbeat...")
-            async for state in self.system.core.connection_state():
-                if state.is_connected:
-                    logger.info("Connected to flight controller")
-                    self._connected = True
-                    break
+            # Wait for connection with timeout (15s prevents hanging
+            # if FC is powered off or serial cable is disconnected)
+            logger.info("Waiting for FC heartbeat (15s timeout)...")
+            try:
+                async with asyncio.timeout(15):
+                    async for state in self.system.core.connection_state():
+                        if state.is_connected:
+                            logger.info("Connected to flight controller")
+                            self._connected = True
+                            break
+            except (asyncio.TimeoutError, TimeoutError):
+                logger.warning("No FC heartbeat within 15s")
+                return False
             return True
         except Exception as e:
             logger.error(f"Failed to connect to FC: {e}")
@@ -1368,6 +1374,15 @@ class LogsOtaJobHandler:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
+            # Early exit: if FC hasn't started pulling after 20s,
+            # firmware_puller.lua is likely not installed or FWPULL_ENABLE=0.
+            # Don't waste 5 minutes waiting — fall through to Tier 2.
+            if elapsed >= 20 and self._fw_serve_bytes_sent == 0:
+                logger.info("No FC pull activity after 20s — firmware_puller.lua "
+                            "may not be installed or FWPULL_ENABLE=0. "
+                            "Falling through to next tier.")
+                return False
+
             # Report progress based on bytes served
             if self._fw_serve_size > 0 and self._fw_serve_bytes_sent > 0:
                 pct = 20 + int(self._fw_serve_bytes_sent / self._fw_serve_size * 40)  # 20-60%
@@ -1502,12 +1517,21 @@ class LogsOtaJobHandler:
             logger.warning(f"HTTP PUT failed: {e}")
             return False
 
-    async def _check_file_exists(self, filename: str) -> bool:
-        """Check if a file exists on the FC. Uses HTTP first, MAVFTP as fallback."""
+    async def _check_file_exists(self, filename: str, http_only: bool = False) -> bool:
+        """Check if a file exists on the FC. Uses HTTP first, MAVFTP as fallback.
+        
+        Args:
+            filename: File name (without /APM/ prefix)
+            http_only: If True, skip MAVFTP fallback (useful during flash
+                       monitoring when FC may be rebooting and MAVFTP would
+                       just throw errors).
+        """
         # Try HTTP first (faster, doesn't compete for MAVLink bandwidth)
-        http_result = self._http_file_exists(filename)
+        http_result = await asyncio.to_thread(self._http_file_exists, filename)
         if http_result is not None:
             return http_result
+        if http_only:
+            return False
         # Fallback to MAVFTP
         return await self.ftp.file_exists(f"/APM/{filename}")
 
@@ -1532,7 +1556,7 @@ class LogsOtaJobHandler:
         while elapsed < max_wait:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
-            if self._http_fc_reachable():
+            if await asyncio.to_thread(self._http_fc_reachable):
                 logger.info(f"FC web server reachable after reboot ({elapsed}s)")
                 self.hub.report_firmware_progress(
                     update_id, "completed", 100,
@@ -1859,7 +1883,9 @@ class LogsOtaJobHandler:
             tmp_path = os.path.join(tmp_dir, "ardupilot.abin")
 
             try:
-                resp = requests.get(firmware_url, timeout=120)
+                resp = await asyncio.to_thread(
+                    lambda: requests.get(firmware_url, timeout=120)
+                )
                 resp.raise_for_status()
 
                 # ── .apj → .abin auto-conversion ──
@@ -1922,7 +1948,7 @@ class LogsOtaJobHandler:
                 self.hub.report_firmware_progress(update_id, "transferring", 10,
                                                    flash_stage="preparing")
 
-                http_available = self._http_fc_reachable()
+                http_available = await asyncio.to_thread(self._http_fc_reachable)
                 if http_available:
                     logger.info("FC web server reachable — using HTTP for monitoring & cleanup check")
                     # Check for leftover firmware files via HTTP (informational only)
@@ -1932,7 +1958,7 @@ class LogsOtaJobHandler:
                         "ardupilot-flash.abin",
                         "ardupilot-flashed.abin",
                     ]:
-                        exists = self._http_file_exists(old_name)
+                        exists = await asyncio.to_thread(self._http_file_exists, old_name)
                         if exists:
                             logger.info(f"Old file {old_name} found on FC (will be overwritten)")
                 else:
@@ -1962,9 +1988,13 @@ class LogsOtaJobHandler:
                     )
                     server_started = await self._start_firmware_server(tmp_path)
                     if server_started:
-                        fc_pulled = await self._wait_for_fc_pull(update_id,
-                                                                  self.FIRMWARE_SERVER_ACK_TIMEOUT)
-                        await self._stop_firmware_server()
+                        try:
+                            fc_pulled = await self._wait_for_fc_pull(update_id,
+                                                                      self.FIRMWARE_SERVER_ACK_TIMEOUT)
+                        finally:
+                            # Always stop the server to free port 8070,
+                            # even if _wait_for_fc_pull raises an exception.
+                            await self._stop_firmware_server()
                         if fc_pulled:
                             upload_method = "HTTP pull (Approach C)"
                             logger.info("Firmware transferred via FC HTTP pull (fast path)")
@@ -1974,7 +2004,7 @@ class LogsOtaJobHandler:
                         logger.info("Could not start firmware server — trying fallback methods")
 
                 # ── Tier 2: HTTP PUT (push to FC web server) ──
-                if upload_method is None and self._http_fc_reachable():
+                if upload_method is None and await asyncio.to_thread(self._http_fc_reachable):
                     logger.info("=== Tier 2: HTTP PUT (push to FC web server) ===")
 
                     def http_upload_progress(uploaded: int, total: int):
@@ -1985,7 +2015,9 @@ class LogsOtaJobHandler:
                                 flash_stage="uploading_http"
                             )
 
-                    if self._http_upload_firmware(tmp_path, http_upload_progress):
+                    if await asyncio.to_thread(
+                        self._http_upload_firmware, tmp_path, http_upload_progress
+                    ):
                         upload_method = "HTTP PUT"
                         logger.info("Firmware uploaded via HTTP PUT")
                     else:
@@ -2046,7 +2078,9 @@ class LogsOtaJobHandler:
                     stage_file, stage_status, stage_pct = stages[current_stage_idx]
 
                     try:
-                        if await self._check_file_exists(stage_file):
+                        # Use http_only during monitoring if HTTP was available
+                        # at start — avoids noisy MAVFTP errors when FC reboots
+                        if await self._check_file_exists(stage_file, http_only=using_http):
                             method = "HTTP" if using_http else "MAVFTP"
                             logger.info(f"Flash stage ({method}): {stage_file}")
                             self.hub.report_firmware_progress(
@@ -2079,9 +2113,14 @@ class LogsOtaJobHandler:
                         elapsed += 5
 
                     # Check if the original file was consumed (FC started processing)
-                    if elapsed > 30 and current_stage_idx == 0:
+                    # Use 60s threshold (not 30s) to allow slow SD cards
+                    if elapsed > 60 and current_stage_idx == 0:
                         try:
-                            if not await self._check_file_exists("ardupilot.abin"):
+                            if not await self._check_file_exists("ardupilot.abin", http_only=using_http):
+                                # Check if bootloader started (renamed to verify)
+                                if await self._check_file_exists("ardupilot-verify.abin", http_only=using_http):
+                                    logger.info("Bootloader started (verify stage) — continuing")
+                                    continue
                                 # File was consumed but no stage file appeared
                                 error_msg = "Firmware file consumed but no stage transition detected"
                                 logger.error(error_msg)

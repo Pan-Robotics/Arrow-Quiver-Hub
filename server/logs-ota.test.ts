@@ -1030,7 +1030,7 @@ describe("Hybrid OTA flash monitoring - HTTP helper methods", () => {
 
   it("defines async _check_file_exists method", () => {
     expect(source).toContain(
-      "async def _check_file_exists(self, filename: str) -> bool:"
+      "async def _check_file_exists(self, filename: str, http_only: bool = False) -> bool:"
     );
   });
 
@@ -1040,7 +1040,7 @@ describe("Hybrid OTA flash monitoring - HTTP helper methods", () => {
       source.indexOf("async def _verify_fc_reboot")
     );
     expect(checkMethod).toContain(
-      "http_result = self._http_file_exists(filename)"
+      "http_result = await asyncio.to_thread(self._http_file_exists, filename)"
     );
     expect(checkMethod).toContain("if http_result is not None:");
     expect(checkMethod).toContain("return http_result");
@@ -1093,7 +1093,7 @@ describe("Hybrid OTA flash monitoring - _verify_fc_reboot", () => {
     );
     expect(method).toContain("poll_interval = 5");
     expect(method).toContain("await asyncio.sleep(poll_interval)");
-    expect(method).toContain("self._http_fc_reachable()");
+    expect(method).toContain("await asyncio.to_thread(self._http_fc_reachable)");
   });
 
   it("reports reboot_verified when FC responds", () => {
@@ -1132,7 +1132,7 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
   // ── Step 2: Pre-upload HTTP check ──
 
   it("Step 2 checks FC web server reachability before upload", () => {
-    expect(flashMethod).toContain("self._http_fc_reachable()");
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
     expect(flashMethod).toContain(
       "FC web server reachable"
     );
@@ -1142,7 +1142,7 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
     // Step 2 now avoids MAVFTP file_exists/remove_file to prevent
     // sequence corruption. Uses HTTP to check for old files (informational)
     // and lets the bootloader overwrite them.
-    expect(flashMethod).toContain("self._http_file_exists(old_name)");
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
     expect(flashMethod).toContain("will be overwritten");
   });
 
@@ -1158,7 +1158,7 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
   // ── Step 4: Hybrid stage monitoring ──
 
   it("Step 4 uses _check_file_exists for stage polling (HTTP first, MAVFTP fallback)", () => {
-    expect(flashMethod).toContain("await self._check_file_exists(stage_file)");
+    expect(flashMethod).toContain("await self._check_file_exists(stage_file, http_only=using_http)");
   });
 
   it("Step 4 tracks whether HTTP is being used for logging", () => {
@@ -1171,7 +1171,7 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
   it("Step 4 uses _check_file_exists for consumed-file check too", () => {
     // The ardupilot.abin consumption check also uses the hybrid method
     expect(flashMethod).toContain(
-      'await self._check_file_exists("ardupilot.abin")'
+      'await self._check_file_exists("ardupilot.abin", http_only=using_http)'
     );
   });
 
@@ -1218,8 +1218,8 @@ describe("Hybrid OTA flash monitoring - handle_flash_firmware integration", () =
     expect(flashMethod).not.toContain(
       'await self.ftp.remove_file(f"/APM/{old_name}")'
     );
-    // Verify HTTP-based check is used instead
-    expect(flashMethod).toContain("self._http_file_exists(old_name)");
+    // Verify HTTP-based check is used instead (wrapped in asyncio.to_thread)
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
   });
 });
 
@@ -1629,7 +1629,7 @@ describe("HTTP PUT Upload - Flash Flow Integration", () => {
   });
 
   it("checks FC reachability before HTTP PUT fallback", () => {
-    expect(flashMethod).toContain("upload_method is None and self._http_fc_reachable()");
+    expect(flashMethod).toContain("upload_method is None and await asyncio.to_thread(self._http_fc_reachable)");
     expect(flashMethod).toContain("Tier 2: HTTP PUT");
   });
 
@@ -1757,12 +1757,12 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
   });
 
   it("uses 120 second timeout for upload connections", () => {
-    expect(source).toContain("120000");
+    expect(source).toContain("30000");
   });
 
   it("sends GCS messages for upload progress and completion", () => {
     expect(source).toContain("PUT complete");
-    expect(source).toContain("PUT timeout");
+    expect(source).toContain("PUT stall timeout");
   });
 
   it("preserves all original GET functionality", () => {
@@ -2066,8 +2066,8 @@ describe("handle_flash_firmware: 3-tier upload priority", () => {
   });
 
   it("should fall back to HTTP PUT if Approach C fails", () => {
-    expect(flashMethod).toContain("upload_method is None and self._http_fc_reachable()");
-    expect(flashMethod).toContain("_http_upload_firmware(tmp_path");
+    expect(flashMethod).toContain("upload_method is None and await asyncio.to_thread(self._http_fc_reachable)");
+    expect(flashMethod).toContain("_http_upload_firmware");
   });
 
   it("should fall back to MAVFTP as last resort", () => {
@@ -2156,7 +2156,7 @@ describe("Fix: MAVFTP cleanup corruption in Step 2", () => {
 
   it("Step 2 uses HTTP _http_file_exists for old file checks", () => {
     // The Step 2 code section uses _http_file_exists instead of MAVFTP
-    expect(flashMethod).toContain("self._http_file_exists(old_name)");
+    expect(flashMethod).toContain("await asyncio.to_thread(self._http_file_exists, old_name)");
   });
 
   it("Step 2 explains why MAVFTP cleanup is avoided (sequence corruption)", () => {
@@ -2305,5 +2305,315 @@ describe("aiohttp import warning", () => {
   it("suggests installation command", () => {
     const importBlock = source.substring(0, source.indexOf("# ─── Logging"));
     expect(importBlock).toContain("pip install --break-system-packages aiohttp");
+  });
+});
+
+// ─── Audit Fix: asyncio.to_thread for blocking HTTP calls (Issue #1) ─────────
+
+describe("Audit Fix: asyncio.to_thread wrapping for non-blocking HTTP", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("# ─── System Diagnostics")
+  );
+
+  it("Step 1 firmware download uses asyncio.to_thread", () => {
+    expect(flashMethod).toContain("await asyncio.to_thread(");
+    expect(flashMethod).toContain("requests.get(firmware_url, timeout=120)");
+  });
+
+  it("Step 2 _http_fc_reachable uses asyncio.to_thread", () => {
+    expect(flashMethod).toContain(
+      "await asyncio.to_thread(self._http_fc_reachable)"
+    );
+  });
+
+  it("Step 2 _http_file_exists uses asyncio.to_thread", () => {
+    expect(flashMethod).toContain(
+      "await asyncio.to_thread(self._http_file_exists, old_name)"
+    );
+  });
+
+  it("Tier 2 _http_fc_reachable check uses asyncio.to_thread", () => {
+    expect(flashMethod).toContain(
+      "upload_method is None and await asyncio.to_thread(self._http_fc_reachable)"
+    );
+  });
+
+  it("Tier 2 _http_upload_firmware uses asyncio.to_thread", () => {
+    expect(flashMethod).toContain(
+      "await asyncio.to_thread(\n                        self._http_upload_firmware, tmp_path, http_upload_progress"
+    );
+  });
+
+  it("_verify_fc_reboot uses asyncio.to_thread for reachability check", () => {
+    const verifyMethod = source.substring(
+      source.indexOf("async def _verify_fc_reboot"),
+      source.indexOf("async def handle_scan_fc_logs")
+    );
+    expect(verifyMethod).toContain(
+      "await asyncio.to_thread(self._http_fc_reachable)"
+    );
+  });
+
+  it("_check_file_exists uses asyncio.to_thread for HTTP check", () => {
+    const checkMethod = source.substring(
+      source.indexOf("async def _check_file_exists"),
+      source.indexOf("async def _verify_fc_reboot")
+    );
+    expect(checkMethod).toContain(
+      "await asyncio.to_thread(self._http_file_exists, filename)"
+    );
+  });
+});
+
+// ─── Audit Fix: Tier 1 early-exit when FC has no puller (Issue #2) ───────────
+
+describe("Audit Fix: Tier 1 early-exit when FC has no firmware_puller.lua", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const waitMethod = source.substring(
+    source.indexOf("async def _wait_for_fc_pull"),
+    source.indexOf("async def _check_file_exists")
+  );
+
+  it("exits early after 20s if no bytes served", () => {
+    expect(waitMethod).toContain("elapsed >= 20");
+    expect(waitMethod).toContain("self._fw_serve_bytes_sent == 0");
+  });
+
+  it("logs that firmware_puller.lua may not be installed", () => {
+    expect(waitMethod).toContain("firmware_puller.lua");
+    expect(waitMethod).toContain("FWPULL_ENABLE=0");
+    expect(waitMethod).toContain("Falling through to next tier");
+  });
+
+  it("returns False on early exit", () => {
+    // After the early-exit check, it returns False
+    const earlyExitBlock = waitMethod.substring(
+      waitMethod.indexOf("elapsed >= 20"),
+      waitMethod.indexOf("# Report progress")
+    );
+    expect(earlyExitBlock).toContain("return False");
+  });
+});
+
+// ─── Audit Fix: _check_file_exists http_only parameter (Issue #3) ────────────
+
+describe("Audit Fix: _check_file_exists http_only parameter", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const checkMethod = source.substring(
+    source.indexOf("async def _check_file_exists"),
+    source.indexOf("async def _verify_fc_reboot")
+  );
+
+  it("accepts http_only parameter defaulting to False", () => {
+    expect(checkMethod).toContain("http_only: bool = False");
+  });
+
+  it("skips MAVFTP fallback when http_only is True", () => {
+    expect(checkMethod).toContain("if http_only:");
+    expect(checkMethod).toContain("return False");
+  });
+
+  it("Step 4 monitoring passes http_only=using_http", () => {
+    const flashMethod = source.substring(
+      source.indexOf("async def handle_flash_firmware"),
+      source.indexOf("# ─── System Diagnostics")
+    );
+    expect(flashMethod).toContain(
+      "await self._check_file_exists(stage_file, http_only=using_http)"
+    );
+    expect(flashMethod).toContain(
+      'await self._check_file_exists("ardupilot.abin", http_only=using_http)'
+    );
+  });
+});
+
+// ─── Audit Fix: firmware_puller.lua stall timeout (Issue #4) ─────────────────
+
+describe("Audit Fix: firmware_puller.lua download stall timeout", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/firmware_puller.lua",
+    "utf-8"
+  );
+
+  it("defines STALL_TIMEOUT_MS constant", () => {
+    expect(source).toContain("STALL_TIMEOUT_MS = 30000");
+  });
+
+  it("tracks last_data_time variable", () => {
+    expect(source).toContain("local last_data_time = 0");
+  });
+
+  it("initializes last_data_time when download starts", () => {
+    expect(source).toContain("last_data_time = millis()  -- initialize stall timer");
+  });
+
+  it("updates last_data_time when data is received", () => {
+    expect(source).toContain("if reads_this_cycle > 0 then");
+    expect(source).toContain("last_data_time = millis()");
+  });
+
+  it("aborts download on stall timeout", () => {
+    expect(source).toContain("millis() - last_data_time) > STALL_TIMEOUT_MS");
+    expect(source).toContain("download stalled");
+  });
+});
+
+// ─── Audit Fix: net_webserver_put.lua PUT stall timeout reduction (Issue #5) ─
+
+describe("Audit Fix: net_webserver_put.lua PUT stall timeout reduced to 30s", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/net_webserver_put.lua",
+    "utf-8"
+  );
+
+  it("uses 30000ms stall timeout instead of 120000ms", () => {
+    expect(source).toContain("now - start_time > 30000");
+    expect(source).not.toContain("now - start_time > 120000");
+  });
+
+  it("logs PUT stall timeout message", () => {
+    expect(source).toContain("PUT stall timeout");
+  });
+
+  it("deletes partial file on timeout to prevent corrupt flash", () => {
+    expect(source).toContain("os.remove(put_path)");
+    expect(source).toContain("deleted partial upload file");
+  });
+
+  it("tracks put_path for cleanup", () => {
+    expect(source).toContain("local put_path = nil");
+    expect(source).toContain("put_path = path");
+  });
+});
+
+// ─── Audit Fix: net_webserver_put.lua client slot leak (Issue #7) ────────────
+
+describe("Audit Fix: net_webserver_put.lua client slot leak fix", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/net_webserver_put.lua",
+    "utf-8"
+  );
+
+  it("breaks after inserting client into slot", () => {
+    // The check_new_clients loop must break after inserting
+    const checkNewClients = source.substring(
+      source.indexOf("function check_new_clients()"),
+      source.indexOf("function check_new_clients()") + 500
+    );
+    expect(checkNewClients).toContain("break");
+  });
+});
+
+// ─── Audit Fix: MavFtpClient.connect() heartbeat timeout (Issue #9) ─────────
+
+describe("Audit Fix: MavFtpClient.connect() heartbeat timeout", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const connectMethod = source.substring(
+    source.indexOf("class MavFtpClient"),
+    source.indexOf("async def list_directory")
+  );
+
+  it("uses asyncio.timeout for heartbeat wait", () => {
+    expect(connectMethod).toContain("asyncio.timeout(15)");
+  });
+
+  it("catches TimeoutError", () => {
+    expect(connectMethod).toContain("asyncio.TimeoutError");
+    expect(connectMethod).toContain("No FC heartbeat within 15s");
+  });
+
+  it("returns False on timeout", () => {
+    // After the timeout catch, it returns False
+    expect(connectMethod).toContain("return False");
+  });
+});
+
+// ─── Audit Fix: Step 4 consumed-check threshold (Issue #10) ─────────────────
+
+describe("Audit Fix: Step 4 consumed-check threshold increased to 60s", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("# ─── System Diagnostics")
+  );
+
+  it("uses 60s threshold instead of 30s", () => {
+    expect(flashMethod).toContain("elapsed > 60 and current_stage_idx == 0");
+    expect(flashMethod).not.toContain("elapsed > 30 and current_stage_idx == 0");
+  });
+
+  it("checks for verify rename before declaring failure", () => {
+    expect(flashMethod).toContain(
+      'await self._check_file_exists("ardupilot-verify.abin"'
+    );
+    expect(flashMethod).toContain("Bootloader started (verify stage)");
+  });
+});
+
+// ─── Audit Fix: Tier 1 server try/finally cleanup (Issue #11) ───────────────
+
+describe("Audit Fix: Tier 1 firmware server try/finally cleanup", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/logs_ota_service.py",
+    "utf-8"
+  );
+  const flashMethod = source.substring(
+    source.indexOf("async def handle_flash_firmware"),
+    source.indexOf("# ─── System Diagnostics")
+  );
+
+  it("wraps _wait_for_fc_pull in try/finally", () => {
+    // The try block should contain _wait_for_fc_pull
+    // and the finally block should contain _stop_firmware_server
+    const tier1Block = flashMethod.substring(
+      flashMethod.indexOf("=== Tier 1"),
+      flashMethod.indexOf("=== Tier 2")
+    );
+    expect(tier1Block).toContain("try:");
+    expect(tier1Block).toContain("finally:");
+    expect(tier1Block).toContain("_stop_firmware_server()");
+  });
+
+  it("ensures server is stopped even on exception", () => {
+    const tier1Block = flashMethod.substring(
+      flashMethod.indexOf("=== Tier 1"),
+      flashMethod.indexOf("=== Tier 2")
+    );
+    // _stop_firmware_server should be in the finally block
+    const finallyIdx = tier1Block.indexOf("finally:");
+    const stopIdx = tier1Block.indexOf("_stop_firmware_server");
+    expect(finallyIdx).toBeGreaterThan(-1);
+    expect(stopIdx).toBeGreaterThan(finallyIdx);
+  });
+});
+
+// ─── Audit Fix: firmware_puller.lua docstring correction (Issue #12) ─────────
+
+describe("Audit Fix: firmware_puller.lua docstring correction", () => {
+  const source = fs.readFileSync(
+    "./companion_scripts/firmware_puller.lua",
+    "utf-8"
+  );
+
+  it("documents GET for ack endpoint, not POST", () => {
+    expect(source).toContain("GET  /firmware/ack");
+    expect(source).not.toContain("POST /firmware/ack");
   });
 });

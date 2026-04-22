@@ -12,7 +12,7 @@
      Companion Pi runs a lightweight HTTP server on port 8070:
        GET /firmware/status  → {"ready": true, "filename": "ardupilot.abin", "size": 1656690}
        GET /firmware/download → streams the firmware binary
-       POST /firmware/ack    → companion Pi cleans up (optional, GET-based ack also works)
+       GET  /firmware/ack    → companion Pi marks download complete and cleans up
 
      This Lua script polls /firmware/status every FWPULL_POLL_SEC seconds.
      When ready=true, it downloads the file and writes it to the SD card.
@@ -127,6 +127,8 @@ local last_progress_kb = 0
 local http_buf = ""
 local header_done = false
 local pi_url_base = ""
+local last_data_time = 0
+local STALL_TIMEOUT_MS = 30000  -- abort download if no data for 30s
 
 -- ── Helpers ──
 
@@ -312,12 +314,20 @@ local function check_status()
     header_done = false
     fw_bytes_received = 0
     last_progress_kb = 0
+    last_data_time = millis()  -- initialize stall timer
 end
 
 -- ── State: DOWNLOADING → receive firmware data and write to SD ──
 local function download_firmware()
     if not sock or not fw_file then
         abort("invalid download state")
+        return
+    end
+
+    -- Stall detection: abort if no data received for 30 seconds
+    if last_data_time > 0 and (millis() - last_data_time) > STALL_TIMEOUT_MS then
+        abort(string.format("download stalled for %ds at %d/%d bytes",
+            STALL_TIMEOUT_MS / 1000, fw_bytes_received, fw_size_expected))
         return
     end
 
@@ -366,6 +376,11 @@ local function download_firmware()
             fw_file:write(data)
             fw_bytes_received = fw_bytes_received + #data
         end
+    end
+
+    -- Track last data receipt time for stall detection
+    if reads_this_cycle > 0 then
+        last_data_time = millis()
     end
 
     -- Flush to SD card once per cycle (not per chunk)
