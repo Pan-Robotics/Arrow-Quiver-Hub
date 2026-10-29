@@ -20,6 +20,30 @@ function executable(path: string, content: string) {
   chmodSync(path, 0o755);
 }
 
+function verifyCameraUnits(root: string, units: string, names: string[]) {
+  // Isolate systemd's lookup from host /etc units. The local stub supplies the
+  // funnel service's explicit tailscaled.service dependency without starting it.
+  const verifierUnits = join(root, "verifier-units");
+  mkdirSync(verifierUnits);
+  writeFileSync(join(verifierUnits, "tailscaled.service"), `[Unit]
+Description=Test-only tailscaled dependency stub
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true
+`);
+  const unitPath = [units, verifierUnits, "/usr/lib/systemd/system", "/lib/systemd/system"].join(":");
+  const result = spawnSync(
+    "systemd-analyze",
+    ["verify", ...names.map(name => join(units, name))],
+    {
+      encoding: "utf8",
+      timeout: 15000,
+      env: { ...process.env, SYSTEMD_UNIT_PATH: unitPath },
+    },
+  );
+  expect(result.status, result.stderr + result.stdout).toBe(0);
+}
+
 function runMockedCameraInstallation() {
   const root = temp();
   const bin = join(root, "bin");
@@ -103,7 +127,7 @@ exec "$@"
     ],
     { input: "\n".repeat(9), encoding: "utf8", timeout: 30000 },
   );
-  return { result, install, envFile, units, log };
+  return { result, root, install, envFile, units, log };
 }
 
 describe("Camera services installer (mocked privileged integration)", () => {
@@ -125,15 +149,24 @@ describe("Camera services installer (mocked privileged integration)", () => {
     const env = readFileSync(run.envFile, "utf8");
     const log = readFileSync(run.log, "utf8");
 
-    expect(go2rtc).toContain(`WorkingDirectory="${run.install}"`);
+    expect(go2rtc).toContain(`WorkingDirectory=${run.install}`);
+    expect(go2rtc).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(go2rtc).toContain(`EnvironmentFile="${run.envFile}"`);
     expect(go2rtc).toContain(`Environment="QUIVER_ENV_FILE=${run.envFile}"`);
     expect(go2rtc).toContain("render-go2rtc");
     expect(go2rtc).toContain(`"${join(run.install, "companion_config.py")}"`);
+    expect(go2rtc).toContain(`ExecStart="${join(run.install, "bin/go2rtc")}" -config "${join(run.install, "go2rtc.yaml")}"`);
     expect(funnel).toContain("--https=${TAILSCALE_FUNNEL_PORT}");
     expect(funnel).toContain("http://${GO2RTC_API_HOST}:${GO2RTC_API_PORT}");
+    expect(funnel).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(camera).toContain(`WorkingDirectory=${run.install}`);
+    expect(camera).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(camera).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(camera).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "camera_stream_service.py")}"`);
+    expect(siyi).toContain(`WorkingDirectory=${run.install}`);
+    expect(siyi).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(siyi).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(siyi).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "siyi_camera_controller.py")}"`);
     expect(camera).not.toContain("test-secret");
     expect(siyi).not.toContain("test-secret");
     expect(camera).not.toContain("10.42.0.25");
@@ -146,6 +179,7 @@ describe("Camera services installer (mocked privileged integration)", () => {
     expect(log).toContain("--break-system-packages");
     expect(log).toContain("systemctl daemon-reload");
     expect(log).not.toContain("/etc/systemd/system");
+    verifyCameraUnits(run.root, run.units, ["go2rtc.service", "tailscale-funnel.service", "camera-stream.service", "siyi-camera.service"]);
 
     // No derived RTSP_URL is frozen into .env. Re-rendering after a camera
     // endpoint edit must therefore use the new derived source immediately.

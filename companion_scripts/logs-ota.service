@@ -4,6 +4,7 @@
 # Render this template with its installer. It must not be copied directly.
 # Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
 # SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
+# WORKING_DIRECTORY_PLACEHOLDER is a literal path, not a quoted argument.
 #
 # This template intentionally does not set User=/Group=. The existing Logs & OTA
 # installer owns that privilege decision; leaving the directives commented keeps
@@ -16,10 +17,12 @@ Description=Quiver Hub — Logs & OTA Service
 Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+WorkingDirectory=WORKING_DIRECTORY_PLACEHOLDER
 EnvironmentFile=ENV_FILE_PLACEHOLDER
 Environment=ENV_ASSIGNMENT_PLACEHOLDER
 Environment=PYTHONUNBUFFERED=1
@@ -28,8 +31,6 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 LOGS_OTA_SCRIPT_PLACEHOLDER
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=logs-ota

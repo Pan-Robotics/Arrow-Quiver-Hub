@@ -101,7 +101,7 @@ StartLimitBurst=5
 [Service]
 Type=simple
 $(if [ "$RUN_AS_ROOT" = false ]; then printf 'User=%s\nGroup=%s\n' "$SERVICE_USER" "$SERVICE_GROUP"; fi)
-WorkingDirectory=$(quiver_systemd_path "$INSTALL_DIR")
+WorkingDirectory=$(quiver_systemd_directory "$INSTALL_DIR")
 EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")
 Environment=$(quiver_systemd_path "QUIVER_ENV_FILE=$ENV_FILE")
 Environment=PYTHONUNBUFFERED=1

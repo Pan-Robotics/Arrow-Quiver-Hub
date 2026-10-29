@@ -51,10 +51,11 @@ render_template() {
     # Render only fixed unit paths/users. Hub URLs and credentials remain runtime
     # environment variables, not generated unit-file content.
     local template="$1" destination="$2" temporary
-    local install_dir_unit env_file_unit env_assignment_unit service_user service_group
+    local install_dir_unit working_directory_unit env_file_unit env_assignment_unit service_user service_group
     local camera_stream_unit siyi_controller_unit hub_client_unit telemetry_unit logs_ota_unit
 
     install_dir_unit=$(unit_path "$INSTALL_DIR")
+    working_directory_unit=$(quiver_systemd_directory "$INSTALL_DIR")
     env_file_unit=$(unit_path "$ENV_FILE")
     env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
     service_user="$SERVICE_USER"
@@ -67,16 +68,17 @@ render_template() {
     temporary=$(mktemp)
 
     python3 - "$template" "$temporary" \
-        "$install_dir_unit" "$env_file_unit" "$env_assignment_unit" "$service_user" "$service_group" \
+        "$install_dir_unit" "$working_directory_unit" "$env_file_unit" "$env_assignment_unit" "$service_user" "$service_group" \
         "$camera_stream_unit" "$siyi_controller_unit" "$hub_client_unit" \
         "$telemetry_unit" "$logs_ota_unit" <<'PY'
 from pathlib import Path
 import sys
 
-(template, output, install_dir, env_file, env_assignment, service_user, service_group,
+(template, output, install_dir, working_directory, env_file, env_assignment, service_user, service_group,
  camera_stream, siyi_controller, hub_client, telemetry, logs_ota) = sys.argv[1:]
 replacements = {
     "INSTALL_DIR_PLACEHOLDER": install_dir,
+    "WORKING_DIRECTORY_PLACEHOLDER": working_directory,
     "ENV_FILE_PLACEHOLDER": env_file,
     "ENV_ASSIGNMENT_PLACEHOLDER": env_assignment,
     "SERVICE_USER_PLACEHOLDER": service_user,
@@ -99,7 +101,7 @@ PY
 
 write_generated_units() {
     local install_dir_unit env_file_unit env_assignment_unit go2rtc_bin_unit go2rtc_config_unit config_helper_unit tailscale_bin_unit
-    install_dir_unit=$(unit_path "$INSTALL_DIR")
+    install_dir_unit=$(quiver_systemd_directory "$INSTALL_DIR")
     env_file_unit=$(unit_path "$ENV_FILE")
     env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
     go2rtc_bin_unit=$(unit_path "$GO2RTC_BIN")

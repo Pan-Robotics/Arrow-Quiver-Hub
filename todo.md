@@ -1480,3 +1480,18 @@ Plan: reuse the companion configuration template → inject the selected drone, 
 - [x] Save a checkpoint for the updated Drone Configuration snippet.
 
 Validation: 1,035 tests passed in 29 files, including 8 new configuration regressions and a round-trip through the actual Python loader. TypeScript, production build, and git whitespace checks passed. Logged-in browser inspection confirmed the new defaults and selected drone/active key in the displayed .env, plus the Copy .env control. No database, managed web-app environment, deployed companion settings, or Mission Planner implementation changes were made.
+
+
+## Companion systemd bad-setting repair (2026-10-29)
+
+The supplied screenshot shows a failed Hub-client start after installation. Local reproduction with systemd 255 confirms that quoting WorkingDirectory as a command argument makes the path non-absolute to systemd and rejects the entire unit. Existing tests incorrectly asserted that quoting instead of validating rendered units.
+
+Scope: repair systemd directive-specific path formatting across companion installers/templates; provide a configuration-preserving repair path for existing installations. Do not access a real companion, push GitHub, or implement Mission Planner.
+
+- [x] Separate literal WorkingDirectory formatting from quoted word-list/ExecStart formatting and update every installer/template consumer.
+- [x] Provide a safe repair command/script for already-generated installed units without replacing credentials or launching jobs automatically.
+- [x] Validate all generated service units with real systemd-analyze verify, retaining mocked package/network/service operations.
+- [x] Run the full Vitest suite, TypeScript, shell syntax, and whitespace checks; update setup troubleshooting docs.
+- [x] Package the corrected companion suite and save a checkpoint.
+
+Validation: reproduced the original fatal bad-setting error in systemd 255; corrected generated Hub, telemetry, OTA and all four camera-related units pass real systemd parsing with space-containing installation paths. 1,040 tests passed across 30 Vitest files; TypeScript, shell syntax and git whitespace checks passed. New repair tests cover read-only checks, configuration preservation, percent-escaped paths, backups/idempotence and failure-before-write for other invalid units. Hardware runtime and the user's installed unit have not been accessed. No GitHub push performed.

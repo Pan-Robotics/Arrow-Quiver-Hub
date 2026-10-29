@@ -29,11 +29,24 @@ quiver_prompt() {
 }
 
 quiver_systemd_path() {
-    # Quote paths containing spaces and escape systemd percent specifiers.
+    # Quote a word for ExecStart, Environment, EnvironmentFile, or path lists.
+    # Do NOT use for WorkingDirectory: that directive takes one literal path.
     python3 - "$1" <<'PY'
 import sys
 value = sys.argv[1].replace('%', '%%').replace('\\', '\\\\').replace('"', '\\"')
 print('"' + value + '"')
+PY
+}
+
+quiver_systemd_directory() {
+    # WorkingDirectory is not a word list. Quotes become part of its path and
+    # cause systemd to reject the unit as non-absolute, even without spaces.
+    python3 - "$1" <<'PY'
+import sys
+value = sys.argv[1]
+if not value.startswith('/') or any(c in value for c in '\r\n\0'):
+    raise SystemExit('WorkingDirectory must be a single absolute path')
+print(value.replace('%', '%%'))
 PY
 }
 

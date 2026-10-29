@@ -158,7 +158,7 @@ StartLimitBurst=5
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
-WorkingDirectory=$(quiver_systemd_path "$INSTALL_DIR")
+WorkingDirectory=$(quiver_systemd_directory "$INSTALL_DIR")
 EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")
 Environment=$(quiver_systemd_path "QUIVER_ENV_FILE=$ENV_FILE")
 Environment=PYTHONUNBUFFERED=1

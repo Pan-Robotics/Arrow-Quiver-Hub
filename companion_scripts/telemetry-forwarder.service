@@ -1,6 +1,7 @@
 # TEMPLATE — render through the companion installer. Do not install directly.
 # Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
 # SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
+# WORKING_DIRECTORY_PLACEHOLDER is a literal path, not a quoted argument.
 [Unit]
 Description=Quiver Hub Telemetry Forwarder (MAVLink + UAVCAN to Hub)
 Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
@@ -11,7 +12,7 @@ Wants=network-online.target
 Type=simple
 User=SERVICE_USER_PLACEHOLDER
 Group=SERVICE_GROUP_PLACEHOLDER
-WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+WorkingDirectory=WORKING_DIRECTORY_PLACEHOLDER
 EnvironmentFile=ENV_FILE_PLACEHOLDER
 Environment=ENV_ASSIGNMENT_PLACEHOLDER
 Environment=PYTHONUNBUFFERED=1

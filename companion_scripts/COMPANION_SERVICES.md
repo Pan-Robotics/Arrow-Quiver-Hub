@@ -165,6 +165,14 @@ sudo systemd-analyze verify /etc/systemd/system/camera-stream.service
 
 Confirm the rendered unit points to the intended `.env`, that its selected service user exists, and that the Python/runtime files exist in `INSTALL_DIR`.
 
+### “Bad unit file setting” / “WorkingDirectory= path is not absolute”
+
+An earlier installer quoted the entire `WorkingDirectory` value, which systemd interprets as a non-absolute path. The corrected installers emit a literal directory value, including spaces when needed, while retaining appropriate quoting for `EnvironmentFile`, `ExecStart`, and path lists. This is a service-definition error, not a pip or API-key error.
+
+Run `sudo bash /path/to/corrected-suite/repair_companion_services.sh --check` to inspect the proposed fix, then run the same command without `--check` to apply it. The standalone script validates every corrected installed unit before replacing files, makes non-overwritten backups, and reloads systemd. It does not edit `.env`, change enablement, or start/restart anything. See the [README repair instructions](README.md#repair-bad-unit-file-setting-from-an-earlier-installer) for explicit Hub-client start commands.
+
+Only the definitions in `/etc/systemd/system/` affect the installed services; editing the source-folder `.service` template alone does not repair them. Never install a template containing `PLACEHOLDER` markers directly.
+
 ### No camera video
 
 ```bash

@@ -156,6 +156,29 @@ sudo journalctl -u logs-ota -f
 sudo systemd-analyze verify /etc/systemd/system/camera-stream.service
 ```
 
+### Repair “bad unit file setting” from an earlier installer
+
+The earlier portable installer mistakenly wrapped `WorkingDirectory` in double quotes. Unlike `ExecStart` arguments or `ReadWritePaths` entries, this systemd directive takes one literal path: the quote becomes part of the path and systemd rejects it as non-absolute. This affects paths both with and without spaces. The corrected installers use a separate literal-directory formatter; quoting remains where the other directives require it.
+
+Use the corrected suite's standalone repair script on an existing installation:
+
+```bash
+# Optional read-only validation of the proposed corrected units
+sudo bash /path/to/corrected-suite/repair_companion_services.sh --check
+
+# Back up and repair installed companion units; reload definitions only
+sudo bash /path/to/corrected-suite/repair_companion_services.sh
+
+# Start only the Hub client when you are ready
+sudo systemctl reset-failed quiver-hub-client
+sudo systemctl enable --now quiver-hub-client
+sudo systemctl status quiver-hub-client --no-pager -l
+```
+
+The script validates all corrected installed units together using `systemd-analyze verify` **before** replacing any file. It retains `.service.pre-working-directory-fix` backups and is safe to rerun. It never edits `.env`, downloads packages, changes service enablement, or starts/restarts a service. Other already-installed affected services can be restarted individually after repair. If validation identifies another error, no units are replaced and its diagnostics should be investigated first.
+
+The installed definitions are under `/etc/systemd/system/`. Editing a `.service` file in your companion source/install folder alone does not change the definition systemd uses. Do not copy an unrendered source template directly into `/etc/systemd/system/`.
+
 ## Camera services
 
 `install_camera_services.sh` installs the camera runtime, a local `go2rtc` binary under the selected `INSTALL_DIR`, and these services:

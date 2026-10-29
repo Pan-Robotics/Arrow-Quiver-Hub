@@ -16,6 +16,23 @@ function python(code: string, args: string[] = []) {
   return spawnSync("python3", ["-c", code, ...args], { encoding: "utf8", timeout: 15000 });
 }
 
+function verifyUnits(units: string, names: string[]) {
+  // Keep verification hermetic: use the test-generated units first, followed
+  // only by distribution-provided units needed for standard targets. In
+  // particular, do not inherit /etc/systemd/system and its host-specific units.
+  const unitPath = [units, "/usr/lib/systemd/system", "/lib/systemd/system"].join(":");
+  const result = spawnSync(
+    "systemd-analyze",
+    ["verify", ...names.map(name => join(units, name))],
+    {
+      encoding: "utf8",
+      timeout: 15000,
+      env: { ...process.env, SYSTEMD_UNIT_PATH: unitPath },
+    },
+  );
+  expect(result.status, result.stderr + result.stdout).toBe(0);
+}
+
 function download(source: string, variant = "normal") {
   const destination = temp();
   const shell = readFileSync(join(suite, "install_hub_client.sh"), "utf8");
@@ -98,7 +115,7 @@ function mockInstallation(script: string, choices: string, options: { local?: bo
   // Only package/service commands are stubbed; real Python/.env/filesystem behavior
   // is exercised. All generated units and service-write paths are temporary.
   const result = spawnSync("sudo", ["-n", "env", `PATH=${bin}:/usr/bin:/bin`, `QUIVER_ENV_FILE=${envFile}`, `QUIVER_SYSTEMD_DIR=${units}`, `MOCK_LOG=${log}`, `MOCK_PIP_EXIT=${options.pipExit ?? 0}`, "bash", join(suite, script), ...(options.local ? ["--local"] : [])], { input: choices, encoding: "utf8", timeout: 30000 });
-  return { result, install, envFile, units, log };
+  return { result, root, install, envFile, units, log };
 }
 
 describe("Portable installer integration (mocked privileged operations)", () => {
@@ -113,8 +130,13 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     expect(params).toContain("FWPULL_PI_IP3 49");
     expect(params).not.toContain("FWPULL_ENABLE");
     const unit = readFileSync(join(run.units, "quiver-hub-client.service"), "utf8");
+    expect(unit).toContain(`WorkingDirectory=${run.install}`);
+    expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "raspberry_pi_client.py")}"`);
+    expect(unit).toContain(`ReadWritePaths="${run.install}"`);
     expect(unit).not.toContain("test-secret");
+    verifyUnits(run.units, ["quiver-hub-client.service"]);
     expect(readFileSync(run.log, "utf8")).not.toMatch(/systemctl (start|restart|enable)/);
   });
   it("stops on a dependency failure before creating or enabling the OTA unit", () => {
@@ -127,10 +149,14 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     const run = mockInstallation("install_telemetry_forwarder.sh", "\n".repeat(30));
     expect(run.result.status, run.result.stderr + run.result.stdout).toBe(0);
     const unit = readFileSync(join(run.units, "telemetry-forwarder.service"), "utf8");
-    expect(unit).toContain(`WorkingDirectory="${run.install}"`);
+    expect(unit).toContain(`WorkingDirectory=${run.install}`);
+    expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "telemetry_forwarder.py")}"`);
+    expect(unit).toContain(`ReadWritePaths="${run.install}"`);
     expect(unit).not.toContain("test-secret");
     expect(unit).not.toContain("Environment=MAVLINK_URL");
+    verifyUnits(run.units, ["telemetry-forwarder.service"]);
     const env = readFileSync(run.envFile, "utf8");
     expect(env).toContain("retained comment");
     expect(env).toContain("UNRELATED=preserve-me");
@@ -142,10 +168,14 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     const run = mockInstallation("install_logs_ota.sh", "\n".repeat(30));
     expect(run.result.status, run.result.stderr + run.result.stdout).toBe(0);
     const unit = readFileSync(join(run.units, "logs-ota.service"), "utf8");
-    expect(unit).toContain(`WorkingDirectory="${run.install}"`);
+    expect(unit).toContain(`WorkingDirectory=${run.install}`);
+    expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
     expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "logs_ota_service.py")}"`);
+    expect(unit).toContain(`ReadWritePaths="${run.install}" "${join(run.root, "fc logs")}" /tmp`);
     expect(unit).not.toContain("--api-key");
     expect(unit).not.toContain("10.42.0.51");
+    verifyUnits(run.units, ["logs-ota.service"]);
     expect(existsSync(join(run.install, "firmware_puller.lua"))).toBe(true);
   });
   it("supports rerunning a secondary installer directly from its installed directory", () => {
