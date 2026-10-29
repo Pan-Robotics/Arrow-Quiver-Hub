@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { buildCompanionEnvironment, companionDefaults, defaultFcWebserverUrl, formatEnvironmentValue } from "@/lib/companionEnvironment";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -310,9 +311,13 @@ export default function DroneConfig() {
       `# ═══════════════════════════════════════════════════════`,
       ``,
       `# ─── Core Connection ────────────────────────────────────`,
-      `QUIVER_HUB_URL=${baseUrl}`,
-      `QUIVER_DRONE_ID=${selectedDrone}`,
-      `QUIVER_API_KEY=${key}`,
+      buildCompanionEnvironment({ hubUrl: baseUrl, droneId: selectedDrone, apiKey: activeKey?.key }),
+      ``,
+      `# ─── Legacy aliases / custom-client endpoint reference ──`,
+      `# Standard companion services use HUB_URL/WEB_SERVER_URL, DRONE_ID, API_KEY above.`,
+      `QUIVER_HUB_URL=${formatEnvironmentValue(baseUrl)}`,
+      `QUIVER_DRONE_ID=${formatEnvironmentValue(selectedDrone)}`,
+      `QUIVER_API_KEY=${formatEnvironmentValue(key)}`,
       ``,
       `# ─── REST API: Core Data Pipelines ──────────────────────`,
       `# POST — Ingest RPLidar point cloud scans`,
@@ -385,9 +390,9 @@ export default function DroneConfig() {
       `# ─── FC Web Server (ArduPilot net_webserver.lua) ─────────`,
       `# HTTP server running on the flight controller for log access`,
       `# See docs/ARDUPILOT_WEBSERVER_SETUP.md for setup guide`,
-      `FC_WEBSERVER_URL=http://192.168.144.20:8080`,
-      `# Local cache directory for FC logs synced by FCLogSyncer`,
-      `FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs`,
+      `# Default derived endpoint: ${defaultFcWebserverUrl}`,
+      `# Change FC_IP / FC_WEBSERVER_PORT above; leave FC_WEBSERVER_URL commented.`,
+      `# LOG_STORE_DIR above is the canonical FCLogSyncer cache directory.`,
     ];
     return lines.join("\n");
   }, [baseUrl, selectedDrone, activeKey]);
@@ -1087,10 +1092,10 @@ export default function DroneConfig() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-muted-foreground">FC Web Server URL</p>
                         <div className="flex items-center gap-1.5">
-                          <code className="text-xs font-mono break-all">http://192.168.144.20:8080</code>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard("http://192.168.144.20:8080", "FC Web Server URL")}><Copy className="w-3 h-3" /></Button>
+                          <code className="text-xs font-mono break-all">{defaultFcWebserverUrl}</code>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(defaultFcWebserverUrl, "FC Web Server URL")}><Copy className="w-3 h-3" /></Button>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">ArduPilot net_webserver.lua — see setup guide</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Default derived from FC_IP and FC_WEBSERVER_PORT in .env — see setup guide</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3 p-2 bg-muted/20 rounded-lg">
@@ -1098,10 +1103,10 @@ export default function DroneConfig() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-muted-foreground">FC Log Store Directory</p>
                         <div className="flex items-center gap-1.5">
-                          <code className="text-xs font-mono break-all">/var/lib/quiver/fc_logs</code>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard("/var/lib/quiver/fc_logs", "FC Log Store Dir")}><Copy className="w-3 h-3" /></Button>
+                          <code className="text-xs font-mono break-all">{companionDefaults.LOG_STORE_DIR}</code>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(companionDefaults.LOG_STORE_DIR, "FC Log Store Dir")}><Copy className="w-3 h-3" /></Button>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Local cache for FCLogSyncer background sync</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">LOG_STORE_DIR — local cache for FCLogSyncer background sync</p>
                       </div>
                     </div>
                   </div>
@@ -1121,6 +1126,12 @@ export default function DroneConfig() {
                 <pre className="text-xs font-mono bg-muted/50 border rounded-lg p-3 overflow-x-auto whitespace-pre max-h-[400px] overflow-y-auto">
                   {envSnippet}
                 </pre>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Save as .env in your chosen companion installation folder and keep it private.
+                  Installers fill in portable paths; the network remains static (no DHCP on the Pi).
+                  Change IP/port settings above rather than uncommenting derived URL overrides, then restart affected services.
+                  For firmware pulling, regenerate firmware_puller.param and import it through your GCS after target changes.
+                </p>
               </div>
             </CardContent>
           </Card>

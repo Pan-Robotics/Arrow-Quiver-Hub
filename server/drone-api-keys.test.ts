@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
+import { buildCompanionEnvironment } from "../client/src/lib/companionEnvironment";
 
 // Mock the db module
 vi.mock("./db", () => ({
@@ -245,10 +246,11 @@ describe("Connection Info Generation", () => {
   const droneId = "quiver_001";
   const apiKey = "test-key-123";
 
-  // Helper that mirrors the envSnippet logic in DroneConfig.tsx
+  // Endpoint-reference fixture plus the production companion defaults generator.
   function buildEnvSnippet(base: string, drone: string, key: string) {
     const wsUrl = base.replace("http", "ws");
     return [
+      buildCompanionEnvironment({ hubUrl: base, droneId: drone, apiKey: key }),
       `QUIVER_HUB_URL=${base}`,
       `QUIVER_DRONE_ID=${drone}`,
       `QUIVER_API_KEY=${key}`,
@@ -275,8 +277,6 @@ describe("Connection Info Generation", () => {
       `QUIVER_JOBS_ACK_ENDPOINT=${base}/api/trpc/droneJobs.acknowledgeJob`,
       `QUIVER_JOBS_COMPLETE_ENDPOINT=${base}/api/trpc/droneJobs.completeJob`,
       `QUIVER_JOBS_FAIL_ENDPOINT=${base}/api/trpc/droneJobs.failJob`,
-      `FC_WEBSERVER_URL=http://192.168.144.20:8080`,
-      `FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs`,
     ].join("\n");
   }
 
@@ -331,8 +331,10 @@ describe("Connection Info Generation", () => {
 
   it("should include FC web server configuration", () => {
     const env = buildEnvSnippet(baseUrl, droneId, apiKey);
-    expect(env).toContain("FC_WEBSERVER_URL=http://192.168.144.20:8080");
-    expect(env).toContain("FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs");
+    expect(env).toContain("FC_IP=192.168.144.51");
+    expect(env).toContain("FC_WEBSERVER_PORT=8080");
+    expect(env).toContain("LOG_STORE_DIR=/var/lib/quiver/fc_logs");
+    expect(env).not.toMatch(/^FC_WEBSERVER_URL=/m);
   });
 
   it("should handle http to ws conversion correctly", () => {
@@ -384,8 +386,10 @@ describe("DroneConfig .env UI — comprehensive endpoint reference", () => {
 
   it("DroneConfig.tsx envSnippet contains FC web server config", () => {
     const source = fs.readFileSync("./client/src/pages/DroneConfig.tsx", "utf-8");
-    expect(source).toContain("FC_WEBSERVER_URL=http://192.168.144.20:8080");
-    expect(source).toContain("FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs");
+    expect(source).toContain("buildCompanionEnvironment");
+    expect(source).toContain("defaultFcWebserverUrl");
+    expect(source).toContain("LOG_STORE_DIR");
+    expect(source).not.toContain("192.168.144.20:8080");
     expect(source).toContain("ARDUPILOT_WEBSERVER_SETUP.md");
   });
 

@@ -1465,3 +1465,18 @@ Execution plan: audit configuration → implement shared path/network configurat
 - [x] Save a checkpoint and deliver the updated companion suite and installation instructions.
 
 Validation: 1,027 tests passed across 28 Vitest files; TypeScript, Python AST syntax, Bash syntax, and git diff whitespace checks passed. Installer tests stub package, service, network-download, and Tailscale operations and use temporary paths; no companion hardware was accessed. The distributable template is companion-config.example; installers generate the target computer's .env. FC Lua uses an explicit GCS import of the generated firmware_puller.param, never the Pi filesystem. GitHub export/push has not been performed; --local supports installing the delivered bundle until the source repository is updated. Mission Planner remains design-only.
+
+
+## Drone Configuration Companion Defaults (2026-10-29)
+
+Scope: update the generated companion configuration displayed/copied in Drone Configuration, not the managed web application's environment or any deployed companion settings.
+
+Plan: reuse the companion configuration template → inject the selected drone, active API key, and Hub URL → preserve endpoint references and explain derived network URLs → regression tests and browser verification → checkpoint.
+
+- [x] Generate the UI snippet from companion-config.example using the canonical HUB_URL/WEB_SERVER_URL, DRONE_ID, and API_KEY keys.
+- [x] Include all new network, port, timing, safety, and portable-path defaults, without pinning derived FC/RTSP URLs.
+- [x] Preserve existing endpoint references and copying, and update the card's save/restart guidance.
+- [x] Add and run Vitest coverage for template parity, identity injection, endpoint references, and safe literal values; check TypeScript and browser rendering.
+- [x] Save a checkpoint for the updated Drone Configuration snippet.
+
+Validation: 1,035 tests passed in 29 files, including 8 new configuration regressions and a round-trip through the actual Python loader. TypeScript, production build, and git whitespace checks passed. Logged-in browser inspection confirmed the new defaults and selected drone/active key in the displayed .env, plus the Copy .env control. No database, managed web-app environment, deployed companion settings, or Mission Planner implementation changes were made.
