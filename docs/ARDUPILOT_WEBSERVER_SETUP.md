@@ -1,203 +1,97 @@
 # ArduPilot net_webserver.lua Setup Guide
 
-**Version:** April 2026
-**Author:** Pan Robotics
+**Updated:** October 2026 | **Author:** Pan Robotics
 
-This guide covers how to enable and configure the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) Lua scripting applet on your flight controller. The Quiver Hub Logs & OTA pipeline uses this web server as the **primary FC log access path** — the `FCLogSyncer` class on the companion computer downloads `.BIN` log files from the FC over HTTP instead of blocking the MAVLink connection with MAVFTP.
+Quiver's Logs & OTA service uses the flight controller's `net_webserver.lua` applet for HTTP log discovery and download. The FC runs the Lua applet; the companion computer runs the Python services and reads their configuration from one shared `.env`.
 
----
+## Prerequisites
 
-## 1. Prerequisites
+Use an ArduPilot flight controller with Lua scripting, a networking interface, an SD card, and enough scripting heap for the applets you enable. The FC and companion must be on the same network segment. Confirm the parameter names and networking support against the firmware installed on your board.
 
-The `net_webserver.lua` applet requires a flight controller with both **Lua scripting support** and a **networking interface** (Ethernet or WiFi). The table below summarizes the hardware and firmware requirements.
+The Quiver network is flat and static. Do not install a DHCP server on the Pi because of Siyi firmware conflicts. The supplied defaults are FC `192.168.144.51`, companion `192.168.144.49`, and CubeNode `192.168.144.50` on `192.168.144.0/24`. Siyi reserves `.11`, `.12`, `.20`, `.25`, and `.60`; do not assign them to the FC or payloads. Payloads use `.100`–`.199`. These are editable defaults in the companion suite's `companion-config.example`, not runtime literals.
 
-| Requirement | Details |
-|---|---|
-| Firmware | ArduPilot 4.4+ (Copter, Plane, or Rover) with Lua scripting compiled in |
-| Processor | STM32H7 or higher recommended (STM32F4 boards lack sufficient RAM for networking + scripting) |
-| Networking | Onboard Ethernet (CubeOrange+, CubePilot H7, Pixhawk 6X) or WiFi-capable board |
-| SD Card | Required for storing scripts and serving log files |
-| RAM | Minimum 80 KB free; `SCR_HEAP_SIZE` of 200 KB+ recommended when running `net_webserver.lua` alongside other applets |
+## Enable and install the FC applet
 
-> **Note:** The FC and the companion computer (Raspberry Pi) must be on the **same network segment**. A direct Ethernet cable between the FC and the Pi is the most reliable configuration for field use.
+Enable Lua scripting with `SCR_ENABLE=1`. Allocate appropriate scripting memory (`SCR_HEAP_SIZE`; 200000 is a starting point for the webserver) and instruction budget (`SCR_VM_I_COUNT`, where supported). Reboot after changing scripting settings.
 
----
+Download [net_webserver.lua from ArduPilot](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) and copy it to `APM/scripts/` on the FC SD card using the GCS MAVFTP browser or direct SD-card access. Reboot to load the applet. The hub installer downloads the companion suite's Lua files to the Pi only; it does not install anything on the FC.
 
-## 2. Step-by-Step Setup
+Configure the applet's `WEB_*` parameters after it loads:
 
-### 2.1 Enable Lua Scripting
-
-Connect to the flight controller using Mission Planner, QGroundControl, or MAVProxy and set the following parameters:
-
-| Parameter | Value | Purpose |
+| Parameter | Example value | Purpose |
 |---|---|---|
-| `SCR_ENABLE` | `1` | Enable the Lua scripting engine |
-| `SCR_VM_I_COUNT` | `1000000` | Increase the VM instruction count for the web server's network I/O loops [1] |
-| `SCR_HEAP_SIZE` | `200000` | Allocate 200 KB of heap memory for scripts (adjust upward if running multiple applets) |
+| `WEB_ENABLE` | `1` | Enable HTTP service |
+| `WEB_BIND_PORT` | `8080` | Match the companion's `FC_WEBSERVER_PORT` |
+| `WEB_BLOCK_SIZE` | `4096` | File read block size; adjust for available memory |
+| `WEB_TIMEOUT` | `10` | Inactive client timeout, in seconds |
 
-After setting these parameters, **reboot the flight controller**. On reboot, ArduPilot creates the `APM/scripts/` directory on the SD card if it does not already exist [2].
+Configure the FC's Ethernet interface for the selected static address and `/24` mask using the networking parameters provided by your ArduPilot firmware. Configure the Pi's host interface separately for the matching `COMPANION_IP`. The companion installers do not assign interface addresses, gateways, or firewall rules. Reboot the FC after applying its settings.
 
-### 2.2 Copy the Applet to the SD Card
+## Configure the companion
 
-Download `net_webserver.lua` from the [ArduPilot repository](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) and copy it to the `APM/scripts/` directory on the FC's SD card. There are three ways to do this:
+Run `bash install_hub_client.sh` first. It downloads the complete companion folder from the default GitHub path (or another folder you enter), asks for a real service user and preferred installation directory, and creates `.env` there. Existing `forwarder.env` settings are migrated without overwriting an existing `.env`.
 
-**Option A — MAVFTP (recommended for in-field setup):**
-Use Mission Planner's MAVFTP file browser or MAVProxy's `ftp` module to upload the file directly over the MAVLink connection:
+The relevant settings are:
 
+```dotenv
+FC_IP=192.168.144.51
+FC_WEBSERVER_PORT=8080
+COMPANION_IP=192.168.144.49
+LOG_STORE_DIR=/var/lib/quiver/fc_logs
 ```
-ftp put net_webserver.lua APM/scripts/net_webserver.lua
-```
 
-**Option B — Direct SD card access:**
-Remove the SD card from the flight controller, mount it on a computer, and copy `net_webserver.lua` into the `APM/scripts/` folder.
+The Python configuration helper derives `FC_WEBSERVER_URL` from the IP and port. Leave that URL unset unless you need a deliberate override. For Ethernet MAVLink, select TCP in the OTA installer or set `FC_CONNECTION=tcp`; it resolves from `FC_IP` and `FC_MAVLINK_TCP_PORT`. Serial connection strings and explicit URLs are still supported.
 
-**Option C — Quiver Hub file upload:**
-Use the Drone Configuration panel in Quiver Hub to upload `net_webserver.lua` as a file delivery job. The Hub Client on the Pi will download it, and you can then use `scp` to copy it to the FC's SD card mount point.
-
-After copying the file, **reboot the flight controller** again. The scripting engine loads all `.lua` files from `APM/scripts/` on boot.
-
-### 2.3 Configure the Web Server Parameters
-
-After the reboot with `net_webserver.lua` loaded, the `WEB_*` parameters become available [3]. Set the following:
-
-| Parameter | Value | Purpose |
-|---|---|---|
-| `WEB_ENABLE` | `1` | Enable the web server |
-| `WEB_BIND_PORT` | `8080` | TCP port the server listens on (default is 8080; change only if there is a port conflict) |
-| `WEB_BLOCK_SIZE` | `4096` | Block size for file read/write operations (larger values improve throughput at the cost of memory) |
-| `WEB_TIMEOUT` | `10` | Timeout in seconds for inactive client connections |
-
-**Reboot one final time** to apply the web server configuration.
-
-### 2.4 Configure FC Networking
-
-If your flight controller uses Ethernet (the most common configuration for companion computer setups), ensure the networking parameters are set correctly:
-
-| Parameter | Value | Purpose |
-|---|---|---|
-| `NET_ENABLE` | `1` | Enable the networking stack |
-| `NET_IPADDR0`–`NET_IPADDR3` | e.g., `192.168.144.20` | Static IP address for the FC's Ethernet interface |
-| `NET_NETMASK` | `24` | Subnet mask (255.255.255.0) |
-| `NET_GWADDR0`–`NET_GWADDR3` | e.g., `192.168.144.1` | Default gateway (optional for direct Pi connection) |
-
-The companion computer (Raspberry Pi) should be configured with a static IP on the same subnet — for example, `192.168.144.10` with a `/24` netmask.
-
----
-
-## 3. Verification
-
-After completing the setup and rebooting, verify the web server is running by performing these checks from the companion computer.
-
-### 3.1 HTTP Connectivity Test
-
-From the Raspberry Pi, run:
+Install the service from the folder you selected:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://192.168.144.20:8080/
+sudo bash install_logs_ota.sh
 ```
 
-A response of `200` confirms the web server is serving the SD card root. If the connection times out, check the Ethernet cable, IP addresses, and firewall rules.
-
-### 3.2 Log Directory Listing
-
-Verify that the FC's log directory is accessible:
+The generated systemd unit loads the same `.env`; it does not embed IP addresses or API keys into `ExecStart`. After changing network settings, restart the service:
 
 ```bash
-curl -s http://192.168.144.20:8080/mnt/APM/LOGS/
+sudo systemctl restart logs-ota
 ```
 
-This should return an HTML directory listing of `.BIN` and/or `.log` files. The `FCLogSyncer` class parses this HTML listing to discover new log files.
+If the installation folder or `LOG_STORE_DIR` changes, rerun the installer to regenerate `WorkingDirectory`, script paths, and `ReadWritePaths`.
 
-### 3.3 Log File Download
+## Verify using the configured endpoint
 
-Test downloading a specific log file:
+From the installation folder, read the endpoint as data with the Python helper. Do not `source` `.env` as shell code:
 
 ```bash
-curl -s -o /tmp/test_log.BIN http://192.168.144.20:8080/mnt/APM/LOGS/00000001.BIN
-ls -la /tmp/test_log.BIN
+FC_URL=$(python3 companion_config.py get .env FC_WEBSERVER_URL)
+
+# GET is intentional: the Lua webserver need not implement HEAD.
+curl -s -o /dev/null -w '%{http_code}\n' "$FC_URL/"
+
+# List logs (mount paths vary by FC firmware/board).
+curl -s "$FC_URL/mnt/APM/LOGS/"
+
+# Download one known log.
+curl -f -o /tmp/test_log.BIN "$FC_URL/mnt/APM/LOGS/00000001.BIN"
+ls -l /tmp/test_log.BIN
 ```
 
-If the file downloads successfully, the web server is fully operational and ready for the Quiver Hub pipeline.
+A root HTTP response of `200` confirms reachability. Check the actual listing and mount path on your FC before downloading logs. The Hub FC Logs tab also shows the webserver health status once the companion reports diagnostics.
 
-### 3.4 Quiver Hub Health Indicator
+`FCLogSyncer` periodically scans while disarmed and maintains a local manifest. It does not automatically download every new log. User requests use local cache first, then HTTP, with MAVFTP fallback for log access when HTTP is unavailable.
 
-Once the Logs & OTA companion service is running, the Quiver Hub dashboard displays an **FC Web Server** health indicator in the FC Logs tab. This indicator shows:
+## Troubleshooting
 
-| Status | Meaning |
-|---|---|
-| **Reachable** (green) | HTTP ping to the FC web server succeeded; latency is displayed |
-| **Unreachable** (red) | HTTP ping failed; check network connectivity and `WEB_ENABLE` parameter |
-| **Unknown** (gray) | No health check data received yet (companion may not be connected) |
+If `WEB_*` parameters do not appear, inspect the GCS messages for Lua errors. Check the script path, firmware scripting support, and heap allocation, then reboot.
 
----
+If HTTP times out, compare the actual FC/Pi interface settings with `.env`. Changing `.env` changes connection targets; it does not configure the hardware. Check cables, the subnet mask, firewall rules, `WEB_ENABLE`, and the matching FC/companion HTTP ports.
 
-## 4. Quiver Hub Integration
+If a directory listing is empty, inspect the SD card's actual HTTP root and mount paths. If downloads are slow, inspect link speed and scripting resources before changing `WEB_BLOCK_SIZE`.
 
-The Quiver Hub `logs_ota_service.py` companion script uses the FC web server as follows:
+If you change the FC's `WEB_BIND_PORT`, update `FC_WEBSERVER_PORT` in `.env` and restart `logs-ota`. An explicit `FC_WEBSERVER_URL` overrides that derivation, so update or remove it too.
 
-The `FCLogSyncer` class runs a 60-second background sync loop (only when the drone is **disarmed**) that parses the HTML directory listing from `http://<fc_ip>:8080/mnt/APM/LOGS/`, compares file sizes and modification times against a local JSON manifest, and downloads new or changed `.BIN` files using `If-Modified-Since` headers to a local cache directory (`/var/lib/quiver/fc_logs/` by default).
-
-When the user triggers a **scan** or **download** from the Quiver Hub dashboard, the job handler uses a three-tier resolution strategy:
-
-| Tier | Source | Speed | Notes |
-|---|---|---|---|
-| 1 | Local cache | Instant | Files already synced by `FCLogSyncer` |
-| 2 | HTTP via `net_webserver.lua` | Fast | Direct HTTP download from FC, also populates the local cache |
-| 3 | MAVFTP fallback | Slow | Used only when the web server is unreachable; blocks the MAVLink connection |
-
-### Companion Script Configuration
-
-The `logs_ota_service.py` script accepts two CLI arguments for configuring the FC web server connection:
-
-```bash
-python3 logs_ota_service.py \
-    --hub-url https://your-hub.manus.space \
-    --drone-id quiver_001 \
-    --api-key YOUR_API_KEY \
-    --fc-connection serial:///dev/ttyAMA1:921600 \
-    --fc-webserver-url http://192.168.144.20:8080 \
-    --log-store-dir /var/lib/quiver/fc_logs/
-```
-
-| Argument | Default | Purpose |
-|---|---|---|
-| `--fc-webserver-url` | `http://192.168.144.20:8080` | URL of the ArduPilot `net_webserver.lua` HTTP server |
-| `--log-store-dir` | `/var/lib/quiver/fc_logs/` | Local directory for cached FC log files |
-
----
-
-## 5. Troubleshooting
-
-### Script Not Loading
-
-If the `WEB_*` parameters do not appear after reboot, the script failed to load. Check the following:
-
-The GCS messages log (Mission Planner's Messages tab or MAVProxy console) will show scripting errors on boot. Common causes include insufficient `SCR_HEAP_SIZE` (increase to 250000 or higher), the script file being in the wrong directory (must be `APM/scripts/`, not `scripts/` or the SD card root), or a firmware build that does not include the Lua scripting module (`AP_SCRIPTING_ENABLED` must be set in the build).
-
-### Web Server Unreachable
-
-If `curl` to the FC IP times out, verify the physical connection first. For direct Ethernet between the Pi and FC, ensure the cable is connected and both devices have static IPs on the same subnet. Run `ping 192.168.144.20` from the Pi to confirm Layer 3 connectivity. If ping works but HTTP does not, confirm `WEB_ENABLE = 1` and `WEB_BIND_PORT = 8080`, then reboot the FC.
-
-### Empty Directory Listing
-
-If the HTTP request to `/mnt/APM/LOGS/` returns an empty listing but you know logs exist, the SD card may not be mounted at the expected path. The `net_webserver.lua` applet serves the SD card root as `/`, so the logs directory is at `/mnt/APM/LOGS/` relative to the SD card root. On some boards, the mount point differs — check the ArduPilot documentation for your specific hardware.
-
-### Slow Downloads
-
-If log file downloads are significantly slower than expected, try increasing `WEB_BLOCK_SIZE` to `8192` or `16384`. Larger block sizes reduce the number of read/write system calls at the cost of additional memory. Also ensure the Ethernet link is running at full speed (100 Mbps for most FC Ethernet interfaces).
-
-### Port Conflicts
-
-If another service on the FC is using port 8080, change `WEB_BIND_PORT` to an alternative (e.g., `8081`) and update the `--fc-webserver-url` argument in the companion script accordingly:
-
-```bash
---fc-webserver-url http://192.168.144.20:8081
-```
-
----
+For Approach C OTA, the FC's `firmware_puller.lua` cannot read the Pi's `.env`. The hub/OTA installers generate `firmware_puller.param` from `COMPANION_IP` and `FIRMWARE_SERVER_PORT` (default 8070). Import it through the GCS to set `FWPULL_PI_IP0`–`FWPULL_PI_IP3` and `FWPULL_PORT`, then verify the values before manually enabling `FWPULL_ENABLE`. Regenerate/reimport after those `.env` settings change. New Lua IP defaults are deliberately unset; existing saved FC parameters persist until changed. This is a different server from the FC log webserver. See `companion_scripts/OTA_Setup_Guide.md` for the full setup.
 
 ## References
 
 [1]: https://ardupilot.org/copter/docs/common-lua-scripts.html "ArduPilot Lua Scripts Documentation"
 [2]: https://ardupilot.org/copter/docs/common-scripting-step-by-step.html "ArduPilot Script Setup and Use Examples"
-[3]: https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.md "ArduPilot net_webserver.md — Web Server Application"
+[3]: https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.md "ArduPilot Web Server Application"

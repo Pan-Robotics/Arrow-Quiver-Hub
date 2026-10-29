@@ -1,35 +1,31 @@
 # =============================================================================
-# Quiver Hub – Logs & OTA Service (systemd unit file)
+# Quiver Hub — Logs & OTA Service (systemd unit TEMPLATE)
 # =============================================================================
-# This is a TEMPLATE. Replace all *_PLACEHOLDER values before use.
-# The install_logs_ota.sh script generates this file automatically with
-# your actual values — you should not need to edit this manually.
+# Render this template with its installer. It must not be copied directly.
+# Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
+# SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 #
-# To install:  sudo ./install_logs_ota.sh
-# To update:   sudo ./install_logs_ota.sh  (re-run, it upgrades in place)
-# To remove:   sudo ./install_logs_ota.sh --uninstall
-# =============================================================================
+# This template intentionally does not set User=/Group=. The existing Logs & OTA
+# installer owns that privilege decision; leaving the directives commented keeps
+# its current root behavior unchanged while exposing the portable placeholders.
+# User=SERVICE_USER_PLACEHOLDER
+# Group=SERVICE_GROUP_PLACEHOLDER
 
 [Unit]
-Description=Quiver Hub – Logs & OTA Service
-Documentation=https://github.com/Pan-Robotics/Feather-Companion-Computer
+Description=Quiver Hub — Logs & OTA Service
+Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-# User=SERVICE_USER_PLACEHOLDER
-# Group=SERVICE_USER_PLACEHOLDER
-WorkingDirectory=/home/SERVICE_USER_PLACEHOLDER
-ExecStart=/usr/bin/python3 /home/SERVICE_USER_PLACEHOLDER/companion_scripts/logs_ota_service.py \
-    --hub-url HUB_URL_PLACEHOLDER \
-    --drone-id DRONE_ID_PLACEHOLDER \
-    --api-key API_KEY_PLACEHOLDER \
-    --fc-connection FC_CONNECTION_PLACEHOLDER \
-    --fc-webserver-url http://192.168.144.10:8080 \
-    --log-store-dir /var/lib/quiver/fc_logs \
-    --poll-interval 5 \
-    --diagnostics-interval 10
+WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+EnvironmentFile=ENV_FILE_PLACEHOLDER
+Environment=ENV_ASSIGNMENT_PLACEHOLDER
+Environment=PYTHONUNBUFFERED=1
+# logs_ota_service.py loads deployment settings from the shared .env at runtime.
+# Keep ExecStart free of Hub credentials, URLs, and FC network values.
+ExecStart=/usr/bin/python3 LOGS_OTA_SCRIPT_PLACEHOLDER
 Restart=always
 RestartSec=5
 StartLimitIntervalSec=60
@@ -37,13 +33,8 @@ StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=logs-ota
-
-# Environment
-Environment=PYTHONUNBUFFERED=1
-
-# Security hardening
 ProtectSystem=strict
-ReadWritePaths=/tmp /home/SERVICE_USER_PLACEHOLDER /var/lib/quiver/fc_logs
+ReadWritePaths=/tmp INSTALL_DIR_PLACEHOLDER /var/lib/quiver/fc_logs
 PrivateTmp=true
 NoNewPrivileges=true
 

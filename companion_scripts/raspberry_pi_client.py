@@ -24,6 +24,10 @@ from typing import Dict, List, Optional
 from urllib.parse import urljoin
 
 import requests
+from companion_config import load_environment
+
+
+CONFIG = load_environment()
 
 # Configure logging
 logging.basicConfig(
@@ -277,7 +281,9 @@ class QuiverHubClient:
         try:
             payload = job.get('payload', {})
             config_data = payload.get('config', {})
-            config_file = payload.get('configFile', '/home/alexd/config/quiver_config.json')
+            config_file = payload.get(
+                'configFile', str(Path(CONFIG['CONFIG_DIR']) / 'quiver_config.json')
+            )
             
             logger.info(f"Updating config file: {config_file}")
             
@@ -376,28 +382,27 @@ Examples:
     )
     
     parser.add_argument(
-        '--server',
-        required=True,
-        help='Quiver Hub server URL (e.g., https://your-server.com)'
+        '--server', '--hub-url', dest='server', default=CONFIG.get('HUB_URL', ''),
+        help='Quiver Hub server URL (or HUB_URL/WEB_SERVER_URL in the environment)'
     )
     
     parser.add_argument(
         '--drone-id',
-        required=True,
-        help='Unique identifier for this drone (e.g., quiver_001)'
+        default=CONFIG.get('DRONE_ID', ''),
+        help='Unique identifier for this drone (or DRONE_ID in the environment)'
     )
     
     parser.add_argument(
         '--api-key',
-        required=True,
-        help='API key for authentication'
+        default=CONFIG.get('API_KEY', ''),
+        help='API key for authentication (or API_KEY in the environment)'
     )
     
     parser.add_argument(
         '--poll-interval',
         type=int,
-        default=5,
-        help='How often to poll for jobs in seconds (default: 5)'
+        default=int(CONFIG.get('POLL_INTERVAL', '5')),
+        help='How often to poll for jobs in seconds (default: POLL_INTERVAL)'
     )
     
     parser.add_argument(
@@ -413,6 +418,14 @@ Examples:
     )
     
     args = parser.parse_args()
+
+    for option, value, environment_key in (
+        ('--server/--hub-url', args.server, 'HUB_URL or WEB_SERVER_URL'),
+        ('--drone-id', args.drone_id, 'DRONE_ID'),
+        ('--api-key', args.api_key, 'API_KEY'),
+    ):
+        if not value:
+            parser.error(f'{option} is required; provide it or set {environment_key}')
     
     # Set log level
     if args.debug:

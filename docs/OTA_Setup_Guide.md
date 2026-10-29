@@ -1,231 +1,178 @@
-# Quiver OTA Firmware Update — Setup & Implementation Guide
+# Quiver OTA Firmware Update — Setup Guide
 
-## Overview
+This guide configures firmware delivery from Quiver Hub through a Raspberry Pi companion to an ArduPilot flight controller. It uses the companion suite's portable shared `.env` and FC-side ArduPilot parameters; the FC cannot read files from the Pi.
 
-Remote Over-The-Air (OTA) firmware updates for the Pixhawk 6C flight controller via the onboard Raspberry Pi companion computer. Firmware is pushed from the Quiver Hub dashboard, downloaded by the Pi, and pulled by the FC at Ethernet speed (~650 KB/s). Total flash time: **~33 seconds** from job trigger to verified reboot.
+## Architecture
 
-### Architecture
-
-```
-Hub Dashboard → (HTTPS) → Pi downloads .abin
-                           Pi serves on HTTP :8070
-FC (firmware_puller.lua) → (HTTP GET) → pulls from Pi :8070
-                           writes to /APM/ardupilot.abin
-Pi sends MAVLink reboot → FC reboots
-                           Bootloader flashes firmware
-Pi polls FC webserver   → FC back online → "completed"
+```text
+Quiver Hub -- HTTPS --> companion downloads firmware
+                         companion HTTP server (:8070 by default)
+Flight controller -- HTTP GET --> firmware_puller.lua pulls firmware
+                         writes /APM/ardupilot.abin
+companion -- MAVLink --> request reboot
+flight controller bootloader flashes firmware
 ```
 
----
+The Logs & OTA service also provides FC-log synchronization, diagnostics, and remote journal streaming.
 
-## FC Parameters Modified
+## Install the companion service
 
-### Scripting (required for Lua scripts)
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `SCR_ENABLE` | `1` | Enable Lua scripting engine. **Requires reboot after setting.** |
-| `SCR_HEAP_SIZE` | `204800` | 200KB heap for Lua VM (default may be too small with multiple scripts) |
-
-### Firmware Puller (firmware_puller.lua)
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `FWPULL_ENABLE` | `1` | Enable firmware polling from companion Pi |
-| `FWPULL_PI_IP0` | `192` | Pi IP address octet 1 |
-| `FWPULL_PI_IP1` | `168` | Pi IP address octet 2 |
-| `FWPULL_PI_IP2` | `144` | Pi IP address octet 3 |
-| `FWPULL_PI_IP3` | `20` | Pi IP address octet 4 |
-| `FWPULL_PORT` | `8070` | Pi firmware server port |
-
-> **Important:** Set `FWPULL_PI_IPx` to the Pi's actual IP as seen from the FC. Verify with `hostname -I` on the Pi.
-
-### Web Server (net_webserver_put.lua)
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `WEB_ENABLE` | `1` | Enable Lua web server |
-| `WEB_BIND_PORT` | `8080` | Web server port |
-| `WEB_PUT_ENABLE` | `1` | Enable HTTP PUT uploads (not used in Tier 1, but available) |
-| `WEB_MAX_UPLOAD` | `16777216` | Max upload size: 16MB |
-
-### Networking (already configured for Quiver)
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `NET_ENABLE` | `1` | Required for all HTTP/TCP operations |
-
----
-
-## Pi Configuration
-
-### UFW Firewall Rule
-
-The FC must be able to connect to the Pi on port 8070. The Pi's UFW default INPUT policy is DROP, so an explicit allow rule is needed:
+First install the Hub-client bootstrap as the chosen non-root account:
 
 ```bash
-sudo ufw allow from 192.168.144.11 to any port 8070
+bash install_hub_client.sh
 ```
 
-Replace `192.168.144.11` with the FC's actual IP if different.
+It downloads the complete companion suite from the default source:
 
-### Python Dependencies
+```text
+https://github.com/Pan-Robotics/Arrow-Quiver-Hub/tree/main/companion_scripts
+```
+
+Press Enter to accept that source or enter an approved override. Then install Logs & OTA from the downloaded folder, selecting the same service user and installation directory used by the other companion services:
 
 ```bash
-pip install --break-system-packages mavsdk aiohttp python-socketio[asyncio_client] psutil requests
+sudo bash /chosen/folder/install_logs_ota.sh
 ```
 
----
+The installer uses the shared `INSTALL_DIR/.env`; it should not create a separate credential file. It may migrate legacy `forwarder.env` only when canonical `.env` does not exist, and it does not overwrite existing API credentials.
 
-## FC SD Card Layout
+### Shared configuration
 
-```
-APM/
-├── scripts/
-│   ├── firmware_puller.lua          ← Pulls firmware from Pi (Tier 1)
-│   ├── net_webserver_put.lua        ← Web server with PUT support
-│   └── relay_delayed_close.lua      ← (existing, unrelated)
-└── ardupilot.abin                   ← Firmware file (written by puller, consumed by bootloader)
-```
+The Pi configuration includes:
 
----
+```dotenv
+COMPANION_IP=192.168.144.49
+FC_IP=192.168.144.51
+NETWORK_SUBNET=192.168.144.0/24
 
-## Changes Made to logs_ota_service.py
+HUB_URL=https://hub.example
+DRONE_ID=quiver_001
+API_KEY=replace-this-secret
 
-### 1. Firmware Download Handler — Single Response Body
-
-**Problem:** aiohttp's `StreamResponse` with chunked writes caused `ClientConnectionResetError` because the FC's Lua VM reads at ~4KB/5ms and aiohttp's internal write pipeline times out when the receiver is slow.
-
-**Fix:** Replaced `StreamResponse` with a single `Response(body=firmware_data)`. The OS kernel's TCP stack handles flow control natively — proper TCP windowing and backpressure without application-level timeouts.
-
-```python
-# BEFORE (broken):
-response = aiohttp_web.StreamResponse(...)
-await response.prepare(request)
-for chunk in file:
-    await response.write(chunk)  # ← times out, resets connection
-
-# AFTER (working):
-with open(firmware_path, "rb") as f:
-    firmware_data = f.read()
-return aiohttp_web.Response(body=firmware_data, ...)  # ← kernel handles pacing
+FIRMWARE_SERVER_PORT=8070
+FC_WEBSERVER_PORT=8080
+# FC_WEBSERVER_URL=http://192.168.144.51:8080  # Optional whole-URL override
+FC_CONNECTION=serial:///dev/ttyAMA1:921600
 ```
 
-### 2. Tier 1 Only — Removed MAVFTP and HTTP PUT Fallbacks
+Use your provisioned static addresses if they differ, but keep the Pi configuration and FC parameters synchronized. The companion installers do **not** set DHCP, configure an interface, or change host network addressing. On the standard payload LAN, reserve `192.168.144.0/24`, the companion at `.49`, the FC at `.51`, SIYI at `.25`, and `.100`–`.199` for additional payload devices (start allocations at `.100`, `.101`, `.102`).
 
-**Problem:** MAVFTP operations (list_directory, remove_file, upload) corrupt the FTP sequence counter within a MAVSDK session. Once corrupted, all subsequent MAVFTP operations fail with `Ignore: last: X, req: Y` forever. HTTP PUT requires a custom Lua web server that conflicts with the stock one.
+After modifying the file, restart the service:
 
-**Fix:** Removed Tier 2 (HTTP PUT) and Tier 3 (MAVFTP) entirely. Flash jobs use only Tier 1 (FC HTTP pull via firmware_puller.lua). If the FC doesn't pull, the job fails with a diagnostic message listing what to check.
+```bash
+sudo systemctl restart logs-ota
+```
 
-### 3. No MAVFTP in Pre-Upload Cleanup
+## Flight-controller configuration
 
-**Problem:** The original code called `ftp.list_directory("/APM/")` and `ftp.remove_file()` to clean up old firmware files before upload. This corrupted the MAVFTP sequence counter, causing all subsequent operations to fail.
+Copy `firmware_puller.lua` to the flight controller SD card under `APM/scripts/`. The Hub-client bootstrap or Logs & OTA installer generates `INSTALL_DIR/firmware_puller.param` from the shared `.env`; import that file through your GCS into the FC, including after upgrading an installation with existing saved FC parameters. The parameters are consumed by the firmware puller script; they are not environment variables.
 
-**Fix:** Pre-upload cleanup only uses HTTP (checking via `_http_file_exists`). If HTTP is unavailable, cleanup is skipped entirely. The bootloader overwrites old files anyway.
+### Enable Lua scripting
 
-### 4. Automatic Reboot After Transfer
+| Parameter | Value | Notes |
+|---|---:|---|
+| `SCR_ENABLE` | `1` | Enables Lua scripting; reboot after changing it. |
+| `SCR_HEAP_SIZE` | `204800` | 200 KB heap for the Lua VM; adjust if several scripts need more memory. |
 
-**Problem:** After firmware transfer, the original code monitored for bootloader stage files (ardupilot-verify.abin, etc.) via HTTP polling. But these files only exist during the bootloader's flash process (during reboot), not while the FC is running.
+### Firmware puller parameters
 
-**Fix:** After successful transfer:
-1. Send MAVLink reboot command via `mavsdk.action.reboot()`
-2. Wait 5s for FC to go offline
-3. Poll FC webserver every 5s for up to 2 minutes
-4. Report "completed" when FC comes back online
-5. Falls back to "please reboot manually" if reboot command fails
+| Parameter | Standard reservation | Meaning |
+|---|---:|---|
+| `FWPULL_ENABLE` | `1` | Enables firmware polling. |
+| `FWPULL_PI_IP0` | `192` | First octet of `COMPANION_IP`. |
+| `FWPULL_PI_IP1` | `168` | Second octet of `COMPANION_IP`. |
+| `FWPULL_PI_IP2` | `144` | Third octet of `COMPANION_IP`. |
+| `FWPULL_PI_IP3` | `49` | Fourth octet of `COMPANION_IP`. |
+| `FWPULL_PORT` | `8070` | Must match `FIRMWARE_SERVER_PORT` in the Pi `.env`. |
 
-### 5. Early Exit Timeout 20s → 30s
+> `firmware_puller.lua` runs on the flight controller. It cannot load the Pi's `.env`. Import the generated `firmware_puller.param`, then manually set/verify `FWPULL_ENABLE=1`. If `COMPANION_IP` or `FIRMWARE_SERVER_PORT` changes, regenerate and import the file again:
+>
+> ```bash
+> python3 /chosen/folder/companion_config.py render-fc-params \
+>   /absolute/path/.env /absolute/path/firmware_puller.param
+> ```
 
-Gives the FC's firmware_puller.lua 6 poll cycles (5s each) instead of 4 to connect to the Pi's firmware server.
+### FC web server
 
----
+Logs & OTA uses the FC HTTP server for log synchronization and verification. Configure the appropriate web-server/Lua settings for your ArduPilot firmware, typically including:
 
-## Scripts (Latest Versions)
+| Parameter | Value | Notes |
+|---|---:|---|
+| `NET_ENABLE` | `1` | Enables FC networking. |
+| `WEB_ENABLE` | `1` | Enables the installed HTTP web server. |
+| `WEB_BIND_PORT` | `8080` | Matches `FC_WEBSERVER_PORT` in the companion configuration. |
 
-### firmware_puller.lua (FC — APM/scripts/)
+Confirm the FC web server address agrees with `FC_IP` and `FC_WEBSERVER_PORT` in `.env`.
 
-Debug version with GCS messages at every stage for troubleshooting:
+## Firewall and network checks
 
-- `FWPull: LOADED OK` at startup with IP/port/enable state
-- `FWPull: polling <ip>:<port> (cycle N)` every ~60s heartbeat
-- `FWPull: Pi unreachable (<reason>)` on connection failure
-- `FWPull: connecting / connected / send` at every TCP step
-- `FWPull: status HTTP <code>` and response body on status check
-- `FWPull: firmware ready (N KB), starting download` when firmware available
-- Download progress every 100KB
-- `FWPull: DONE — N KB → /APM/ardupilot.abin` on success
-- Stall detection: aborts after 30s with no data
+If UFW or another firewall is enabled on the companion, allow the FC to reach the firmware server. With the standard reservations:
 
-**Flow:**
-1. Polls `GET http://<pi_ip>:8070/firmware/status` every 5s
-2. If `{"ready": true, "size": N}`, connects to `/firmware/download`
-3. Writes response body to `/APM/ardupilot.abin` in 4KB chunks
-4. Sends `GET /firmware/ack` to signal completion
-5. Logs "reboot to flash firmware"
+```bash
+cd /your/chosen/install-folder
+FC_IP=$(python3 companion_config.py get .env FC_IP)
+FW_PORT=$(python3 companion_config.py get .env FIRMWARE_SERVER_PORT)
+sudo ufw allow from "$FC_IP" to any port "$FW_PORT" proto tcp
+```
 
-**Key parameters:** FWPULL_ENABLE, FWPULL_PI_IP0-3, FWPULL_PORT
+Adapt both address and port to `FC_IP` and `FIRMWARE_SERVER_PORT` when using a different approved network plan.
 
-### net_webserver_put.lua (FC — APM/scripts/)
+Verify from the companion:
 
-Extended version of ArduPilot's stock net_webserver.lua with HTTP PUT support:
+```bash
+# Shared configuration should contain the expected values
+python3 /chosen/folder/companion_config.py get /absolute/path/.env COMPANION_IP
+python3 /chosen/folder/companion_config.py get /absolute/path/.env FIRMWARE_SERVER_PORT
 
-- All stock GET functionality preserved (directory listing, file serving, CGI, SSI)
-- Added HTTP PUT method for file uploads to `/APM/` directory only
-- Security: path traversal prevention, size limits, `/APM/` restriction
-- PUT receive with progress logging every 100KB via GCS messages
-- Stall timeout: 30s with no data → abort + delete partial file
-- Multi-chunk reads per cycle for throughput (up to 512KB/cycle)
+# Check Logs & OTA
+sudo systemctl status logs-ota --no-pager
+sudo journalctl -u logs-ota -f
+```
 
-**Key parameters:** WEB_ENABLE, WEB_BIND_PORT, WEB_PUT_ENABLE, WEB_MAX_UPLOAD
+## Python dependencies
 
-> **Note:** Uses param table key 47 (`WEB_` prefix). If the ArduPilot firmware has a built-in C++ web server that also uses key 47, this script will fail to load. In that case, remove this script and use only firmware_puller.lua (Tier 1).
+The service installer handles dependencies. If troubleshooting an isolated Python environment manually, use the same package-management flag as the installers:
 
-### logs_ota_service.py (Pi — companion computer)
+```bash
+python3 -m pip install --break-system-packages mavsdk aiohttp 'python-socketio[asyncio_client]' psutil requests
+```
 
-Full service with:
+## Firmware update flow
 
-- **FC log sync** — background HTTP polling of FC webserver for .BIN log files
-- **FC log serving** — cached logs uploaded to Hub on request
-- **OTA firmware flash** — Approach C (FC HTTP pull) only
-- **System diagnostics** — CPU, memory, disk, temp, service status
-- **Remote log streaming** — journalctl → Socket.IO to browser
-- **Job queue** — polls Hub for pending flash/scan/download jobs
-
-**OTA flash flow:**
-1. Download .abin/.apj from Hub CDN
-2. Auto-convert .apj → .abin if needed (zlib decompress, MD5 header)
-3. SHA-256 integrity check against Hub's hash
-4. Start aiohttp server on :8070 serving the firmware
-5. Wait for FC to pull (30s early exit if no activity)
-6. Send MAVLink reboot command
-7. Poll FC webserver until back online (2 min timeout)
-8. Report completion to Hub
-
----
+1. An authorized operator uploads/selects firmware in Quiver Hub.
+2. Logs & OTA downloads the artifact and verifies its SHA-256 hash.
+3. The companion makes the artifact available from its firmware HTTP endpoint.
+4. `firmware_puller.lua` polls `http://<companion-ip>:<firmware-port>/firmware/status` and obtains the download when it is ready.
+5. The puller writes `/APM/ardupilot.abin` and acknowledges completion.
+6. The companion requests a MAVLink reboot and observes the FC returning online.
+7. The service reports completion/failure back to Hub and removes temporary artifacts.
 
 ## Troubleshooting
 
-### FC can't reach Pi (FWPull: connect failed)
-- Check UFW: `sudo ufw status | grep 8070`
-- Check Pi IP matches FWPULL_PI_IPx params
-- Test from Pi: `python3 -m http.server 8070` then watch FC Messages
+### `FWPull: connect failed` or Pi unreachable
 
-### firmware_puller.lua not loading
-- Check `SCR_ENABLE=1` (requires reboot)
-- Check file is in `APM/scripts/firmware_puller.lua`
-- Check for Lua errors: look for `SCR:` in Mission Planner Messages
-- Check param table conflict: if another script uses key 48, change it
+- Confirm the imported FC parameters `FWPULL_PI_IP0` … `FWPULL_PI_IP3` equal the four octets of the companion's configured `COMPANION_IP`.
+- Confirm `FWPULL_PORT` equals `FIRMWARE_SERVER_PORT`.
+- Confirm the companion uses the expected static address; do not expect the installer to configure it.
+- Check firewall rules, cable/VLAN configuration, and service status.
 
-### net_webserver_put.lua crashes
-- Param table key 47 conflict with built-in web server → remove the Lua script
-- `string.format` error on line 722 → cosmetic bug in progress logging (floats vs integers), doesn't affect functionality
+### FC has no firmware-puller messages
 
-### MAVFTP sequence corruption
-- Symptom: `Ignore: last: X, req: Y` repeating forever
-- Cause: any MAVFTP operation (list_directory, remove_file, upload) can corrupt the sequence
-- Fix: restart the logs-ota service for a fresh MAVSDK session
-- Prevention: the updated service never uses MAVFTP in the flash path
+- Confirm `SCR_ENABLE=1` and reboot the FC.
+- Confirm `firmware_puller.lua` is located at `APM/scripts/firmware_puller.lua` on the FC SD card.
+- Check GCS messages for Lua load/parameter-table errors.
 
-### Dashboard stuck at 65% / "Firmware file consumed but no stage transition"
-- Old behavior: monitored for bootloader stage files while FC was still running
-- Fix: updated service reboots FC and waits for it to come back instead
+### Logs & OTA fails to start
+
+```bash
+sudo systemctl status logs-ota --no-pager
+sudo journalctl -u logs-ota -n 100 --no-pager
+```
+
+Verify that the rendered service points to the intended shared `.env`, the Hub URL/Drone ID/API key are present, and the resolved FC connection and web-server URL agree with the network plan.
+
+## Related documentation
+
+- `companion_scripts/README.md` — suite installation order, shared configuration, and network reservations.
+- `companion_scripts/COMPANION_SERVICES.md` — service operations and troubleshooting.

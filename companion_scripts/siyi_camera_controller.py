@@ -13,7 +13,7 @@ via its TCP SDK protocol. It handles:
 Protocol Reference: SIYI Gimbal Camera External SDK Protocol V0.1.1
 
 Dependencies:
-    pip install 'python-socketio[asyncio_client]' aiohttp
+    python3 -m pip install --break-system-packages 'python-socketio[asyncio_client]' aiohttp
 
 Usage:
     python siyi_camera_controller.py --hub-url https://your-quiver-hub.com --drone-id quiver_001 --api-key YOUR_KEY
@@ -30,6 +30,11 @@ import signal
 from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 from enum import IntEnum
+from companion_config import load_environment
+
+
+# Resolve .env files before connection constants and CLI defaults are created.
+CONFIG = load_environment()
 
 # Configure logging
 logging.basicConfig(
@@ -42,9 +47,9 @@ logger = logging.getLogger('siyi_camera')
 # SIYI Protocol Constants
 # ============================================================================
 
-SIYI_CAMERA_IP = "192.168.144.25"
-SIYI_SDK_PORT = 37260
-SIYI_RTSP_PORT = 8554
+SIYI_CAMERA_IP = CONFIG.get("SIYI_CAMERA_IP", "")
+SIYI_SDK_PORT = int(CONFIG.get("SIYI_SDK_PORT", "37260"))
+SIYI_RTSP_PORT = int(CONFIG.get("SIYI_RTSP_PORT", "8554"))
 
 # Frame markers
 STX_LOW = 0x55
@@ -628,7 +633,7 @@ class CameraWebSocketBridge:
         except ImportError:
             logger.error(
                 "python-socketio package not installed. Run:\n"
-                "  pip install 'python-socketio[asyncio_client]' aiohttp"
+                "  python3 -m pip install --break-system-packages 'python-socketio[asyncio_client]' aiohttp"
             )
             return
         
@@ -794,21 +799,30 @@ class CameraWebSocketBridge:
 
 async def main():
     parser = argparse.ArgumentParser(description='SIYI A8 Mini Camera Controller')
-    parser.add_argument('--hub-url', type=str, 
-                       default='https://localhost:3000',
-                       help='Quiver Hub URL (HTTP/HTTPS — Socket.IO handles the upgrade)')
+    parser.add_argument('--hub-url', type=str,
+                       default=CONFIG.get('HUB_URL', ''),
+                       help='Quiver Hub URL (default: HUB_URL/WEB_SERVER_URL)')
     parser.add_argument('--drone-id', type=str, 
-                       default='quiver_001',
-                       help='Drone identifier')
+                       default=CONFIG.get('DRONE_ID', 'quiver_001'),
+                       help='Drone identifier (default: DRONE_ID)')
     parser.add_argument('--api-key', type=str,
-                       default='',
-                       help='API key for Quiver Hub authentication')
+                       default=CONFIG.get('API_KEY', ''),
+                       help='API key for Quiver Hub authentication (default: API_KEY)')
     parser.add_argument('--test', action='store_true',
                        help='Run in test mode (direct camera control)')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug logging')
     
     args = parser.parse_args()
+
+    if not args.test:
+        for option, value, environment_key in (
+            ('--hub-url', args.hub_url, 'HUB_URL or WEB_SERVER_URL'),
+            ('--drone-id', args.drone_id, 'DRONE_ID'),
+            ('--api-key', args.api_key, 'API_KEY'),
+        ):
+            if not value:
+                parser.error(f'{option} is required; provide it or set {environment_key}')
     
     if args.debug:
         logging.getLogger('siyi_camera').setLevel(logging.DEBUG)

@@ -481,7 +481,7 @@ describe("Logs & OTA Updates - Install Script", () => {
   const source = fs.readFileSync("./companion_scripts/install_logs_ota.sh", "utf-8");
 
   it("installs required Python packages with --break-system-packages", () => {
-    expect(source).toContain("pip3 install --break-system-packages");
+    expect(source).toContain("python3 -m pip install --break-system-packages");
     expect(source).toContain("mavsdk");
     expect(source).toContain("requests");
     expect(source).toContain("psutil");
@@ -491,25 +491,26 @@ describe("Logs & OTA Updates - Install Script", () => {
   it("prompts for Hub URL, drone ID, API key", () => {
     expect(source).toContain("Hub URL");
     expect(source).toContain("Drone ID");
-    expect(source).toContain("API Key");
+    expect(source).toContain("API key");
   });
 
   it("supports serial, UDP, and no-FC connection modes", () => {
     expect(source).toContain("Serial");
     expect(source).toContain("Ethernet/UDP");
     expect(source).toContain("No FC");
-    expect(source).toContain("--no-fc");
+    expect(source).toContain("quiver_set NO_FC true");
   });
 
   it("creates systemd service and enables it", () => {
     expect(source).toContain("systemctl daemon-reload");
-    expect(source).toContain("systemctl enable ${SERVICE_NAME}.service");
-    expect(source).toContain("systemctl start ${SERVICE_NAME}.service");
+    expect(source).toContain('systemctl enable "${SERVICE_NAME}.service"');
+    expect(source).toContain('systemctl restart "${SERVICE_NAME}.service"');
+    expect(source).toContain('EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")');
   });
 
   it("shows useful commands after installation", () => {
-    expect(source).toContain("systemctl status ${SERVICE_NAME}");
-    expect(source).toContain("journalctl -u ${SERVICE_NAME} -f");
+    expect(source).toContain("systemctl restart logs-ota");
+    expect(source).toContain("journalctl -u logs-ota -f");
   });
 });
 
@@ -793,28 +794,28 @@ describe("ArduPilot net_webserver.lua Setup Guide", () => {
   });
 
   it("covers FC networking parameters", () => {
-    expect(source).toContain("NET_ENABLE");
-    expect(source).toContain("NET_IPADDR");
-    expect(source).toContain("192.168.144.20");
+    expect(source).toContain("FC_IP=192.168.144.51");
+    expect(source).toContain("COMPANION_IP=192.168.144.49");
+    expect(source).toContain("configure the hardware");
   });
 
   it("includes verification steps", () => {
-    expect(source).toContain("## 3. Verification");
+    expect(source).toContain("## Verify using the configured endpoint");
     expect(source).toContain("curl");
     expect(source).toContain("/mnt/APM/LOGS/");
   });
 
   it("documents Quiver Hub integration and three-tier resolution", () => {
     expect(source).toContain("FCLogSyncer");
-    expect(source).toContain("three-tier");
-    expect(source).toContain("--fc-webserver-url");
-    expect(source).toContain("--log-store-dir");
+    expect(source).toContain("local cache first, then HTTP, with MAVFTP fallback");
+    expect(source).toContain("FC_WEBSERVER_URL");
+    expect(source).toContain("LOG_STORE_DIR");
   });
 
   it("includes troubleshooting section", () => {
-    expect(source).toContain("## 5. Troubleshooting");
-    expect(source).toContain("Script Not Loading");
-    expect(source).toContain("Web Server Unreachable");
+    expect(source).toContain("## Troubleshooting");
+    expect(source).toContain("Lua errors");
+    expect(source).toContain("If HTTP times out");
   });
 
   it("is listed in docs/README.md index", () => {
@@ -1851,10 +1852,11 @@ describe("firmware_puller.lua (FC Lua applet)", () => {
     expect(luaContent).toContain("FWPULL_PI_IP1");
     expect(luaContent).toContain("FWPULL_PI_IP2");
     expect(luaContent).toContain("FWPULL_PI_IP3");
-    expect(luaContent).toMatch(/bind_add_param\("PI_IP0",\s*2,\s*192\)/);
-    expect(luaContent).toMatch(/bind_add_param\("PI_IP1",\s*3,\s*168\)/);
-    expect(luaContent).toMatch(/bind_add_param\("PI_IP2",\s*4,\s*144\)/);
-    expect(luaContent).toMatch(/bind_add_param\("PI_IP3",\s*5,\s*20\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP0",\s*2,\s*0\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP1",\s*3,\s*0\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP2",\s*4,\s*0\)/);
+    expect(luaContent).toMatch(/bind_add_param\("PI_IP3",\s*5,\s*0\)/);
+    expect(luaContent).toContain("configure target from firmware_puller.param");
   });
 
   it("should define firmware server port parameter (default 8070)", () => {
@@ -1925,8 +1927,9 @@ describe("Approach C: Companion Pi firmware HTTP server", () => {
     expect(pyContent).toContain("aiohttp_web = None");
   });
 
-  it("should define FIRMWARE_SERVER_PORT constant (8070)", () => {
-    expect(pyContent).toContain("FIRMWARE_SERVER_PORT = 8070");
+  it("should read FIRMWARE_SERVER_PORT from shared configuration", () => {
+    expect(pyContent).toMatch(/FIRMWARE_SERVER_PORT\s*=\s*int\(.*["']FIRMWARE_SERVER_PORT["']/);
+    expect(fs.readFileSync("./companion_scripts/companion-config.example", "utf-8")).toContain("FIRMWARE_SERVER_PORT=8070");
   });
 
   it("should define FIRMWARE_SERVER_ACK_TIMEOUT constant", () => {

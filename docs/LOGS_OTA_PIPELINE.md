@@ -94,13 +94,13 @@ The user uploads a firmware file (`.abin` or `.apj`, max 50 MB) through the OTA 
 
 The companion script picks up the job, **acknowledges it with a mutex lock** (sending its companion identifier as `lockedBy` to prevent double-execution), downloads the firmware from S3, **verifies the SHA-256 hash** against the server-provided value (aborting with `hash_verification_failed` if there is a mismatch), and **extracts the git hash** from the `.abin` file header for post-flash verification. After the flash completes (success or failure), the **downloaded temp file is automatically cleaned up** in a `finally` block.
 
-The flash uses **Approach C (FC HTTP Pull)** exclusively. The companion starts a temporary `aiohttp` HTTP server on port 8080 that serves the firmware file at `/firmware.abin`. The FC runs `firmware_puller.lua` (a Lua scripting applet enabled via `FWPULL_ENABLE=1`) which polls the companion's HTTP server, downloads the firmware to the SD card as `ardupilot.abin`, and signals completion. The companion monitors the pull via download request activity, with a 30-second early-exit if no FC pull activity is detected (indicating `firmware_puller.lua` is not installed or `FWPULL_ENABLE` is disabled).
+The flash uses **Approach C (FC HTTP Pull)** exclusively. The companion starts a temporary `aiohttp` HTTP server on `FIRMWARE_SERVER_PORT` from `.env` (default 8070) that serves the firmware file at `/firmware.abin`. The FC runs `firmware_puller.lua` (enabled explicitly with `FWPULL_ENABLE=1`) and pulls the firmware to its SD card. The companion exits early if no pull activity is detected for 30 seconds. FC Lua cannot read the Pi's `.env`: import the installer's generated `firmware_puller.param` to set `FWPULL_PI_IP0`–`FWPULL_PI_IP3` and `FWPULL_PORT` from `COMPANION_IP` and `FIRMWARE_SERVER_PORT`. Verify before enabling; regenerate/reimport after target changes. New Lua IP defaults are unset, while existing saved FC parameters persist until changed.
 
 | Step | What Happens | Progress |
 |------|-------------|----------|
 | **Step 1: Download** | Companion downloads `.abin` from Hub S3, verifies SHA-256, extracts git hash from header | 0–10% |
 | **Step 2: Pre-upload cleanup** | HTTP check for existing `ardupilot*.abin` on FC (via `net_webserver.lua`) | 10–15% |
-| **Step 3: Serve firmware** | Companion starts aiohttp server on port 8080, FC pulls firmware via `firmware_puller.lua` | 15–60% |
+| **Step 3: Serve firmware** | Companion starts aiohttp server on the configured port (default 8070), FC pulls via `firmware_puller.lua` | 15–60% |
 | **Step 4: MAVLink reboot** | Companion sends MAVLink reboot command to FC | 60–65% |
 | **Step 5: Wait for FC** | Poll FC web server (`http://<fc>:8080`) for up to 120s until it comes back online | 65–90% |
 | **Step 6: Version verify** | Reconnect MAVSDK, query `AUTOPILOT_VERSION`, compare `flight_custom_version` git hash against `.abin` header | 90–100% |
@@ -270,13 +270,13 @@ All events use the `logs:<droneId>` Socket.IO room for scoping.
 
 ## Companion Script (`logs_ota_service.py`)
 
-The companion script is a single-file Python 3 asyncio application (~1900 lines) organized into seven classes:
+The companion service is a Python 3 asyncio application. Its `companion_config.py` helper loads the shared `.env` before event loops start; `companion-config.example` supplies default addresses and ports. Existing `forwarder.env` is supported for migration. The main service classes are:
 
 **`HubClient`** handles all REST and tRPC communication with the Hub server, including job polling, job acknowledgment/completion, FC log reporting, firmware progress reporting, and diagnostics submission.
 
 **`MavFtpClient`** wraps the MAVSDK FTP plugin for file operations on the flight controller's SD card. It provides `connect()`, `ensure_ready()` (health check + reconnect with settling delay), `list_directory()`, `download_file()`, `upload_file()`, `file_exists()`, and `remove_file()` methods. The connection string supports both serial (`serial:///dev/ttyAMA1:921600`) and Ethernet/UDP (`udp://:14540`) transports. The `ensure_ready()` method performs a `list_directory("/")` health check and, if it fails, reconnects with a 3-second settling delay between attempts (up to 3 retries). This is used after FC reboot to ensure the FTP plugin is initialized before querying `AUTOPILOT_VERSION`.
 
-**`FCLogSyncer`** is a background syncer that downloads FC log files from the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet over HTTP and stores them locally on the companion computer at `/var/lib/quiver/fc_logs/`. The `net_webserver.lua` script is a Lua scripting applet that runs inside ArduPilot on boards with networking support (e.g., Cube Orange with Ethernet). It serves the FC's SD card over HTTP on port 8080 (configurable via the `WEB_BIND_PORT` parameter), providing an HTML directory listing at `/mnt/APM/LOGS/` and direct file downloads at `/mnt/APM/LOGS/<filename>`. The syncer runs a 60-second background loop (only when the drone is **disarmed**, verified via MAVSDK telemetry) that parses the HTML directory listing, compares against a local JSON manifest, and downloads new or changed files using `If-Modified-Since` headers for incremental sync. This approach avoids blocking the MAVLink TCP connection (which MAVFTP does) and provides fast local access for the dashboard. The default FC web server URL is `http://192.168.144.10:8080`, configurable via the `--fc-webserver-url` CLI argument.
+**`FCLogSyncer`** scans the ArduPilot `net_webserver.lua` log directory over HTTP while disarmed, compares it with a manifest in `LOG_STORE_DIR`, and downloads files only when explicitly requested. Its endpoint comes from `.env` (`FC_IP` / `FC_WEBSERVER_PORT`, or `FC_WEBSERVER_URL`) and can be overridden with `--fc-webserver-url`. This avoids blocking MAVLink for routine HTTP log access. The default cache is `/var/lib/quiver/fc_logs`.
 
 **`LogsOtaJobHandler`** implements the three job types using a three-tier resolution strategy for log operations (local cache → HTTP via `net_webserver.lua` → MAVFTP fallback): `handle_scan_fc_logs()` reads from the local manifest first, then issues an on-demand HTTP listing, falling back to MAVFTP; `handle_download_fc_log()` serves from the local cache first, then streams via HTTP (also caching locally), falling back to MAVFTP, and uploads to the Hub via multipart form-data (preferred, no base64 overhead) with automatic fallback to base64 JSON; `handle_flash_firmware()` downloads firmware from S3, **verifies the SHA-256 hash**, **extracts the git hash** from the `.abin` header, serves the firmware via a temporary `aiohttp` HTTP server for the FC to pull (Approach C), sends a MAVLink reboot command, waits for the FC web server to come back online, then **queries `AUTOPILOT_VERSION`** via MAVSDK to compare the `flight_custom_version` git hash against the expected value from the `.abin` header. The confirmed firmware version (or mismatch warning) is reported to the Hub. The **temp file is cleaned up** in a `finally` block.
 
@@ -288,13 +288,15 @@ The companion script is a single-file Python 3 asyncio application (~1900 lines)
 
 ### CLI Arguments
 
+Flags override the corresponding shared `.env` settings. Hub credentials may be supplied in `.env` instead of command-line arguments. `FC_WEBSERVER_URL` is derived from `FC_IP` and `FC_WEBSERVER_PORT` unless explicitly overridden; the supplied defaults resolve to `http://192.168.144.51:8080`. Network-mode `FC_CONNECTION=tcp` or `udp` is resolved at startup from the configured IP/ports.
+
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--hub-url` | (required) | Quiver Hub URL |
-| `--drone-id` | (required) | Drone identifier |
-| `--api-key` | (required) | API key for authentication |
+| `--hub-url` | `WEB_SERVER_URL` / `HUB_URL` | Quiver Hub URL (must be configured) |
+| `--drone-id` | `DRONE_ID` | Drone identifier |
+| `--api-key` | `API_KEY` | Authentication key (must be configured) |
 | `--fc-connection` | `serial:///dev/ttyAMA1:921600` | MAVSDK connection string |
-| `--fc-webserver-url` | `http://192.168.144.10:8080` | ArduPilot `net_webserver.lua` URL for HTTP log access |
+| `--fc-webserver-url` | Derived `FC_IP` / `FC_WEBSERVER_PORT` | ArduPilot `net_webserver.lua` URL for HTTP log access |
 | `--log-store-dir` | `/var/lib/quiver/fc_logs/` | Local directory for cached FC log files |
 | `--poll-interval` | `5` | Job polling interval (seconds) |
 | `--diagnostics-interval` | `10` | Diagnostics reporting interval (seconds) |
@@ -328,14 +330,16 @@ The frontend is a single React component (~950 lines) with four tabs, each imple
 
 ### Installation on Raspberry Pi
 
-The `install_logs_ota.sh` script automates the full setup:
+Run `bash install_hub_client.sh` first to download the entire companion folder from the configurable GitHub source and create the shared `.env`. Then, from the chosen installation folder, install Logs & OTA:
 
 ```bash
 chmod +x install_logs_ota.sh
 sudo ./install_logs_ota.sh
 ```
 
-The installer prompts for the Hub URL, drone ID, API key, FC connection type (serial, UDP, or no-FC mode), and permission level (run as root for full functionality, or as service user with group membership). It installs Python dependencies, copies the script, generates a systemd service file with security hardening (`ProtectSystem=strict`, `PrivateTmp=true`, `NoNewPrivileges=true`), and enables/starts the service.
+The installer prompts for a real service user and preferred folder, reuses existing credentials, and saves FC connection type (serial, TCP, UDP, or no-FC), network settings, and timing in `.env`. It installs Python dependencies with `--break-system-packages`, copies the service and helper files without same-file copy errors, generates a systemd unit with the shared `EnvironmentFile`, and enables/restarts it. A dependency-install failure stops installation. Root mode retains full diagnostics access; non-root mode grants dialout/journal groups and uses `NoNewPrivileges=true`.
+
+Edit `.env` and restart `logs-ota` for network/credential changes. If the installation or log-cache paths change, rerun the installer to update systemd paths and `ReadWritePaths`.
 
 ### Systemd Service
 

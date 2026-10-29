@@ -15,10 +15,11 @@
    - Set SCR_ENABLE=1 and WEB_ENABLE=1, then reboot
    
    USAGE (from companion Pi):
+     FC_URL=$(python3 companion_config.py get .env FC_WEBSERVER_URL)
      curl -X PUT --data-binary @ardupilot.abin \
-       http://192.168.144.11:8080/APM/ardupilot.abin
+       "$FC_URL/APM/ardupilot.abin"
    
-   The companion script uses requests.put() for the same effect.
+   Legacy manual PUT utility only. Current companion OTA uses FC HTTP Pull.
    
    SECURITY:
    - Only PUT to paths starting with /APM/ is allowed

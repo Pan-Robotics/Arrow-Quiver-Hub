@@ -105,3 +105,11 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+.project-config.json
+
+# Companion runtime artifacts (generated on the target computer)
+__pycache__/
+*.py[cod]
+companion_scripts/forwarder.env
+companion_scripts/go2rtc.yaml
+companion_scripts/firmware_puller.param

@@ -1,44 +1,33 @@
+# TEMPLATE — render through the companion installer. Do not install directly.
+# Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
+# SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 [Unit]
-Description=Quiver Hub Client - Two-way communication with Quiver Hub server
-Documentation=https://github.com/quiver/quiver-hub
+Description=Quiver Hub Client — Two-way Hub communication
+Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=alexd
-Group=alexd
-WorkingDirectory=/home/alexd/quiver
-
-# Load environment variables from forwarder.env
-EnvironmentFile=/home/alexd/quiver/forwarder.env
-
-# Execute the Python client
-# The script will use WEB_SERVER_URL and API_KEY from forwarder.env
-ExecStart=/usr/bin/python3 /home/alexd/quiver/raspberry_pi_client.py \
-    --server ${WEB_SERVER_URL} \
-    --drone-id quiver_001 \
-    --api-key ${API_KEY} \
-    --poll-interval 5
-
-# Restart policy
+User=SERVICE_USER_PLACEHOLDER
+Group=SERVICE_GROUP_PLACEHOLDER
+WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+EnvironmentFile=ENV_FILE_PLACEHOLDER
+Environment=ENV_ASSIGNMENT_PLACEHOLDER
+Environment=PYTHONUNBUFFERED=1
+# Values are expanded by systemd from the shared .env at service start.
+ExecStart=/usr/bin/python3 HUB_CLIENT_SCRIPT_PLACEHOLDER --server ${HUB_URL} --drone-id ${DRONE_ID} --api-key ${API_KEY} --poll-interval ${HUB_CLIENT_POLL_INTERVAL}
 Restart=always
 RestartSec=10
-
-# Resource limits
 LimitNOFILE=65536
-
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=quiver-hub-client
-
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/alexd/quiver /home/alexd/parsers /home/alexd/config
+ReadWritePaths=INSTALL_DIR_PLACEHOLDER
 
 [Install]
 WantedBy=multi-user.target

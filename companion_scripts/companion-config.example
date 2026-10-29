@@ -1,0 +1,73 @@
+# Quiver companion configuration template.
+# Copy or initialize a runtime file with:
+#   python3 companion_config.py init /your/chosen/install-folder/.env
+# Values are literal systemd EnvironmentFile assignments; no shell expansion occurs.
+
+# Network plan
+NETWORK_SUBNET=192.168.144.0/24
+SIYI_AIR_IP=192.168.144.11
+SIYI_GROUND_IP=192.168.144.12
+ANDROID_GCS_IP=192.168.144.20
+SIYI_CAMERA_IP=192.168.144.25
+SIYI_CAMERA_RESERVED_IP=192.168.144.60
+COMPANION_IP=192.168.144.49
+FC_IP=192.168.144.51
+CUBENODE_IP=192.168.144.50
+PAYLOAD_IP_START=192.168.144.100
+PAYLOAD_IP_END=192.168.144.199
+PAYLOAD_BOTTOM_IP=192.168.144.100
+PAYLOAD_SIDE1_IP=192.168.144.101
+PAYLOAD_SIDE2_IP=192.168.144.102
+
+# Hub identity and authentication. HUB_URL and WEB_SERVER_URL are synchronized
+# when changed with companion_config.py set.
+HUB_URL=
+WEB_SERVER_URL=
+DRONE_ID=quiver_001
+API_KEY=
+
+# Flight controller connectivity. Keep these derived endpoint values commented
+# unless an explicit override is wanted; runtime derives them from the IP/port.
+FC_WEBSERVER_PORT=8080
+FC_MAVLINK_TCP_PORT=5760
+# FC_WEBSERVER_URL=http://FC_IP:FC_WEBSERVER_PORT
+# FC_TCP_URL=tcp://FC_IP:FC_MAVLINK_TCP_PORT
+FC_CONNECTION=serial:///dev/ttyAMA1:921600
+MAVLINK_BIND_IP=0.0.0.0
+MAVLINK_UDP_PORT=14540
+# MAVLINK_URL=udpin://MAVLINK_BIND_IP:MAVLINK_UDP_PORT
+
+# SIYI camera and go2rtc streaming
+SIYI_SDK_PORT=37260
+SIYI_RTSP_PORT=8554
+STREAM_TYPE=sub
+# RTSP_URL=rtsp://SIYI_CAMERA_IP:SIYI_RTSP_PORT/STREAM_TYPE.264
+GO2RTC_API_HOST=localhost
+GO2RTC_API_PORT=1984
+GO2RTC_WEBRTC_PORT=8555
+# GO2RTC_API_URL=http://GO2RTC_API_HOST:GO2RTC_API_PORT
+TAILSCALE_FUNNEL_PORT=443
+GO2RTC_BINARY=go2rtc
+# Camera installer sets these true when systemd owns go2rtc and Funnel.
+GO2RTC_EXTERNAL=false
+SKIP_FUNNEL_SETUP=false
+
+# Firmware puller renderer input. FWPULL_PORT is only rendered into the FC
+# parameter file; firmware_puller.lua does not read this file directly.
+FIRMWARE_SERVER_PORT=8070
+
+# Service operation
+CAN_INTERFACE=can0
+ENABLE_UAVCAN=true
+UPDATE_RATE_HZ=10
+POLL_INTERVAL=5
+DIAGNOSTICS_INTERVAL=10
+LOG_STORE_DIR=/var/lib/quiver/fc_logs
+NO_FC=false
+ALLOW_NON_ROOT=false
+
+# These are installer-populated. Leave commented to use portable runtime
+# fallbacks relative to the script directory rather than a developer home.
+# INSTALL_DIR=/opt/quiver/companion
+# CONFIG_DIR=/etc/quiver
+# PARSERS_DIR=/opt/quiver/companion/parsers

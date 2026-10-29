@@ -70,9 +70,9 @@ The ground control layer provides human operators with visibility and control ov
 
 ### Airborne Network Architecture
 
-The airborne network forms a star topology with the companion computer at the center. The flight controller connects via a dedicated Ethernet or serial link, ensuring that flight-critical communication is isolated from payload traffic. Three payload attachment points (designated C1, C2, C3) connect via Ethernet, each on a separate subnet to simplify routing and firewall rules. A CAN bus network operates in parallel, providing a secondary communication path for real-time sensors and actuators.
+The airborne Ethernet network is flat and connects the companion computer, flight controller, Siyi equipment, and payload ports through the integrated switch. No DHCP server runs on the Pi because it conflicts with Siyi firmware. A CAN bus network operates in parallel for DroneCAN sensors and actuators; the FC can also connect through serial MAVLink.
 
-**IP Addressing Scheme**: The companion computer uses the 192.168.144.0/24 subnet for internal communication. The flight controller is assigned 192.168.144.10, the companion computer itself uses 192.168.144.15, and payload ports C1, C2, C3 are assigned 192.168.144.11, .12, .13 respectively. This fixed addressing simplifies configuration and ensures predictable routing.
+**IP Addressing Scheme**: The supplied defaults are `192.168.144.0/24`, companion `.49`, FC `.51`, and CubeNode `.50`. Siyi air/ground units reserve `.11`/`.12`, Android GCS `.20`, the camera `.25`, and another camera address `.60`. Payloads use `.100`–`.199`, with Bottom J31 `.100`, Side 1 J29 `.101`, and Side 2 J30 `.102`. These values live in `companion_scripts/companion-config.example` and the installed suite's shared `.env`; services derive connections from them at startup. Installers do not assign interface IPs or configure DHCP. See `companion_scripts/README.md` for setup and overrides.
 
 **CAN Bus Topology**: The CAN network operates at 1 Mbps with 120-ohm termination resistors at each end of the bus. The flight controller acts as the CAN master, broadcasting heartbeat messages and polling sensors at regular intervals. Payloads respond with sensor data or status updates, using priority-based arbitration to ensure time-critical messages are delivered first.
 

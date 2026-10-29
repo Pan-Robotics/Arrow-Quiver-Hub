@@ -38,7 +38,7 @@ Usage:
         --fc-connection serial:///dev/ttyAMA1:921600
 
 Dependencies:
-    pip install --break-system-packages mavsdk aiohttp python-socketio[asyncio_client] psutil requests
+    python3 -m pip install --break-system-packages mavsdk aiohttp python-socketio[asyncio_client] psutil requests
 """
 
 import argparse
@@ -60,6 +60,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
+from companion_config import load_environment
+
+
+# Load all files before configuration constants or parser defaults are defined.
+CONFIG = load_environment()
 
 # Optional imports with graceful fallback
 try:
@@ -90,7 +95,7 @@ except ImportError:
     aiohttp_web = None
     logging.getLogger("logs_ota").warning(
         "aiohttp not installed — Approach C (fast HTTP pull) disabled. "
-        "Install with: pip install --break-system-packages aiohttp"
+        "Install with: python3 -m pip install --break-system-packages aiohttp"
     )
 
 # ─── Logging ────────────────────────────────────────────────────────────────
@@ -413,8 +418,8 @@ class FCLogSyncer:
       }
     """
 
-    DEFAULT_FC_WEBSERVER_URL = "http://192.168.144.20:8080"
-    DEFAULT_LOG_STORE_DIR = "/var/lib/quiver/fc_logs"
+    DEFAULT_FC_WEBSERVER_URL = CONFIG.get("FC_WEBSERVER_URL", "")
+    DEFAULT_LOG_STORE_DIR = CONFIG.get("LOG_STORE_DIR", "/var/lib/quiver/fc_logs")
     LOGS_PATH = "/mnt/APM/LOGS/"
     MANIFEST_FILE = "manifest.json"
     SYNC_INTERVAL = 60  # seconds between sync cycles
@@ -895,7 +900,7 @@ class MavFtpClient:
     async def connect(self) -> bool:
         """Connect to the flight controller via MAVSDK."""
         if System is None:
-            logger.error("MAVSDK not installed. Run: pip install mavsdk")
+            logger.error("MAVSDK not installed. Run: python3 -m pip install --break-system-packages mavsdk")
             return False
 
         try:
@@ -1146,7 +1151,9 @@ class LogsOtaJobHandler:
     HTTP_TIMEOUT = 5  # seconds for HTTP HEAD/GET during flash monitoring
 
     # Firmware HTTP server (Approach C: FC pulls firmware from companion Pi)
-    FIRMWARE_SERVER_PORT = 8070  # port for the lightweight firmware HTTP server
+    FIRMWARE_SERVER_PORT = int(CONFIG.get("FIRMWARE_SERVER_PORT", "8070"))
+    # Port for the lightweight firmware HTTP server; its companion FC parameter
+    # file is rendered separately by companion_config.py render-fc-params.
     FIRMWARE_SERVER_ACK_TIMEOUT = 300  # max seconds to wait for FC to pull firmware
 
     def __init__(self, hub: HubClient, ftp: MavFtpClient,
@@ -1463,7 +1470,7 @@ class LogsOtaJobHandler:
             if elapsed >= 30 and self._fw_serve_bytes_sent == 0:
                 logger.warning("No FC pull activity after 20s — "
                                "firmware_puller.lua may not be installed, "
-                               "FWPULL_ENABLE=0, or FC can't reach Pi:8070")
+                               f"FWPULL_ENABLE=0, or FC can't reach Pi:{self.FIRMWARE_SERVER_PORT}")
                 return False
 
             # Report progress based on bytes served
@@ -2060,7 +2067,7 @@ class LogsOtaJobHandler:
 
                 if not aiohttp_web:
                     error_msg = ("aiohttp not installed — cannot serve firmware to FC. "
-                                 "Install with: pip install aiohttp")
+                                 "Install with: python3 -m pip install --break-system-packages aiohttp")
                     logger.error(error_msg)
                     self.hub.report_firmware_progress(
                         update_id, "failed", 0, error_message=error_msg)
@@ -2074,7 +2081,10 @@ class LogsOtaJobHandler:
 
                 server_started = await self._start_firmware_server(tmp_path)
                 if not server_started:
-                    error_msg = "Failed to start firmware HTTP server on port 8070"
+                    error_msg = (
+                        f"Failed to start firmware HTTP server on port "
+                        f"{self.FIRMWARE_SERVER_PORT}"
+                    )
                     logger.error(error_msg)
                     self.hub.report_firmware_progress(
                         update_id, "failed", 0, error_message=error_msg)
@@ -2091,7 +2101,7 @@ class LogsOtaJobHandler:
                                  "1) firmware_puller.lua in APM/scripts/ "
                                  "2) FWPULL_ENABLE=1 "
                                  "3) FWPULL_PI_IP matches Pi IP "
-                                 "4) UFW allows FC IP on port 8070")
+                                 f"4) UFW allows FC IP on port {self.FIRMWARE_SERVER_PORT}")
                     logger.error(error_msg)
                     self.hub.report_firmware_progress(
                         update_id, "failed", 0,
@@ -2761,35 +2771,47 @@ Examples:
         """,
     )
 
-    parser.add_argument("--hub-url", required=True,
-                        help="Quiver Hub URL (e.g., https://your-hub.manus.space)")
-    parser.add_argument("--drone-id", required=True,
-                        help="Drone identifier (e.g., quiver_001)")
-    parser.add_argument("--api-key", required=True,
-                        help="API key for Hub authentication")
-    parser.add_argument("--fc-connection", default="serial:///dev/ttyAMA1:921600",
-                        help="MAVSDK connection string (default: serial:///dev/ttyAMA1:921600)")
-    parser.add_argument("--poll-interval", type=int, default=5,
-                        help="Job polling interval in seconds (default: 5)")
-    parser.add_argument("--diagnostics-interval", type=int, default=10,
-                        help="Diagnostics reporting interval in seconds (default: 10)")
+    parser.add_argument("--hub-url", default=CONFIG.get("HUB_URL", ""),
+                        help="Quiver Hub URL (default: HUB_URL/WEB_SERVER_URL)")
+    parser.add_argument("--drone-id", default=CONFIG.get("DRONE_ID", ""),
+                        help="Drone identifier (default: DRONE_ID)")
+    parser.add_argument("--api-key", default=CONFIG.get("API_KEY", ""),
+                        help="API key for Hub authentication (default: API_KEY)")
+    parser.add_argument("--fc-connection", default=CONFIG.get("FC_CONNECTION", "serial:///dev/ttyAMA1:921600"),
+                        help="MAVSDK connection string (default: FC_CONNECTION)")
+    parser.add_argument("--poll-interval", type=int, default=int(CONFIG.get("POLL_INTERVAL", "5")),
+                        help="Job polling interval in seconds (default: POLL_INTERVAL)")
+    parser.add_argument("--diagnostics-interval", type=int,
+                        default=int(CONFIG.get("DIAGNOSTICS_INTERVAL", "10")),
+                        help="Diagnostics reporting interval in seconds (default: DIAGNOSTICS_INTERVAL)")
     parser.add_argument("--no-fc", action="store_true",
+                        default=CONFIG.get("NO_FC", "false").lower() in ("1", "true", "yes", "on"),
                         help="Run without FC connection (diagnostics + log streaming only)")
     parser.add_argument("--fc-webserver-url",
-                        default="http://192.168.144.10:8080",
+                        default=CONFIG.get("FC_WEBSERVER_URL", ""),
                         help="ArduPilot net_webserver URL for HTTP log download "
-                             "(default: http://192.168.144.10:8080)")
+                             "(default: FC_WEBSERVER_URL)")
     parser.add_argument("--log-store-dir",
-                        default="/var/lib/quiver/fc_logs",
+                        default=CONFIG.get("LOG_STORE_DIR", "/var/lib/quiver/fc_logs"),
                         help="Local directory to cache FC log files "
-                             "(default: /var/lib/quiver/fc_logs)")
+                             "(default: LOG_STORE_DIR)")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging")
 
     parser.add_argument("--allow-non-root", action="store_true",
+                        default=CONFIG.get("ALLOW_NON_ROOT", "false").lower() in ("1", "true", "yes", "on"),
                         help="Allow running as non-root (some features may not work)")
 
     args = parser.parse_args()
+    for option, value, environment_key in (
+        ("--hub-url", args.hub_url, "HUB_URL or WEB_SERVER_URL"),
+        ("--drone-id", args.drone_id, "DRONE_ID"),
+        ("--api-key", args.api_key, "API_KEY"),
+    ):
+        if not value:
+            parser.error(f"{option} is required; provide it or set {environment_key}")
+    if args.poll_interval <= 0 or args.diagnostics_interval <= 0:
+        parser.error("--poll-interval and --diagnostics-interval must be greater than zero")
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -2809,7 +2831,7 @@ Examples:
 
     # Validate dependencies
     if not requests:
-        logger.error("requests library not installed. Run: pip install requests")
+        logger.error("requests library not installed. Run: python3 -m pip install --break-system-packages requests")
         sys.exit(1)
 
     service = LogsOtaService(

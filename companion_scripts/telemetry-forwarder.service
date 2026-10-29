@@ -1,40 +1,34 @@
+# TEMPLATE — render through the companion installer. Do not install directly.
+# Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
+# SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 [Unit]
-Description=Quiver Hub – Telemetry Forwarder (MAVLink + UAVCAN → Hub)
-Documentation=https://github.com/quiver/quiver-hub
+Description=Quiver Hub Telemetry Forwarder (MAVLink + UAVCAN to Hub)
+Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=alexd
-Group=alexd
-WorkingDirectory=/home/alexd/quiver
-
-# Load environment variables (WEB_SERVER_URL, API_KEY, DRONE_ID, etc.)
-EnvironmentFile=/home/alexd/quiver/forwarder.env
-
-# Execute the telemetry forwarder
-# Uses WEB_SERVER_URL, API_KEY, DRONE_ID, MAVLINK_URL, CAN_INTERFACE from env
-ExecStart=/usr/bin/python3 /home/alexd/quiver/telemetry_forwarder.py
-
-# Restart policy
+User=SERVICE_USER_PLACEHOLDER
+Group=SERVICE_GROUP_PLACEHOLDER
+WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+EnvironmentFile=ENV_FILE_PLACEHOLDER
+Environment=ENV_ASSIGNMENT_PLACEHOLDER
+Environment=PYTHONUNBUFFERED=1
+# telemetry_forwarder.py reads all network and telemetry settings from the
+# service environment populated by the shared .env.
+ExecStart=/usr/bin/python3 TELEMETRY_FORWARDER_SCRIPT_PLACEHOLDER
 Restart=always
 RestartSec=10
-
-# Resource limits
 LimitNOFILE=65536
-
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=telemetry-forwarder
-
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/alexd/quiver
+ReadWritePaths=INSTALL_DIR_PLACEHOLDER
 
 [Install]
 WantedBy=multi-user.target

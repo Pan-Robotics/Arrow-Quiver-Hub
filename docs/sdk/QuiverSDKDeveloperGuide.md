@@ -22,7 +22,7 @@ The system supports five concurrent data pipelines: telemetry (MAVLink + UAVCAN)
                            │ HTTPS / WSS (cellular or WiFi)
 ┌──────────────────────────┴──────────────────────────────────────┐
 │              COMPANION COMPUTER  (Raspberry Pi)                  │
-│  192.168.144.50                                                  │
+│  192.168.144.49                                                  │
 │                                                                  │
 │  Services:                                                       │
 │    raspberry_pi_client.py   — Job polling & file delivery        │
@@ -49,6 +49,8 @@ The system supports five concurrent data pipelines: telemetry (MAVLink + UAVCAN)
 
 The Quiver network is flat — no DHCP runs on the Pi (Siyi firmware conflicts with DHCP servers). All IPs are static on the `192.168.144.0/24` subnet.
 
+These are the defaults in `companion_scripts/companion-config.example`, not hard-coded runtime endpoints. The hub installer creates one `.env` in the user-selected installation folder. All Python services load it at startup; generated systemd units use the same `EnvironmentFile`. Edit the file for your hardware, then restart the affected services. The installers do not configure network interfaces or install a DHCP server.
+
 ### Reserved Addresses (Do Not Use)
 
 | IP | Device |
@@ -58,8 +60,9 @@ The Quiver network is flat — no DHCP runs on the Pi (Siyi firmware conflicts w
 | 192.168.144.20 | Android GCS (Siyi reserved) |
 | 192.168.144.25 | Siyi A8 Mini camera |
 | 192.168.144.60 | Siyi camera reserved |
-| 192.168.144.50 | Raspberry Pi (companion computer) |
+| 192.168.144.49 | Raspberry Pi (companion computer) |
 | 192.168.144.51 | Flight controller |
+| 192.168.144.50 | CubeNode |
 
 ### Payload Port Assignments
 
@@ -86,7 +89,7 @@ Developer-assigned static range: `192.168.144.100` – `192.168.144.199`
 
 ## 4. Companion Services
 
-All services run as systemd units, auto-restart on failure, and log to journald. Configuration lives in `$HOME/quiver/forwarder.env`.
+All services run as systemd units, auto-restart on failure, and log to journald. Configuration lives in `<install-directory>/.env` (the suggested folder is the selected user's home directory plus `/quiver`). Existing `forwarder.env` credentials are migrated without overwriting an existing `.env`. CLI flags and explicitly exported environment variables can override file settings.
 
 ### 4.1 Hub Client (`raspberry_pi_client.py`)
 
@@ -95,9 +98,8 @@ Polls Hub for pending jobs every 5 seconds, executes them locally, reports compl
 **Job types:** `upload_file` (S3 → local path), `update_config` (JSON write), `restart_service` (systemd restart).
 
 ```
-CLI: python3 raspberry_pi_client.py \
-       --server $QUIVER_HUB_URL --drone-id $DRONE_ID \
-       --api-key $API_KEY --poll-interval 5 --debug
+CLI: python3 raspberry_pi_client.py --debug
+# Reads WEB_SERVER_URL (or HUB_URL), DRONE_ID, API_KEY, POLL_INTERVAL from .env.
 ```
 
 ### 4.2 Telemetry Forwarder (`telemetry_forwarder.py`)
@@ -127,10 +129,8 @@ Manages FC log discovery, download, upload, OTA firmware flashing, system diagno
 **FC log upload:** Prefers multipart (`/api/rest/logs/fc-upload-multipart`) with automatic fallback to base64 JSON (`/api/rest/logs/fc-upload`).
 
 ```
-CLI: python3 logs_ota_service.py \
-       --server $QUIVER_HUB_URL --drone-id $DRONE_ID \
-       --api-key $API_KEY --fc-webserver-url http://192.168.144.51:8080 \
-       --log-store-dir /var/lib/quiver/fc_logs --debug
+CLI: python3 logs_ota_service.py --debug
+# Reads hub credentials, FC_CONNECTION, FC_IP/FC_WEBSERVER_PORT, LOG_STORE_DIR from .env.
 ```
 
 ### 4.4 Camera Stream Service (`camera_stream_service.py`)
@@ -253,30 +253,31 @@ Open Quiver Hub → Drone Configuration → select or create a drone → API Key
 
 ### Step 2: Configure the .env File
 
-On the Raspberry Pi, create `$HOME/quiver/forwarder.env`:
+Run `bash install_hub_client.sh` first. Press Enter at the source prompt to use `https://github.com/Pan-Robotics/Arrow-Quiver-Hub/tree/main/companion_scripts`, or enter another GitHub tree-folder URL. The installer downloads the complete companion suite, prompts for service user and installation folder, and creates `<install-directory>/.env` while preserving existing settings.
 
 ```
-QUIVER_HUB_URL=https://your-quiver-hub.com
-QUIVER_DRONE_ID=quiver_001
-QUIVER_API_KEY=<paste-key-here>
-FC_WEBSERVER_URL=http://192.168.144.51:8080
-FC_LOG_STORE_DIR=/var/lib/quiver/fc_logs
+WEB_SERVER_URL=https://your-quiver-hub.com
+DRONE_ID=quiver_001
+API_KEY=<paste-key-here>
+COMPANION_IP=192.168.144.49
+FC_IP=192.168.144.51
+FC_WEBSERVER_PORT=8080
+SIYI_CAMERA_IP=192.168.144.25
+LOG_STORE_DIR=/var/lib/quiver/fc_logs
 ```
 
-The Drone Configuration page in Hub has a ".env File" card that generates this file with all endpoints pre-filled. Copy it directly.
+Use the Hub URL, drone ID, and API key from Drone Configuration. FC HTTP/TCP and camera RTSP endpoints are derived from their IP/port settings unless an explicit URL override is supplied. FC Lua does not read the Pi's `.env`: import the installer's generated `firmware_puller.param` through the GCS to set `FWPULL_PI_IP0`–`FWPULL_PI_IP3` and `FWPULL_PORT` from `COMPANION_IP` and `FIRMWARE_SERVER_PORT`. Verify the values before enabling `FWPULL_ENABLE`. Regenerate/reimport the parameter file if those settings change.
 
 ### Step 3: Install Companion Services
 
-Run the install scripts in order. Each prompts for Hub URL, drone ID, and API key, then creates the systemd service.
+The hub bootstrap has already installed the complete folder. Use the folder you selected; remaining installers reuse its `.env` and existing credentials.
 
 ```bash
-cd $HOME/quiver/companion_scripts
-chmod +x install_*.sh
-
-./install_hub_client.sh          # Job polling
-./install_telemetry_forwarder.sh # Telemetry streaming
-./install_logs_ota.sh            # FC logs + OTA + diagnostics
-./install_camera_services.sh     # Camera stream + SIYI controller
+cd /your/chosen/install-folder
+sudo systemctl enable --now quiver-hub-client
+sudo bash install_telemetry_forwarder.sh
+sudo bash install_logs_ota.sh
+sudo bash install_camera_services.sh
 ```
 
 ### Step 4: Verify Connectivity
@@ -291,8 +292,9 @@ curl -X POST https://your-hub.com/api/rest/test-connection \
   -H "Content-Type: application/json" \
   -d '{"droneId":"quiver_001"}'
 
-# Test FC web server (from Pi)
-curl -I http://192.168.144.51:8080/
+# Test FC web server (from the installation folder; GET, not HEAD)
+FC_URL=$(python3 companion_config.py get .env FC_WEBSERVER_URL)
+curl -s -o /dev/null -w '%{http_code}\n' "$FC_URL/"
 
 # Check CAN bus
 sudo ip link set can0 up type can bitrate 1000000
@@ -757,14 +759,14 @@ The REST API accepts standard HTTP from any client:
 ### Dependencies
 
 ```bash
-pip3 install requests aiohttp mavsdk dronecan python-socketio python-dotenv
+python3 -m pip install --break-system-packages requests aiohttp mavsdk dronecan 'python-socketio[asyncio_client]' psutil
 ```
 
 ### File Locations
 
 | Path | Purpose |
 |---|---|
-| `$HOME/quiver/forwarder.env` | Shared environment configuration |
+| `<install-directory>/.env` | Shared environment configuration (legacy `forwarder.env` is migrated) |
 | `$HOME/quiver/raspberry_pi_client.py` | Hub client script |
 | `$HOME/quiver/telemetry_forwarder.py` | Telemetry forwarder script |
 | `$HOME/quiver/logs_ota_service.py` | Logs & OTA service script |

@@ -1,21 +1,24 @@
+# TEMPLATE — rendered by install_camera_services.sh. Do not install directly.
+# Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
+# SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 [Unit]
-Description=SIYI A8 Mini Camera Controller Service
+Description=Quiver SIYI A8 Mini Camera Controller
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=julius
-WorkingDirectory=/home/julius/camera_forwarder
-ExecStart=/usr/bin/python3 /home/julius/camera_forwarder/siyi_camera_controller.py \
-    --hub-url HUB_URL_HERE \
-    --drone-id DRONE_ID_HERE \
-    --api-key API_KEY_HERE
-Restart=always
-RestartSec=5
+User=SERVICE_USER_PLACEHOLDER
+Group=SERVICE_GROUP_PLACEHOLDER
+WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+EnvironmentFile=ENV_FILE_PLACEHOLDER
+Environment=ENV_ASSIGNMENT_PLACEHOLDER
 Environment=PYTHONUNBUFFERED=1
-
-# Logging
+# Runtime configuration is loaded from the shared .env; this unit deliberately
+# contains no Hub URL, API key, or camera network address.
+ExecStart=/usr/bin/python3 SIYI_CONTROLLER_SCRIPT_PLACEHOLDER
+Restart=always
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=siyi-camera

@@ -25,8 +25,8 @@ Features:
   - Combined mode with SIYI gimbal controller
 
 RTSP Sources:
-  - Main stream (4K): rtsp://192.168.144.25:8554/main.264
-  - Sub stream (720p): rtsp://192.168.144.25:8554/sub.264
+  - Main stream (4K): configured by RTSP_URL / SIYI_CAMERA_IP
+  - Sub stream (720p): configured by RTSP_URL / SIYI_CAMERA_IP
 
 Usage:
     python camera_stream_service.py --stream sub --hub-url https://your-hub.com --drone-id quiver_001 --api-key YOUR_KEY
@@ -44,6 +44,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Optional
+from companion_config import is_explicit, load_environment
 
 try:
     import requests
@@ -61,21 +62,30 @@ logger = logging.getLogger('camera_stream')
 # Configuration
 # ============================================================================
 
-SIYI_CAMERA_IP = "192.168.144.25"
-RTSP_PORT = 8554
+# Files are resolved at startup, so service restarts use any edited IP/port.
+CONFIG = load_environment()
+SIYI_CAMERA_IP = CONFIG.get("SIYI_CAMERA_IP", "")
+RTSP_PORT = int(CONFIG.get("SIYI_RTSP_PORT", "8554"))
+STREAM_TYPE = CONFIG.get("STREAM_TYPE", "sub")
+RTSP_URL = CONFIG.get("RTSP_URL", "")
 
 RTSP_STREAMS = {
     "main": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/main.264",   # 4K
-    "sub": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/sub.264",     # 720p (lower bandwidth)
+    "sub": f"rtsp://{SIYI_CAMERA_IP}:{RTSP_PORT}/sub.264",     # 720p
 }
+if RTSP_URL:
+    RTSP_STREAMS[STREAM_TYPE] = RTSP_URL
 
 # go2rtc defaults
-GO2RTC_API_PORT = 1984
-GO2RTC_WEBRTC_PORT = 8555
-GO2RTC_BINARY = "go2rtc"  # Expected in PATH or /usr/local/bin/go2rtc
+GO2RTC_API_HOST = CONFIG.get("GO2RTC_API_HOST", "localhost")
+GO2RTC_API_PORT = int(CONFIG.get("GO2RTC_API_PORT", "1984"))
+GO2RTC_API_URL = CONFIG.get("GO2RTC_API_URL", f"http://{GO2RTC_API_HOST}:{GO2RTC_API_PORT}")
+GO2RTC_WEBRTC_PORT = int(CONFIG.get("GO2RTC_WEBRTC_PORT", "8555"))
+GO2RTC_BINARY = CONFIG.get("GO2RTC_BINARY", "go2rtc")
+GO2RTC_EXTERNAL = CONFIG.get("GO2RTC_EXTERNAL", "false").lower() in ("1", "true", "yes", "on")
 
 # Tailscale funnel port (must be 443, 8443, or 10000)
-TAILSCALE_FUNNEL_PORT = 443
+TAILSCALE_FUNNEL_PORT = int(CONFIG.get("TAILSCALE_FUNNEL_PORT", "443"))
 
 
 # ============================================================================
@@ -83,7 +93,8 @@ TAILSCALE_FUNNEL_PORT = 443
 # ============================================================================
 
 def generate_go2rtc_config(rtsp_url: str, api_port: int = GO2RTC_API_PORT,
-                           webrtc_port: int = GO2RTC_WEBRTC_PORT) -> str:
+                           webrtc_port: int = GO2RTC_WEBRTC_PORT,
+                           api_host: str = GO2RTC_API_HOST) -> str:
     """
     Generate go2rtc YAML configuration.
     
@@ -99,7 +110,7 @@ def generate_go2rtc_config(rtsp_url: str, api_port: int = GO2RTC_API_PORT,
     
     # api section
     lines.append("api:")
-    lines.append(f'  listen: ":{api_port}"')
+    lines.append(f'  listen: "{api_host}:{api_port}"')
     lines.append("")
     
     # webrtc section
@@ -265,6 +276,7 @@ class WebRTCStreamingService:
                  stream_type: str = "sub",
                  rtsp_url: Optional[str] = None,
                  api_port: int = GO2RTC_API_PORT,
+                 go2rtc_api: str = GO2RTC_API_URL,
                  webrtc_port: int = GO2RTC_WEBRTC_PORT,
                  funnel_port: int = TAILSCALE_FUNNEL_PORT,
                  hub_url: Optional[str] = None,
@@ -276,6 +288,7 @@ class WebRTCStreamingService:
         self.stream_type = stream_type
         self.rtsp_url = rtsp_url or RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
         self.api_port = api_port
+        self.go2rtc_api = go2rtc_api.rstrip("/")
         self.webrtc_port = webrtc_port
         self.funnel_port = funnel_port
         
@@ -306,7 +319,8 @@ class WebRTCStreamingService:
         config_content = generate_go2rtc_config(
             rtsp_url=self.rtsp_url,
             api_port=self.api_port,
-            webrtc_port=self.webrtc_port
+            webrtc_port=self.webrtc_port,
+            api_host=self.go2rtc_api.split("://", 1)[-1].rsplit(":", 1)[0],
         )
         
         config_dir = Path("/tmp/go2rtc")
@@ -322,6 +336,13 @@ class WebRTCStreamingService:
     def _start_go2rtc(self) -> bool:
         """Start the go2rtc process."""
         try:
+            if GO2RTC_EXTERNAL:
+                # The installer gives go2rtc its own systemd unit. Monitor that
+                # instance; never bind another listener or stop its process.
+                if requests is None:
+                    logger.error("requests is required to monitor external go2rtc")
+                    return False
+                return requests.get(f"{self.go2rtc_api}/api/streams", timeout=3).status_code == 200
             self.config_path = self._write_go2rtc_config()
             
             cmd = [GO2RTC_BINARY, "-config", self.config_path]
@@ -369,7 +390,7 @@ class WebRTCStreamingService:
     
     def _check_stream_health(self) -> bool:
         """Check if go2rtc is healthy by querying its API."""
-        if self.go2rtc_process is None or self.go2rtc_process.poll() is not None:
+        if not GO2RTC_EXTERNAL and (self.go2rtc_process is None or self.go2rtc_process.poll() is not None):
             return False
         
         if requests is None:
@@ -378,7 +399,7 @@ class WebRTCStreamingService:
         
         try:
             resp = requests.get(
-                f"http://localhost:{self.api_port}/api/streams",
+                f"{self.go2rtc_api}/api/streams",
                 timeout=3
             )
             if resp.status_code == 200:
@@ -620,6 +641,7 @@ class CombinedCameraService:
                  stream_type: str = "sub",
                  rtsp_url: Optional[str] = None,
                  api_port: int = GO2RTC_API_PORT,
+                 go2rtc_api: str = GO2RTC_API_URL,
                  webrtc_port: int = GO2RTC_WEBRTC_PORT,
                  funnel_port: int = TAILSCALE_FUNNEL_PORT,
                  public_url: Optional[str] = None,
@@ -633,6 +655,7 @@ class CombinedCameraService:
             stream_type=stream_type,
             rtsp_url=rtsp_url,
             api_port=api_port,
+            go2rtc_api=go2rtc_api,
             webrtc_port=webrtc_port,
             funnel_port=funnel_port,
             hub_url=hub_url,
@@ -663,12 +686,14 @@ async def main():
     parser = argparse.ArgumentParser(
         description='SIYI Camera WebRTC Streaming Service (go2rtc + Tailscale)'
     )
-    parser.add_argument('--stream', type=str, choices=['main', 'sub'], default='sub',
-                       help='Stream type: main (4K) or sub (720p)')
+    parser.add_argument('--stream', type=str, choices=['main', 'sub'], default=STREAM_TYPE,
+                       help='Stream type: main (4K) or sub (720p), default STREAM_TYPE')
     parser.add_argument('--rtsp-url', type=str, default=None,
-                       help='Override RTSP URL (e.g. rtsp://192.168.144.25:8554/sub.264)')
-    parser.add_argument('--api-port', type=int, default=GO2RTC_API_PORT,
+                       help='Override RTSP URL (default: RTSP_URL)')
+    parser.add_argument('--api-port', type=int, default=None,
                        help=f'go2rtc API port (default: {GO2RTC_API_PORT})')
+    parser.add_argument('--go2rtc-api', type=str, default=None,
+                       help='go2rtc API base URL (default: GO2RTC_API_URL)')
     parser.add_argument('--webrtc-port', type=int, default=GO2RTC_WEBRTC_PORT,
                        help=f'go2rtc WebRTC media port (default: {GO2RTC_WEBRTC_PORT})')
     parser.add_argument('--funnel-port', type=int, default=TAILSCALE_FUNNEL_PORT,
@@ -676,18 +701,37 @@ async def main():
                        help=f'Tailscale funnel port (default: {TAILSCALE_FUNNEL_PORT})')
     parser.add_argument('--combined', action='store_true',
                        help='Run combined service (streaming + gimbal controller)')
-    parser.add_argument('--hub-url', type=str, default=None,
-                       help='Quiver Hub URL for stream registration')
-    parser.add_argument('--drone-id', type=str, default='quiver_001',
-                       help='Drone identifier')
-    parser.add_argument('--api-key', type=str, default='',
-                       help='API key for Quiver Hub authentication')
+    parser.add_argument('--hub-url', type=str, default=CONFIG.get('HUB_URL', ''),
+                       help='Quiver Hub URL for stream registration (default: HUB_URL)')
+    parser.add_argument('--drone-id', type=str, default=CONFIG.get('DRONE_ID', 'quiver_001'),
+                       help='Drone identifier (default: DRONE_ID)')
+    parser.add_argument('--api-key', type=str, default=CONFIG.get('API_KEY', ''),
+                       help='API key for Quiver Hub authentication (default: API_KEY)')
     parser.add_argument('--public-url', type=str, default=None,
                        help='Override public URL (skip Tailscale auto-detection)')
     parser.add_argument('--skip-funnel-setup', action='store_true',
+                       default=CONFIG.get('SKIP_FUNNEL_SETUP', 'false').lower() in ('1', 'true', 'yes', 'on'),
                        help='Skip Tailscale funnel setup (if already configured)')
     
     args = parser.parse_args()
+    # An explicit --api-port overrides the file-derived API endpoint, while
+    # --go2rtc-api is the strongest whole-URL override.
+    if args.go2rtc_api is None:
+        args.go2rtc_api = (f"http://{GO2RTC_API_HOST}:{args.api_port}"
+                           if args.api_port is not None else GO2RTC_API_URL)
+    if args.api_port is None:
+        args.api_port = GO2RTC_API_PORT
+    # A file-provided RTSP_URL is deliberate; a derived one follows --stream.
+    if args.rtsp_url is None and is_explicit("RTSP_URL"):
+        args.rtsp_url = RTSP_URL
+    if args.combined:
+        for option, value, environment_key in (
+            ('--hub-url', args.hub_url, 'HUB_URL or WEB_SERVER_URL'),
+            ('--drone-id', args.drone_id, 'DRONE_ID'),
+            ('--api-key', args.api_key, 'API_KEY'),
+        ):
+            if not value:
+                parser.error(f'{option} is required for --combined; provide it or set {environment_key}')
     
     if args.combined:
         service = CombinedCameraService(
@@ -697,6 +741,7 @@ async def main():
             stream_type=args.stream,
             rtsp_url=args.rtsp_url,
             api_port=args.api_port,
+            go2rtc_api=args.go2rtc_api,
             webrtc_port=args.webrtc_port,
             funnel_port=args.funnel_port,
             public_url=args.public_url,
@@ -707,6 +752,7 @@ async def main():
             stream_type=args.stream,
             rtsp_url=args.rtsp_url,
             api_port=args.api_port,
+            go2rtc_api=args.go2rtc_api,
             webrtc_port=args.webrtc_port,
             funnel_port=args.funnel_port,
             hub_url=args.hub_url if args.api_key else None,

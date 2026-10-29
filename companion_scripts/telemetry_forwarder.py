@@ -36,20 +36,27 @@ from queue import Queue, Empty
 from mavsdk import System
 import dronecan
 from dronecan.driver.socketcan import SocketCAN
+from companion_config import load_environment
 
-# Configuration from environment
-WEB_SERVER_URL = os.getenv('WEB_SERVER_URL', 'https://3000-iuxvn90xvvplcrvwo43dd-7e0e2d7b.manusvm.computer')
-API_KEY = os.getenv('API_KEY', '')
-DRONE_ID = os.getenv('DRONE_ID', 'quiver_001')
-MAVLINK_URL = os.getenv('MAVLINK_URL', 'udpin://0.0.0.0:14540')
-CAN_INTERFACE = os.getenv('CAN_INTERFACE', 'can0')
-UPDATE_RATE_HZ = float(os.getenv('UPDATE_RATE_HZ', '10'))
+# Configuration is loaded before constants and parser defaults.  CLI overrides
+# are applied in main() and passed to TelemetryForwarder explicitly.
+CONFIG = load_environment()
+WEB_SERVER_URL = CONFIG.get('WEB_SERVER_URL', '')
+API_KEY = CONFIG.get('API_KEY', '')
+DRONE_ID = CONFIG.get('DRONE_ID', 'quiver_001')
+MAVLINK_URL = CONFIG.get('MAVLINK_URL', 'udpin://0.0.0.0:14540')
+CAN_INTERFACE = CONFIG.get('CAN_INTERFACE', 'can0')
+UPDATE_RATE_HZ = float(CONFIG.get('UPDATE_RATE_HZ', '10'))
+ENABLE_UAVCAN = CONFIG.get('ENABLE_UAVCAN', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 UAVCAN_NODE_ID = 111  # Unique node ID for this telemetry bridge
 
 class TelemetryForwarder:
     """Multi-threaded telemetry forwarder."""
     
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, web_server_url=WEB_SERVER_URL, api_key=API_KEY,
+                 drone_id=DRONE_ID, mavlink_url=MAVLINK_URL,
+                 can_interface=CAN_INTERFACE, update_rate_hz=UPDATE_RATE_HZ,
+                 enable_uavcan=ENABLE_UAVCAN):
         """
         Initialize the forwarder.
         
@@ -60,12 +67,14 @@ class TelemetryForwarder:
         self.setup_logging()
         
         # Configuration
-        self.web_server_url = WEB_SERVER_URL.rstrip('/')
-        self.api_key = API_KEY
-        self.drone_id = DRONE_ID
-        self.mavlink_url = MAVLINK_URL
-        self.can_interface = CAN_INTERFACE
-        self.update_interval = 1.0 / UPDATE_RATE_HZ
+        self.web_server_url = web_server_url.rstrip('/')
+        self.api_key = api_key
+        self.drone_id = drone_id
+        self.mavlink_url = mavlink_url
+        self.can_interface = can_interface
+        self.update_rate_hz = update_rate_hz
+        self.enable_uavcan = enable_uavcan
+        self.update_interval = 1.0 / self.update_rate_hz
         
         # Telemetry state (thread-safe with locks)
         self.telemetry_lock = threading.Lock()
@@ -119,8 +128,8 @@ class TelemetryForwarder:
             # Set telemetry rates
             await drone.telemetry.set_rate_battery(1.0)
             await drone.telemetry.set_rate_gps_info(1.0)
-            await drone.telemetry.set_rate_position(UPDATE_RATE_HZ)
-            await drone.telemetry.set_rate_attitude_euler(UPDATE_RATE_HZ)
+            await drone.telemetry.set_rate_position(self.update_rate_hz)
+            await drone.telemetry.set_rate_attitude_euler(self.update_rate_hz)
             
             # Start telemetry collectors
             asyncio.create_task(self.collect_attitude(drone))
@@ -373,17 +382,21 @@ class TelemetryForwarder:
         self.logger.info(f"Server URL: {self.web_server_url}")
         self.logger.info(f"Drone ID: {self.drone_id}")
         self.logger.info(f"MAVLink URL: {self.mavlink_url}")
-        self.logger.info(f"CAN Interface: {self.can_interface}")
-        self.logger.info(f"Update Rate: {UPDATE_RATE_HZ} Hz")
+        self.logger.info(f"CAN Interface: {self.can_interface} (enabled: {self.enable_uavcan})")
+        self.logger.info(f"Update Rate: {self.update_rate_hz} Hz")
         self.logger.info("=" * 60)
         
         # Start threads
         self.mavlink_thread = threading.Thread(target=self.mavlink_worker, daemon=True)
-        self.uavcan_thread = threading.Thread(target=self.uavcan_worker, daemon=True)
+        if self.enable_uavcan:
+            self.uavcan_thread = threading.Thread(target=self.uavcan_worker, daemon=True)
         self.http_thread = threading.Thread(target=self.http_worker, daemon=True)
         
         self.mavlink_thread.start()
-        self.uavcan_thread.start()
+        if self.uavcan_thread:
+            self.uavcan_thread.start()
+        else:
+            self.logger.info("[UAVCAN] Disabled by ENABLE_UAVCAN")
         self.http_thread.start()
         
         self.logger.info("✅ All workers started")
@@ -415,10 +428,40 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Quiver Hub Telemetry Forwarder')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--hub-url', '--server', dest='web_server_url', default=WEB_SERVER_URL,
+                        help='Hub URL (default: HUB_URL/WEB_SERVER_URL)')
+    parser.add_argument('--api-key', default=API_KEY, help='Hub API key (default: API_KEY)')
+    parser.add_argument('--drone-id', default=DRONE_ID, help='Drone ID (default: DRONE_ID)')
+    parser.add_argument('--mavlink-url', default=MAVLINK_URL,
+                        help='MAVLink URL (default: MAVLINK_URL)')
+    parser.add_argument('--can-interface', default=CAN_INTERFACE,
+                        help='CAN interface (default: CAN_INTERFACE)')
+    parser.add_argument('--update-rate-hz', type=float, default=UPDATE_RATE_HZ,
+                        help='Telemetry update rate (default: UPDATE_RATE_HZ)')
+    parser.add_argument('--disable-uavcan', action='store_true',
+                        help='Disable the UAVCAN worker for this invocation')
     args = parser.parse_args()
+
+    if not args.web_server_url:
+        parser.error('--hub-url is required; provide it or set HUB_URL/WEB_SERVER_URL')
+    if not args.api_key:
+        parser.error('--api-key is required; provide it or set API_KEY')
+    if not args.drone_id:
+        parser.error('--drone-id is required; provide it or set DRONE_ID')
+    if args.update_rate_hz <= 0:
+        parser.error('--update-rate-hz must be greater than zero')
     
     # Create and start forwarder
-    forwarder = TelemetryForwarder(debug=args.debug)
+    forwarder = TelemetryForwarder(
+        debug=args.debug,
+        web_server_url=args.web_server_url,
+        api_key=args.api_key,
+        drone_id=args.drone_id,
+        mavlink_url=args.mavlink_url,
+        can_interface=args.can_interface,
+        update_rate_hz=args.update_rate_hz,
+        enable_uavcan=ENABLE_UAVCAN and not args.disable_uavcan,
+    )
     forwarder.start()
 
 if __name__ == '__main__':

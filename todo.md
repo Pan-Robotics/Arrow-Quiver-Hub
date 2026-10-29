@@ -1448,3 +1448,20 @@
 - [x] Expand clearFailedFirmwareUpdates to include stuck statuses (transferring, flashing, verifying)
 - [x] Delete button on completed cards, fallback message for pre-feature flash records
 - [x] 995 tests passing (36 new tests for version readback, cancel button, schema, REST, WebSocket)
+
+
+## Companion Suite Portability & Network Configuration (2026-10-29)
+
+Scope: companion installers, Python services, systemd templates, and related documentation only. Mission Planner remains design-only.
+
+Execution plan: audit configuration → implement shared path/network configuration and GitHub bootstrap → update consumers/templates/docs → run regression and installation-simulation tests → save checkpoint.
+
+- [x] Add --break-system-packages to every companion Python dependency install and documented command.
+- [x] Remove developer-specific usernames/home paths; prompt for service user and preferred installation folder and preserve configured choices.
+- [x] Make install_hub_client.sh download the complete companion suite from the default Pan-Robotics/Arrow-Quiver-Hub/main/companion_scripts source, with a blank-to-default alternative-source prompt and safe failure handling.
+- [x] Centralize static network addresses, ports, and derived connection URLs in a shared .env; reuse it across all installers and Python/systemd services, with legacy forwarder.env compatibility.
+- [x] Update systemd templates and companion/system documentation with portable setup and the supplied static network/reserved payload ranges.
+- [x] Add behavioral Vitest regression coverage, syntax checks, mocked installer tests, and run the full existing suite and TypeScript checks.
+- [x] Save a checkpoint and deliver the updated companion suite and installation instructions.
+
+Validation: 1,027 tests passed across 28 Vitest files; TypeScript, Python AST syntax, Bash syntax, and git diff whitespace checks passed. Installer tests stub package, service, network-download, and Tailscale operations and use temporary paths; no companion hardware was accessed. The distributable template is companion-config.example; installers generate the target computer's .env. FC Lua uses an explicit GCS import of the generated firmware_puller.param, never the Pi filesystem. GitHub export/push has not been performed; --local supports installing the delivered bundle until the source repository is updated. Mission Planner remains design-only.

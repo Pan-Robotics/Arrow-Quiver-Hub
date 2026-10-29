@@ -1,22 +1,25 @@
+# TEMPLATE — rendered by install_camera_services.sh. Do not install directly.
+# Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
+# SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 [Unit]
-Description=Camera Stream Manager (go2rtc + Tailscale + Hub Registration)
+Description=Quiver Camera Stream Manager (go2rtc + Tailscale Funnel + Hub Registration)
 After=network-online.target go2rtc.service tailscale-funnel.service
 Wants=network-online.target
 Requires=go2rtc.service
 
 [Service]
 Type=simple
-User=julius
-WorkingDirectory=/home/julius/camera_forwarder
-ExecStart=/usr/bin/python3 /home/julius/camera_forwarder/camera_stream_service.py \
-    --stream sub \
-    --hub-url https://3000-ibdfcmi4gyx1dwxpfvh97-4b23ff60.us1.manus.computer \
-    --drone-id quiver_001 \
-    --api-key sp10G8P9XCXUBidys1KJaoeCSxOFLUo5E1CDhc9L85M \
-    --go2rtc-api http://localhost:1984
+User=SERVICE_USER_PLACEHOLDER
+Group=SERVICE_GROUP_PLACEHOLDER
+WorkingDirectory=INSTALL_DIR_PLACEHOLDER
+EnvironmentFile=ENV_FILE_PLACEHOLDER
+Environment=ENV_ASSIGNMENT_PLACEHOLDER
+Environment=PYTHONUNBUFFERED=1
+# Runtime configuration is loaded from the shared .env; no Hub URL, API key,
+# camera address, or go2rtc endpoint is pinned into this unit.
+ExecStart=/usr/bin/python3 CAMERA_STREAM_SCRIPT_PLACEHOLDER
 Restart=always
 RestartSec=10
-Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=camera-stream

@@ -1,6 +1,8 @@
 --[[
    ArduPilot Lua applet: Firmware Puller (OTA via HTTP GET) — DEBUG BUILD
    Adds GCS messages at every stage for troubleshooting.
+   Import firmware_puller.param generated from the companion .env before enabling.
+   FC Lua cannot read the Pi filesystem; existing saved FWPULL parameters persist.
 --]]
 
 ---@diagnostic disable: param-type-mismatch
@@ -22,10 +24,11 @@ assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 6),
        'firmware_puller: could not add param table')
 
 local FWPULL_ENABLE = bind_add_param("ENABLE", 1, 0)
-local FWPULL_PI_IP0 = bind_add_param("PI_IP0", 2, 192)
-local FWPULL_PI_IP1 = bind_add_param("PI_IP1", 3, 168)
-local FWPULL_PI_IP2 = bind_add_param("PI_IP2", 4, 144)
-local FWPULL_PI_IP3 = bind_add_param("PI_IP3", 5, 20)
+-- No network address is baked into this applet. Configure via generated params.
+local FWPULL_PI_IP0 = bind_add_param("PI_IP0", 2, 0)
+local FWPULL_PI_IP1 = bind_add_param("PI_IP1", 3, 0)
+local FWPULL_PI_IP2 = bind_add_param("PI_IP2", 4, 0)
+local FWPULL_PI_IP3 = bind_add_param("PI_IP3", 5, 0)
 local FWPULL_PORT   = bind_add_param("PORT",   6, 8070)
 
 local POLL_INTERVAL_MS = 5000
@@ -131,6 +134,21 @@ end
 
 local function poll_status()
     if FWPULL_ENABLE:get() < 1 then
+        return
+    end
+
+    -- An enabled applet with unset/invalid target parameters must stay idle.
+    local octets = {FWPULL_PI_IP0:get(), FWPULL_PI_IP1:get(),
+                    FWPULL_PI_IP2:get(), FWPULL_PI_IP3:get()}
+    for index, octet in ipairs(octets) do
+        if octet < 0 or octet > 255 or octet ~= math.floor(octet)
+                or (index == 1 and (octet == 0 or octet >= 224)) then
+            gcs:send_text(MAV_SEVERITY.WARNING, "FWPull: configure target from firmware_puller.param")
+            return
+        end
+    end
+    if get_pi_port() < 1 or get_pi_port() > 65535 then
+        gcs:send_text(MAV_SEVERITY.WARNING, "FWPull: configure FWPULL_PORT from companion .env")
         return
     end
 

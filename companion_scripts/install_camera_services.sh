@@ -1,245 +1,117 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
-# SIYI Camera Services Installation Script
+# Quiver Hub Camera Services Installer
 # =============================================================================
-# This script installs the SIYI A8 mini camera controller, go2rtc WebRTC
-# streaming, and Tailscale funnel services on a Raspberry Pi companion computer.
+# Installs the SIYI camera controller, go2rtc, and a persistent Tailscale Funnel
+# service for a Quiver companion computer. Configuration belongs in the shared
+# .env file and is never sourced by this shell script.
 #
-# Architecture:
-#   RTSP Camera → go2rtc (RTSP→WebRTC) → Tailscale Funnel (public HTTPS)
-#   Browser ←→ go2rtc (WebRTC peer-to-peer, signaling via Tailscale funnel)
-#
-# go2rtc handles RTSP ingest and WebRTC signaling/media.
-# Tailscale funnel exposes go2rtc's API to the internet for signaling.
-# WebRTC media flows peer-to-peer via UDP (STUN hole-punch).
-# camera_stream_service.py manages go2rtc, auto-detects the Tailscale
-# funnel URL, and registers it with the Quiver Hub.
-#
-# Prerequisites:
-# - Raspberry Pi 4 or 5 with Raspberry Pi OS (64-bit)
-# - Python 3.9+
-# - Network connectivity to SIYI camera (192.168.144.25)
-# - Internet connectivity (for Tailscale funnel + Hub registration)
-#
-# Usage:
-#   chmod +x install_camera_services.sh
-#   sudo ./install_camera_services.sh
+# Run from a downloaded companion_scripts suite:
+#   sudo bash /chosen/folder/install_camera_services.sh
 # =============================================================================
 
-set -e
+set -euo pipefail
 
-# Colors for output
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=installer_common.sh
+source "$SCRIPT_DIR/installer_common.sh"
+SYSTEMD_DIR=${QUIVER_SYSTEMD_DIR:-/etc/systemd/system}
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}SIYI Camera Services Installer${NC}"
-echo -e "${GREEN}  WebRTC + Tailscale Funnel Edition${NC}"
-echo -e "${GREEN}========================================${NC}"
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Please run as root (sudo)${NC}"
+fail() {
+    echo -e "${RED}Error: $*${NC}" >&2
     exit 1
-fi
+}
 
-# Detect architecture
-ARCH=$(uname -m)
-case "$ARCH" in
-    aarch64) GO2RTC_ARCH="arm64" ;;
-    armv7l)  GO2RTC_ARCH="arm" ;;
-    x86_64)  GO2RTC_ARCH="amd64" ;;
-    *)
-        echo -e "${RED}Unsupported architecture: $ARCH${NC}"
-        exit 1
-        ;;
-esac
+require_value() {
+    local key="$1" value
+    value=$(quiver_get "$key")
+    [ -n "$value" ] || fail "$key must be set in $ENV_FILE"
+}
 
-# Configuration defaults
-INSTALL_DIR="/home/pi/quiver"
-SERVICE_USER="pi"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GO2RTC_BIN="/usr/local/bin/go2rtc"
-GO2RTC_API_PORT=1984
-GO2RTC_WEBRTC_PORT=8555
-TAILSCALE_FUNNEL_PORT=443
+require_port() {
+    local key="$1" value
+    value=$(quiver_get "$key")
+    case "$value" in
+        ''|*[!0-9]*) fail "$key must be a numeric TCP/UDP port (got '$value')" ;;
+    esac
+    [ "$value" -ge 1 ] && [ "$value" -le 65535 ] || fail "$key must be between 1 and 65535"
+}
 
-# Prompt for configuration
-echo ""
-echo -e "${YELLOW}Configuration:${NC}"
-read -p "Install directory [$INSTALL_DIR]: " INPUT_DIR
-INSTALL_DIR=${INPUT_DIR:-$INSTALL_DIR}
+unit_path() {
+    quiver_systemd_path "$1"
+}
 
-read -p "Service user [$SERVICE_USER]: " INPUT_USER
-SERVICE_USER=${INPUT_USER:-$SERVICE_USER}
+render_template() {
+    # Render only fixed unit paths/users. Hub URLs and credentials remain runtime
+    # environment variables, not generated unit-file content.
+    local template="$1" destination="$2" temporary
+    local install_dir_unit env_file_unit env_assignment_unit service_user service_group
+    local camera_stream_unit siyi_controller_unit hub_client_unit telemetry_unit logs_ota_unit
 
-read -p "Quiver Hub URL [https://rplidar-viz-cjlhozxe.manus.space]: " HUB_URL
-HUB_URL=${HUB_URL:-"https://rplidar-viz-cjlhozxe.manus.space"}
+    install_dir_unit=$(unit_path "$INSTALL_DIR")
+    env_file_unit=$(unit_path "$ENV_FILE")
+    env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
+    service_user="$SERVICE_USER"
+    service_group="$SERVICE_GROUP"
+    camera_stream_unit=$(unit_path "$INSTALL_DIR/camera_stream_service.py")
+    siyi_controller_unit=$(unit_path "$INSTALL_DIR/siyi_camera_controller.py")
+    hub_client_unit=$(unit_path "$INSTALL_DIR/raspberry_pi_client.py")
+    telemetry_unit=$(unit_path "$INSTALL_DIR/telemetry_forwarder.py")
+    logs_ota_unit=$(unit_path "$INSTALL_DIR/logs_ota_service.py")
+    temporary=$(mktemp)
 
-read -p "Drone ID [quiver_001]: " DRONE_ID
-DRONE_ID=${DRONE_ID:-"quiver_001"}
+    python3 - "$template" "$temporary" \
+        "$install_dir_unit" "$env_file_unit" "$env_assignment_unit" "$service_user" "$service_group" \
+        "$camera_stream_unit" "$siyi_controller_unit" "$hub_client_unit" \
+        "$telemetry_unit" "$logs_ota_unit" <<'PY'
+from pathlib import Path
+import sys
 
-read -p "API Key: " API_KEY
-if [ -z "$API_KEY" ]; then
-    echo -e "${RED}API Key is required${NC}"
-    exit 1
-fi
+(template, output, install_dir, env_file, env_assignment, service_user, service_group,
+ camera_stream, siyi_controller, hub_client, telemetry, logs_ota) = sys.argv[1:]
+replacements = {
+    "INSTALL_DIR_PLACEHOLDER": install_dir,
+    "ENV_FILE_PLACEHOLDER": env_file,
+    "ENV_ASSIGNMENT_PLACEHOLDER": env_assignment,
+    "SERVICE_USER_PLACEHOLDER": service_user,
+    "SERVICE_GROUP_PLACEHOLDER": service_group,
+    "CAMERA_STREAM_SCRIPT_PLACEHOLDER": camera_stream,
+    "SIYI_CONTROLLER_SCRIPT_PLACEHOLDER": siyi_controller,
+    "HUB_CLIENT_SCRIPT_PLACEHOLDER": hub_client,
+    "TELEMETRY_FORWARDER_SCRIPT_PLACEHOLDER": telemetry,
+    "LOGS_OTA_SCRIPT_PLACEHOLDER": logs_ota,
+}
+content = Path(template).read_text(encoding="utf-8")
+for marker, value in replacements.items():
+    content = content.replace(marker, value)
+Path(output).write_text(content, encoding="utf-8")
+PY
 
-read -p "RTSP stream type (main=4K, sub=720p) [sub]: " STREAM_TYPE
-STREAM_TYPE=${STREAM_TYPE:-"sub"}
+    quiver_privileged install -m 644 "$temporary" "$destination"
+    rm -f "$temporary"
+}
 
-read -p "go2rtc API port [$GO2RTC_API_PORT]: " INPUT_API_PORT
-GO2RTC_API_PORT=${INPUT_API_PORT:-$GO2RTC_API_PORT}
+write_generated_units() {
+    local install_dir_unit env_file_unit env_assignment_unit go2rtc_bin_unit go2rtc_config_unit config_helper_unit tailscale_bin_unit
+    install_dir_unit=$(unit_path "$INSTALL_DIR")
+    env_file_unit=$(unit_path "$ENV_FILE")
+    env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
+    go2rtc_bin_unit=$(unit_path "$GO2RTC_BIN")
+    go2rtc_config_unit=$(unit_path "$INSTALL_DIR/go2rtc.yaml")
+    config_helper_unit=$(unit_path "$INSTALL_DIR/companion_config.py")
+    tailscale_bin_unit=$(unit_path "$TAILSCALE_BIN")
 
-read -p "go2rtc WebRTC UDP port [$GO2RTC_WEBRTC_PORT]: " INPUT_WEBRTC_PORT
-GO2RTC_WEBRTC_PORT=${INPUT_WEBRTC_PORT:-$GO2RTC_WEBRTC_PORT}
+    quiver_privileged mkdir -p "$SYSTEMD_DIR"
 
-# Build RTSP URL based on stream type
-if [ "$STREAM_TYPE" = "main" ]; then
-    RTSP_URL="rtsp://192.168.144.25:8554/main.264"
-else
-    RTSP_URL="rtsp://192.168.144.25:8554/sub.264"
-fi
-
-echo ""
-echo -e "${GREEN}Step 1: Installing system dependencies...${NC}"
-apt-get update
-apt-get install -y python3 python3-pip curl jq
-
-echo ""
-echo -e "${GREEN}Step 2: Installing Python dependencies...${NC}"
-pip3 install --break-system-packages requests 'python-socketio[asyncio_client]' aiohttp
-
-echo ""
-echo -e "${GREEN}Step 3: Installing go2rtc...${NC}"
-if [ -f "$GO2RTC_BIN" ]; then
-    echo -e "${YELLOW}go2rtc already installed, updating...${NC}"
-fi
-# Get latest release URL
-GO2RTC_URL=$(curl -s https://api.github.com/repos/AlexxIT/go2rtc/releases/latest \
-    | jq -r ".assets[] | select(.name | test(\"go2rtc_linux_${GO2RTC_ARCH}\")) | .browser_download_url" \
-    | head -1)
-if [ -z "$GO2RTC_URL" ]; then
-    echo -e "${RED}Failed to find go2rtc release for ${GO2RTC_ARCH}${NC}"
-    exit 1
-fi
-echo -e "Downloading: $GO2RTC_URL"
-curl -L "$GO2RTC_URL" -o "$GO2RTC_BIN"
-chmod +x "$GO2RTC_BIN"
-echo -e "Installed: $($GO2RTC_BIN --version 2>&1 || echo 'go2rtc installed')"
-
-echo ""
-echo -e "${GREEN}Step 4: Installing Tailscale...${NC}"
-if command -v tailscale &> /dev/null; then
-    echo -e "${YELLOW}Tailscale already installed${NC}"
-    tailscale version
-else
-    curl -fsSL https://tailscale.com/install.sh | sh
-    echo -e "${CYAN}Tailscale installed. You need to authenticate:${NC}"
-    echo -e "${CYAN}  sudo tailscale up${NC}"
-    echo -e "${CYAN}Follow the URL to authenticate this device.${NC}"
-    echo ""
-    read -p "Press Enter after authenticating Tailscale (or Ctrl+C to abort)..."
-fi
-
-# Check Tailscale status
-if ! tailscale status &> /dev/null; then
-    echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
-    tailscale up
-    echo -e "${CYAN}Follow the URL above to authenticate.${NC}"
-    read -p "Press Enter after authenticating..."
-fi
-
-# Get the Tailscale hostname for this device
-TS_HOSTNAME=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
-if [ -z "$TS_HOSTNAME" ] || [ "$TS_HOSTNAME" = "null" ]; then
-    echo -e "${RED}Could not determine Tailscale hostname.${NC}"
-    echo -e "${RED}Make sure Tailscale is authenticated and connected.${NC}"
-    exit 1
-fi
-echo -e "Tailscale hostname: ${CYAN}${TS_HOSTNAME}${NC}"
-
-echo ""
-echo -e "${GREEN}Step 5: Setting up Tailscale funnel...${NC}"
-# Enable HTTPS and funnel for the go2rtc API port
-echo -e "Enabling funnel on port $TAILSCALE_FUNNEL_PORT → localhost:$GO2RTC_API_PORT"
-tailscale funnel --bg --https=$TAILSCALE_FUNNEL_PORT http://localhost:$GO2RTC_API_PORT
-
-# Construct the funnel URL
-FUNNEL_URL="https://${TS_HOSTNAME}"
-if [ "$TAILSCALE_FUNNEL_PORT" != "443" ]; then
-    FUNNEL_URL="https://${TS_HOSTNAME}:${TAILSCALE_FUNNEL_PORT}"
-fi
-echo -e "Funnel URL: ${CYAN}${FUNNEL_URL}${NC}"
-
-echo ""
-echo -e "${GREEN}Step 6: Creating installation directory...${NC}"
-mkdir -p "$INSTALL_DIR"
-chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-
-echo ""
-echo -e "${GREEN}Step 7: Copying scripts...${NC}"
-cp "$SCRIPT_DIR/siyi_camera_controller.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/camera_stream_service.py" "$INSTALL_DIR/"
-chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"/*.py
-chmod +x "$INSTALL_DIR"/*.py
-
-echo ""
-echo -e "${GREEN}Step 8: Creating go2rtc configuration...${NC}"
-cat > "$INSTALL_DIR/go2rtc.yaml" << EOF
-# go2rtc configuration for SIYI A8 Mini camera
-# Managed by install_camera_services.sh — edit with care
-
-streams:
-  camera:
-    - $RTSP_URL
-
-api:
-  listen: ":$GO2RTC_API_PORT"
-
-webrtc:
-  listen: ":$GO2RTC_WEBRTC_PORT"
-  candidates:
-    - stun:8555
-EOF
-chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/go2rtc.yaml"
-
-echo ""
-echo -e "${GREEN}Step 9: Creating environment file...${NC}"
-cat > "$INSTALL_DIR/.env" << EOF
-# Quiver Hub Configuration
-HUB_URL=$HUB_URL
-DRONE_ID=$DRONE_ID
-API_KEY=$API_KEY
-
-# SIYI Camera Configuration
-SIYI_CAMERA_IP=192.168.144.25
-SIYI_SDK_PORT=37260
-SIYI_RTSP_PORT=8554
-
-# go2rtc Configuration
-GO2RTC_API_PORT=$GO2RTC_API_PORT
-GO2RTC_WEBRTC_PORT=$GO2RTC_WEBRTC_PORT
-RTSP_URL=$RTSP_URL
-STREAM_TYPE=$STREAM_TYPE
-
-# Tailscale Funnel
-# The funnel URL is auto-detected by camera_stream_service.py
-# but stored here for reference
-TAILSCALE_FUNNEL_URL=$FUNNEL_URL
-TAILSCALE_HOSTNAME=$TS_HOSTNAME
-EOF
-chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.env"
-chmod 600 "$INSTALL_DIR/.env"
-
-echo ""
-echo -e "${GREEN}Step 10: Installing systemd services...${NC}"
-
-# go2rtc service
-cat > /etc/systemd/system/go2rtc.service << EOF
+    # go2rtc.yaml is regenerated from the shared .env before each start. This
+    # makes RTSP host/port/stream edits take effect after `restart go2rtc`.
+    quiver_privileged tee "$SYSTEMD_DIR/go2rtc.service" >/dev/null <<EOF
 [Unit]
 Description=go2rtc WebRTC Streaming Server
 After=network-online.target
@@ -247,12 +119,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$GO2RTC_BIN -config $INSTALL_DIR/go2rtc.yaml
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+WorkingDirectory=${install_dir_unit}
+EnvironmentFile=${env_file_unit}
+Environment=${env_assignment_unit}
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/bin/python3 ${config_helper_unit} render-go2rtc ${env_file_unit} ${go2rtc_config_unit}
+ExecStart=${go2rtc_bin_unit} -config ${go2rtc_config_unit}
 Restart=always
 RestartSec=5
-Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=go2rtc
@@ -261,19 +137,22 @@ SyslogIdentifier=go2rtc
 WantedBy=multi-user.target
 EOF
 
-# Tailscale funnel service (persistent, survives reboots)
-cat > /etc/systemd/system/tailscale-funnel.service << EOF
+    # The variables are expanded by systemd from EnvironmentFile at each start;
+    # they are intentionally not pinned to installation-time values.
+    quiver_privileged tee "$SYSTEMD_DIR/tailscale-funnel.service" >/dev/null <<EOF
 [Unit]
 Description=Tailscale Funnel for go2rtc WebRTC Signaling
 After=network-online.target tailscaled.service go2rtc.service
 Wants=network-online.target
-Requires=tailscaled.service
+Requires=tailscaled.service go2rtc.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/tailscale funnel --bg --https=$TAILSCALE_FUNNEL_PORT http://localhost:$GO2RTC_API_PORT
-ExecStop=/usr/bin/tailscale funnel --https=$TAILSCALE_FUNNEL_PORT off
+EnvironmentFile=${env_file_unit}
+Environment=${env_assignment_unit}
+ExecStart=${tailscale_bin_unit} funnel --bg --https=\${TAILSCALE_FUNNEL_PORT} http://\${GO2RTC_API_HOST}:\${GO2RTC_API_PORT}
+ExecStop=${tailscale_bin_unit} funnel --https=\${TAILSCALE_FUNNEL_PORT} off
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tailscale-funnel
@@ -281,109 +160,165 @@ SyslogIdentifier=tailscale-funnel
 [Install]
 WantedBy=multi-user.target
 EOF
+}
 
-# Camera controller service (SIYI gimbal control via Socket.IO)
-cat > /etc/systemd/system/siyi-camera.service << EOF
-[Unit]
-Description=SIYI A8 Mini Camera Controller Service
-After=network-online.target
-Wants=network-online.target
+configure_camera_environment() {
+    local stream_type rtsp_url hub_url
 
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=$INSTALL_DIR/.env
-ExecStart=/usr/bin/python3 $INSTALL_DIR/siyi_camera_controller.py --hub-url \${HUB_URL} --drone-id \${DRONE_ID} --api-key \${API_KEY}
-Restart=always
-RestartSec=10
-Environment=PYTHONUNBUFFERED=1
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=siyi-camera
+    quiver_prompt HUB_URL "Quiver Hub URL"
+    hub_url=$(quiver_get HUB_URL)
+    # Older Hub/telemetry clients use WEB_SERVER_URL; keep it synchronized without
+    # parsing or sourcing the environment file.
+    quiver_set WEB_SERVER_URL "$hub_url"
+    quiver_prompt DRONE_ID "Drone ID"
+    quiver_prompt API_KEY "API key" secret
+    quiver_prompt STREAM_TYPE "RTSP stream type (main=4K, sub=720p)"
+    quiver_prompt GO2RTC_API_PORT "go2rtc API port"
+    quiver_prompt GO2RTC_WEBRTC_PORT "go2rtc WebRTC UDP port"
+    quiver_prompt TAILSCALE_FUNNEL_PORT "Tailscale Funnel HTTPS port (443, 8443, or 10000)"
 
-[Install]
-WantedBy=multi-user.target
-EOF
+    stream_type=$(quiver_get STREAM_TYPE)
+    case "$stream_type" in
+        main|sub) ;;
+        *) fail "STREAM_TYPE must be 'main' or 'sub'" ;;
+    esac
+    require_value HUB_URL
+    require_value DRONE_ID
+    require_value API_KEY
+    require_value SIYI_CAMERA_IP
+    require_port SIYI_RTSP_PORT
+    require_port GO2RTC_API_PORT
+    require_port GO2RTC_WEBRTC_PORT
+    require_port TAILSCALE_FUNNEL_PORT
 
-# Camera stream management service (manages go2rtc + registers with Hub)
-cat > /etc/systemd/system/camera-stream.service << EOF
-[Unit]
-Description=Camera Stream Manager (go2rtc + Tailscale + Hub Registration)
-After=network-online.target go2rtc.service tailscale-funnel.service
-Wants=network-online.target
-Requires=go2rtc.service
+    # RTSP_URL is an optional explicit override. Do not persist a derived URL:
+    # companion_config derives it from SIYI_CAMERA_IP, SIYI_RTSP_PORT, and
+    # STREAM_TYPE each time go2rtc is rendered, so endpoint edits apply after
+    # a restart. An existing non-empty RTSP_URL deliberately remains an override.
+    rtsp_url=$(quiver_get RTSP_URL)
+    [ -n "$rtsp_url" ] || fail "RTSP_URL could not be derived; set SIYI_CAMERA_IP, SIYI_RTSP_PORT, and STREAM_TYPE"
+}
 
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=$INSTALL_DIR/.env
-ExecStart=/usr/bin/python3 $INSTALL_DIR/camera_stream_service.py \\
-    --stream \${STREAM_TYPE} \\
-    --hub-url \${HUB_URL} \\
-    --drone-id \${DRONE_ID} \\
-    --api-key \${API_KEY} \\
-    --go2rtc-api http://localhost:\${GO2RTC_API_PORT}
-Restart=always
-RestartSec=10
-Environment=PYTHONUNBUFFERED=1
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=camera-stream
+install_dependencies() {
+    echo -e "${GREEN}[1/5] Installing camera dependencies...${NC}"
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip curl jq
+    python3 -m pip install --break-system-packages requests 'python-socketio[asyncio_client]' aiohttp
+}
 
-[Install]
-WantedBy=multi-user.target
-EOF
+install_go2rtc() {
+    local arch go2rtc_url temporary
+    echo -e "${GREEN}[2/5] Installing go2rtc in the selected companion folder...${NC}"
+    case "$(uname -m)" in
+        aarch64) arch="arm64" ;;
+        armv7l) arch="arm" ;;
+        x86_64) arch="amd64" ;;
+        *) fail "Unsupported architecture: $(uname -m)" ;;
+    esac
 
-echo ""
-echo -e "${GREEN}Step 11: Enabling and starting services...${NC}"
-systemctl daemon-reload
-systemctl enable go2rtc.service
-systemctl enable tailscale-funnel.service
-systemctl enable siyi-camera.service
-systemctl enable camera-stream.service
+    GO2RTC_BIN="$INSTALL_DIR/bin/go2rtc"
+    quiver_privileged mkdir -p "$INSTALL_DIR/bin"
+    quiver_privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/bin"
+    go2rtc_url=$(curl -fsSL https://api.github.com/repos/AlexxIT/go2rtc/releases/latest \
+        | jq -r ".assets[] | select(.name | test(\"go2rtc_linux_${arch}\")) | .browser_download_url" \
+        | head -n 1)
+    [ -n "$go2rtc_url" ] && [ "$go2rtc_url" != "null" ] || fail "Could not find a go2rtc release for $arch"
 
-systemctl start go2rtc.service
-sleep 2  # Give go2rtc a moment to start
-systemctl start tailscale-funnel.service
-sleep 1
-systemctl start siyi-camera.service
-systemctl start camera-stream.service
+    temporary=$(mktemp)
+    curl -fL "$go2rtc_url" -o "$temporary"
+    quiver_privileged install -m 755 "$temporary" "$GO2RTC_BIN"
+    quiver_privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$GO2RTC_BIN"
+    quiver_set GO2RTC_BINARY "$GO2RTC_BIN" GO2RTC_EXTERNAL true SKIP_FUNNEL_SETUP true
+    rm -f "$temporary"
+    echo "Installed go2rtc at $GO2RTC_BIN"
+}
 
-echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Installation Complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo ""
-echo -e "Architecture:"
-echo -e "  RTSP Camera → go2rtc (WebRTC) → Tailscale Funnel → Browser"
-echo -e ""
-echo -e "Services installed:"
-echo -e "  - go2rtc.service             (RTSP → WebRTC streaming server)"
-echo -e "  - tailscale-funnel.service   (Exposes go2rtc API to internet)"
-echo -e "  - siyi-camera.service        (Camera gimbal controller via Socket.IO)"
-echo -e "  - camera-stream.service      (Manages go2rtc + registers with Hub)"
-echo ""
-echo -e "Startup order: go2rtc → tailscale-funnel → camera-stream"
-echo ""
-echo -e "Key URLs:"
-echo -e "  Local go2rtc API:    ${CYAN}http://localhost:$GO2RTC_API_PORT${NC}"
-echo -e "  Local go2rtc WebUI:  ${CYAN}http://localhost:$GO2RTC_API_PORT${NC}"
-echo -e "  Tailscale Funnel:    ${CYAN}${FUNNEL_URL}${NC}"
-echo -e "  WebRTC signaling:    ${CYAN}${FUNNEL_URL}/api/webrtc?src=camera${NC}"
-echo ""
-echo -e "Useful commands:"
-echo -e "  ${YELLOW}sudo systemctl status go2rtc${NC}             - Check go2rtc status"
-echo -e "  ${YELLOW}sudo systemctl status tailscale-funnel${NC}   - Check funnel status"
-echo -e "  ${YELLOW}sudo systemctl status siyi-camera${NC}        - Check camera controller"
-echo -e "  ${YELLOW}sudo systemctl status camera-stream${NC}      - Check stream manager"
-echo -e "  ${YELLOW}sudo journalctl -u go2rtc -f${NC}             - View go2rtc logs"
-echo -e "  ${YELLOW}sudo journalctl -u camera-stream -f${NC}      - View stream manager logs"
-echo -e "  ${YELLOW}tailscale funnel status${NC}                   - View funnel status"
-echo -e "  ${YELLOW}tailscale status${NC}                          - View Tailscale status"
-echo ""
-echo -e "${YELLOW}Note:${NC} The camera_stream_service.py auto-detects the Tailscale"
-echo -e "funnel URL and registers it with the Quiver Hub. No manual URL"
-echo -e "configuration is needed per drone."
-echo ""
+configure_tailscale() {
+    local hostname funnel_port
+    echo -e "${GREEN}[3/5] Checking Tailscale...${NC}"
+    if command -v tailscale >/dev/null 2>&1; then
+        tailscale version
+    else
+        echo -e "${YELLOW}Tailscale is not installed. Installing it using Tailscale's installer...${NC}"
+        curl -fsSL https://tailscale.com/install.sh | sh
+        echo -e "${CYAN}Authenticate this companion with: sudo tailscale up${NC}"
+        read -r -p "Press Enter after authenticating Tailscale (Ctrl+C to abort)..." _
+    fi
+
+    if ! tailscale status >/dev/null 2>&1; then
+        echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
+        tailscale up
+        read -r -p "Press Enter after authenticating Tailscale..." _
+    fi
+
+    TAILSCALE_BIN=$(command -v tailscale)
+    hostname=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
+    if [ -n "$hostname" ]; then
+        quiver_set TAILSCALE_HOSTNAME "$hostname"
+        funnel_port=$(quiver_get TAILSCALE_FUNNEL_PORT)
+        echo "Tailscale Funnel will publish https://${hostname}${funnel_port:+:$funnel_port} (443 omits the port after install)."
+    else
+        echo -e "${YELLOW}Tailscale hostname is not available yet; camera services will retry when it becomes available.${NC}"
+    fi
+}
+
+install_services() {
+    echo -e "${GREEN}[4/5] Copying camera runtime and rendering systemd services...${NC}"
+    # quiver_copy avoids same-file copies, so this also works when launched from
+    # the already-installed companion suite.
+    quiver_copy siyi_camera_controller.py
+    quiver_copy camera_stream_service.py
+    quiver_copy camera-stream.service
+    quiver_copy siyi-camera.service
+    quiver_install_helpers
+
+    quiver_privileged mkdir -p "$SYSTEMD_DIR"
+    render_template "$SCRIPT_DIR/camera-stream.service" "$SYSTEMD_DIR/camera-stream.service"
+    render_template "$SCRIPT_DIR/siyi-camera.service" "$SYSTEMD_DIR/siyi-camera.service"
+    write_generated_units
+
+    # Verify that the config renderer can create the initial file before systemd
+    # starts go2rtc. The same renderer is also the go2rtc ExecStartPre hook.
+    quiver_privileged python3 "$INSTALL_DIR/companion_config.py" render-go2rtc \
+        "$ENV_FILE" "$INSTALL_DIR/go2rtc.yaml"
+    quiver_privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/go2rtc.yaml"
+}
+
+start_services() {
+    echo -e "${GREEN}[5/5] Enabling and starting services...${NC}"
+    systemctl daemon-reload
+    systemctl enable go2rtc.service tailscale-funnel.service siyi-camera.service camera-stream.service
+    systemctl restart go2rtc.service
+    systemctl restart tailscale-funnel.service
+    systemctl restart siyi-camera.service
+    systemctl restart camera-stream.service
+}
+
+main() {
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}Quiver Hub Camera Services Installer${NC}"
+    echo -e "${GREEN}========================================${NC}"
+
+    if [ "${EUID}" -ne 0 ] && [ "${QUIVER_TEST_MODE:-}" != "1" ]; then
+        fail "Run with sudo: sudo bash $SCRIPT_DIR/install_camera_services.sh"
+    fi
+    quiver_configure
+    configure_camera_environment
+    install_dependencies
+    install_go2rtc
+    configure_tailscale
+    install_services
+    start_services
+
+    echo -e "${GREEN}Camera services are running.${NC}"
+    echo "Shared configuration: $ENV_FILE"
+    echo "RTSP source: $(quiver_get RTSP_URL)"
+    echo
+    echo "After editing $ENV_FILE, restart the affected service:"
+    echo "  sudo systemctl restart go2rtc tailscale-funnel camera-stream siyi-camera"
+    echo "Useful checks:"
+    echo "  sudo systemctl status go2rtc tailscale-funnel siyi-camera camera-stream"
+    echo "  sudo journalctl -u camera-stream -f"
+}
+
+main "$@"
