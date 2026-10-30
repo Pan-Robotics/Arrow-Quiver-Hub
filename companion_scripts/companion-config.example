@@ -42,7 +42,7 @@ SIYI_SDK_PORT=37260
 SIYI_RTSP_PORT=8554
 STREAM_TYPE=sub
 # RTSP_URL=rtsp://SIYI_CAMERA_IP:SIYI_RTSP_PORT/STREAM_TYPE.264
-GO2RTC_API_HOST=localhost
+GO2RTC_API_HOST=127.0.0.1
 GO2RTC_API_PORT=1984
 GO2RTC_WEBRTC_PORT=8555
 # GO2RTC_API_URL=http://GO2RTC_API_HOST:GO2RTC_API_PORT
@@ -58,16 +58,23 @@ FIRMWARE_SERVER_PORT=8070
 
 # Service operation
 CAN_INTERFACE=can0
-ENABLE_UAVCAN=true
+# DroneCAN is active bus participation, not passive capture. Enable explicitly
+# after assigning an unused node ID and bench-testing CAN permissions.
+ENABLE_UAVCAN=false
+UAVCAN_NODE_ID=111
 UPDATE_RATE_HZ=10
 POLL_INTERVAL=5
 DIAGNOSTICS_INTERVAL=10
 LOG_STORE_DIR=/var/lib/quiver/fc_logs
 NO_FC=false
 ALLOW_NON_ROOT=false
+ALLOW_INSECURE_HUB=false
+# Remote file jobs are opt-in and confined to dedicated data roots, not core code.
+ALLOW_REMOTE_FILE_WRITES=false
 
 # These are installer-populated. Leave commented to use portable runtime
 # fallbacks relative to the script directory rather than a developer home.
 # INSTALL_DIR=/opt/quiver/companion
 # CONFIG_DIR=/etc/quiver
 # PARSERS_DIR=/opt/quiver/companion/parsers
+# UPLOAD_DIR=/opt/quiver/companion/uploads

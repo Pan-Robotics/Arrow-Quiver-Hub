@@ -1,0 +1,67 @@
+[
+  {
+    "file": "camera_stream_service.py",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "file": "companion_config.py",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "file": "installer_support.py",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "file": "logs_ota_service.py",
+    "exit": 0,
+    "stderr": "/home/ubuntu/rplidar_web_server/companion_scripts/logs_ota_service.py:97: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.\n  To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.\n  To freeze instead, pin 'mavsdk<4' (no further updates).\n  To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html\n  from mavsdk import System\n"
+  },
+  {
+    "file": "raspberry_pi_client.py",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "file": "siyi_camera_controller.py",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "file": "telemetry_forwarder.py",
+    "exit": 0,
+    "stderr": "/home/ubuntu/rplidar_web_server/companion_scripts/telemetry_forwarder.py:41: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.\n  To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.\n  To freeze instead, pin 'mavsdk<4' (no further updates).\n  To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html\n  from mavsdk import System\n"
+  },
+  {
+    "dependency": "requests",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "dependency": "aiohttp",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "dependency": "mavsdk",
+    "exit": 0,
+    "stderr": "<string>:1: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.\n  To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.\n  To freeze instead, pin 'mavsdk<4' (no further updates).\n  To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html\n"
+  },
+  {
+    "dependency": "dronecan",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "dependency": "psutil",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "dependency": "socketio",
+    "exit": 0,
+    "stderr": ""
+  }
+]

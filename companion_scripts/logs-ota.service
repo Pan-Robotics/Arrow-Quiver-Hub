@@ -1,10 +1,13 @@
 # =============================================================================
 # Quiver Hub — Logs & OTA Service (systemd unit TEMPLATE)
 # =============================================================================
-# Render this template with its installer. It must not be copied directly.
+# Illustrative portable reference, not the installer's unit-rendering input.
+# install_logs_ota.sh generates the authoritative privilege-aware staged unit.
+# Do not copy this unrendered template directly into /etc/systemd/system.
 # Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
 # SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 # WORKING_DIRECTORY_PLACEHOLDER is a literal path, not a quoted argument.
+# ENV_FILE_PLACEHOLDER is also a literal unquoted absolute single path.
 #
 # This template intentionally does not set User=/Group=. The existing Logs & OTA
 # installer owns that privilege decision; leaving the directives commented keeps

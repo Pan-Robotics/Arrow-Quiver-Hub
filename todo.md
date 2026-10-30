@@ -1495,3 +1495,21 @@ Scope: repair systemd directive-specific path formatting across companion instal
 - [x] Package the corrected companion suite and save a checkpoint.
 
 Validation: reproduced the original fatal bad-setting error in systemd 255; corrected generated Hub, telemetry, OTA and all four camera-related units pass real systemd parsing with space-containing installation paths. 1,040 tests passed across 30 Vitest files; TypeScript, shell syntax and git whitespace checks passed. New repair tests cover read-only checks, configuration preservation, percent-escaped paths, backups/idempotence and failure-before-write for other invalid units. Hardware runtime and the user's installed unit have not been accessed. No GitHub push performed.
+
+
+## Comprehensive companion-suite audit and repeat-install safety (2026-10-30)
+
+The user reports the same bad-unit-setting failure in three service installations on Raspberry Pi OS Trixie (Python 3.13). The screenshot shows only the generic systemd error, not the rejected directive. Audit current code without assuming the installed files match GitHub or that the earlier quote fix is the sole cause.
+
+Plan: independent read-only audits of every executable source file (including its template/docs contract); deterministic validation of all remaining templates/defaults/docs; reproduce install/update paths against real systemd; repair verified defects; fail installers before enable/restart on invalid definitions; provide versioned diagnostics/recovery; regression and target-compatibility validation; checkpoint and GitHub update if access remains available.
+
+- [x] Audit every companion shell/Python/Lua source and its associated unit/default/docs contracts; record verified findings and untested hardware limits.
+- [x] Validate all service templates, configuration defaults and documentation consistency, including stale installed-suite upgrade behavior.
+- [x] Fix verified installer/runtime defects and add real unit validation before enabling or restarting services, preserving .env and avoiding flight actions.
+- [x] Add repeat-install/update and invalid-unit regression tests, plus reproducible systemd/Raspberry Pi compatibility checks.
+- [x] Provide a redacted diagnostic/recovery workflow that identifies exact installed source and systemd unit errors without guessing.
+- [x] Run all tests, type/syntax checks, package the audited suite/report, save checkpoint, and verify the GitHub revision.
+
+Measured acceptance: 1,079 tests passed in 36 files with ARM64 Python 3.13.17 and Debian Trixie systemd 257.13 tooling on PATH; all five retained templates parse with clean stderr, including space/percent paths. Ubuntu systemd 255, TypeScript, production build, Bash syntax, Python AST and Lua 5.3 syntax passed. MAVSDK 3.17.4 actual System/FtpResult imports passed; real pinned go2rtc ARM64 SHA-256 matched. No user companion, FC, CAN, camera, live service/network, managed web .env, or flight action was accessed.
+
+Remaining gates are explicit, not complete fixes: backend Socket.IO/job authorization and cryptographic per-transfer capability remain unresolved; CAN/protocol/physical stop behavior needs a safe bench. Firmware promotion is intentionally BLOCKED in both Lua applets (RENAME_SUPPORTED=false) pending verified atomic rename support. The generic screenshots do not identify the installed rejected directive; the redacted diagnostic script reports exact errors and installed source hashes. Mission Planner remains design-only.

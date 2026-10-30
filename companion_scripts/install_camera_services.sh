@@ -56,7 +56,7 @@ render_template() {
 
     install_dir_unit=$(unit_path "$INSTALL_DIR")
     working_directory_unit=$(quiver_systemd_directory "$INSTALL_DIR")
-    env_file_unit=$(unit_path "$ENV_FILE")
+    env_file_unit=$(quiver_systemd_environment_file "$ENV_FILE")
     env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
     service_user="$SERVICE_USER"
     service_group="$SERVICE_GROUP"
@@ -102,7 +102,7 @@ PY
 write_generated_units() {
     local install_dir_unit env_file_unit env_assignment_unit go2rtc_bin_unit go2rtc_config_unit config_helper_unit tailscale_bin_unit
     install_dir_unit=$(quiver_systemd_directory "$INSTALL_DIR")
-    env_file_unit=$(unit_path "$ENV_FILE")
+    env_file_unit=$(quiver_systemd_environment_file "$ENV_FILE")
     env_assignment_unit=$(unit_path "QUIVER_ENV_FILE=$ENV_FILE")
     go2rtc_bin_unit=$(unit_path "$GO2RTC_BIN")
     go2rtc_config_unit=$(unit_path "$INSTALL_DIR/go2rtc.yaml")
@@ -127,7 +127,7 @@ WorkingDirectory=${install_dir_unit}
 EnvironmentFile=${env_file_unit}
 Environment=${env_assignment_unit}
 Environment=PYTHONUNBUFFERED=1
-ExecStartPre=/usr/bin/python3 ${config_helper_unit} render-go2rtc ${env_file_unit} ${go2rtc_config_unit}
+ExecStartPre=/usr/bin/python3 ${config_helper_unit} render-go2rtc $(unit_path "$ENV_FILE") ${go2rtc_config_unit}
 ExecStart=${go2rtc_bin_unit} -config ${go2rtc_config_unit}
 Restart=always
 RestartSec=5
@@ -192,6 +192,9 @@ configure_camera_environment() {
     require_port GO2RTC_API_PORT
     require_port GO2RTC_WEBRTC_PORT
     require_port TAILSCALE_FUNNEL_PORT
+    case "$(quiver_get TAILSCALE_FUNNEL_PORT)" in 443|8443|10000) ;; *) fail "Unsupported Funnel port" ;; esac
+    case "$(quiver_get GO2RTC_API_HOST)" in localhost) quiver_set GO2RTC_API_HOST 127.0.0.1 ;; 127.0.0.1) ;; *) fail "Funnel requires GO2RTC_API_HOST=127.0.0.1" ;; esac
+    quiver_validate_config
 
     # RTSP_URL is an optional explicit override. Do not persist a derived URL:
     # companion_config derives it from SIYI_CAMERA_IP, SIYI_RTSP_PORT, and
@@ -205,29 +208,32 @@ install_dependencies() {
     echo -e "${GREEN}[1/5] Installing camera dependencies...${NC}"
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip curl jq
-    python3 -m pip install --break-system-packages requests 'python-socketio[asyncio_client]' aiohttp
+    python3 -m pip install --break-system-packages -r "$SCRIPT_DIR/requirements-companion.txt"
+    python3 "$SCRIPT_DIR/installer_support.py" sdk-preflight
 }
 
 install_go2rtc() {
-    local arch go2rtc_url temporary
+    local arch go2rtc_url temporary expected_sha
     echo -e "${GREEN}[2/5] Installing go2rtc in the selected companion folder...${NC}"
     case "$(uname -m)" in
-        aarch64) arch="arm64" ;;
-        armv7l) arch="arm" ;;
-        x86_64) arch="amd64" ;;
+        aarch64) arch="arm64"; expected_sha=af416f22b21a24ab83b8d78642190b4932ae695b4e386853f11d1b0319781763 ;;
+        armv7l) arch="arm"; expected_sha=cbffe4075a004e2015fd9d7e324800ab7968b52f49e9ce803361879d5e246028 ;;
+        x86_64) arch="amd64"; expected_sha=20b46c6910734cb05ecefb234066f36868ff19b42ba1418a7a32e13a3e035712 ;;
         *) fail "Unsupported architecture: $(uname -m)" ;;
     esac
 
     GO2RTC_BIN="$INSTALL_DIR/bin/go2rtc"
     quiver_privileged mkdir -p "$INSTALL_DIR/bin"
     quiver_privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/bin"
-    go2rtc_url=$(curl -fsSL https://api.github.com/repos/AlexxIT/go2rtc/releases/latest \
-        | jq -r ".assets[] | select(.name | test(\"go2rtc_linux_${arch}\")) | .browser_download_url" \
-        | head -n 1)
-    [ -n "$go2rtc_url" ] && [ "$go2rtc_url" != "null" ] || fail "Could not find a go2rtc release for $arch"
+    # Upstream v1.9.15 release asset digests, verified from official GitHub API.
+    go2rtc_url="https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/go2rtc_linux_${arch}"
 
     temporary=$(mktemp)
     curl -fL "$go2rtc_url" -o "$temporary"
+    if ! printf '%s  %s\n' "$expected_sha" "$temporary" | sha256sum --check --status; then
+        rm -f "$temporary"
+        fail "go2rtc checksum mismatch; binary was NOT installed"
+    fi
     quiver_privileged install -m 755 "$temporary" "$GO2RTC_BIN"
     quiver_privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$GO2RTC_BIN"
     quiver_set GO2RTC_BINARY "$GO2RTC_BIN" GO2RTC_EXTERNAL true SKIP_FUNNEL_SETUP true
@@ -241,10 +247,7 @@ configure_tailscale() {
     if command -v tailscale >/dev/null 2>&1; then
         tailscale version
     else
-        echo -e "${YELLOW}Tailscale is not installed. Installing it using Tailscale's installer...${NC}"
-        curl -fsSL https://tailscale.com/install.sh | sh
-        echo -e "${CYAN}Authenticate this companion with: sudo tailscale up${NC}"
-        read -r -p "Press Enter after authenticating Tailscale (Ctrl+C to abort)..." _
+        fail "Install Tailscale through its official signed OS package repository, authenticate with sudo tailscale up, then rerun. See https://tailscale.com/kb/1031/install-linux"
     fi
 
     if ! tailscale status >/dev/null 2>&1; then
@@ -274,10 +277,15 @@ install_services() {
     quiver_copy siyi-camera.service
     quiver_install_helpers
 
-    quiver_privileged mkdir -p "$SYSTEMD_DIR"
-    render_template "$SCRIPT_DIR/camera-stream.service" "$SYSTEMD_DIR/camera-stream.service"
-    render_template "$SCRIPT_DIR/siyi-camera.service" "$SYSTEMD_DIR/siyi-camera.service"
+    local destination="$SYSTEMD_DIR" stage
+    stage=$(mktemp -d)
+    SYSTEMD_DIR="$stage"
+    render_template "$SCRIPT_DIR/camera-stream.service" "$stage/camera-stream.service"
+    render_template "$SCRIPT_DIR/siyi-camera.service" "$stage/siyi-camera.service"
     write_generated_units
+    SYSTEMD_DIR="$destination"
+    quiver_install_units "$stage"
+    rm -rf -- "$stage"
 
     # Verify that the config renderer can create the initial file before systemd
     # starts go2rtc. The same renderer is also the go2rtc ExecStartPre hook.

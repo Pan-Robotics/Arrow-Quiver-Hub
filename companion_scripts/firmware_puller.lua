@@ -35,6 +35,16 @@ local POLL_INTERVAL_MS = 5000
 local DOWNLOAD_CHUNK = 4096
 local MAX_FIRMWARE_SIZE = 16 * 1024 * 1024
 local WRITE_DEST = "/APM/ardupilot.abin"
+local WRITE_STAGE = "/APM/.ardupilot.abin.part"
+
+-- ArduPilot's documented scripting sandbox exposes io and a global remove()
+-- binding, but not the os library or a documented atomic rename binding.  Do
+-- not truncate WRITE_DEST unless a target-specific ArduPilot API has first
+-- been verified to provide atomic staged-file promotion.  The shipped applet
+-- therefore disables transfers fail-closed rather than risking a partial
+-- bootloader-consumed file.  A qualified platform port may set this true only
+-- together with the guarded os.rename implementation below.
+local RENAME_SUPPORTED = false
 
 local STATE_IDLE = 0
 local STATE_CHECKING = 1
@@ -51,6 +61,8 @@ local http_buf = ""
 local header_done = false
 local last_data_time = 0
 local STALL_TIMEOUT_MS = 30000
+local STATUS_TIMEOUT_MS = 10000
+local status_started_time = 0
 local poll_count = 0
 
 local function get_pi_ip()
@@ -65,6 +77,14 @@ local function get_pi_port()
     return math.floor(FWPULL_PORT:get())
 end
 
+local function remove_stage()
+    pcall(function()
+        if type(remove) == "function" then
+            remove(WRITE_STAGE)
+        end
+    end)
+end
+
 local function cleanup()
     if sock then sock:close(); sock = nil end
     if fw_file then fw_file:close(); fw_file = nil end
@@ -73,13 +93,41 @@ local function cleanup()
     fw_bytes_received = 0
     fw_size_expected = 0
     last_progress_kb = 0
+    last_data_time = 0
+    status_started_time = 0
 end
 
 local function abort(msg)
     gcs:send_text(MAV_SEVERITY.ERROR, "FWPull: ABORT: " .. msg)
     cleanup()
-    os.remove(WRITE_DEST)
+    -- Never delete or truncate an existing bootloader candidate on an abort.
+    remove_stage()
     state = STATE_IDLE
+end
+
+local function freshly_disarmed()
+    local ok, armed = pcall(function() return arming:is_armed() end)
+    if not ok or armed == nil then
+        return false, "arming state unavailable"
+    end
+    if armed then
+        return false, "vehicle is armed"
+    end
+    return true, nil
+end
+
+local function promote_stage()
+    if not RENAME_SUPPORTED then
+        return false, "atomic rename unavailable in this ArduPilot Lua sandbox"
+    end
+    if type(os) ~= "table" or type(os.rename) ~= "function" then
+        return false, "verified atomic rename API unavailable"
+    end
+    local ok, err = os.rename(WRITE_STAGE, WRITE_DEST)
+    if not ok then
+        return false, "staged rename failed: " .. tostring(err)
+    end
+    return true, nil
 end
 
 local function build_http_get(host, port, path)
@@ -109,7 +157,8 @@ local function connect_to_pi(path)
     gcs:send_text(MAV_SEVERITY.DEBUG, string.format("FWPull: connected, sending GET %s", path))
 
     local req = build_http_get(ip, port, path)
-    if not s:send(req, #req) then
+    local sent = s:send(req, #req)
+    if sent ~= #req then
         gcs:send_text(MAV_SEVERITY.ERROR, "FWPull: send() failed")
         s:close()
         return nil, "failed to send HTTP request"
@@ -173,6 +222,7 @@ local function poll_status()
     state = STATE_CHECKING
     http_buf = ""
     header_done = false
+    status_started_time = millis()
 end
 
 local function check_status()
@@ -181,9 +231,21 @@ local function check_status()
         return
     end
 
+    if status_started_time > 0 and (millis() - status_started_time) > STATUS_TIMEOUT_MS then
+        gcs:send_text(MAV_SEVERITY.WARNING, "FWPull: status request timed out")
+        cleanup()
+        state = STATE_IDLE
+        return
+    end
+
     local data = sock:recv(1024)
     if data then
         http_buf = http_buf .. data
+    elseif not sock:is_connected() then
+        gcs:send_text(MAV_SEVERITY.WARNING, "FWPull: status connection closed")
+        cleanup()
+        state = STATE_IDLE
+        return
     end
 
     local status_code, body_start, _ = parse_http_response(http_buf)
@@ -226,13 +288,31 @@ local function check_status()
         return
     end
 
+    local safe, arm_err = freshly_disarmed()
+    if not safe then
+        gcs:send_text(MAV_SEVERITY.WARNING, "FWPull: upload denied: " .. arm_err)
+        state = STATE_IDLE
+        return
+    end
+
+    if not RENAME_SUPPORTED then
+        -- Do not fall back to opening WRITE_DEST: a reset would leave a
+        -- bootloader-visible partial firmware file.  Promotion is intentionally
+        -- disabled until this FC's Lua API has an audited atomic rename path.
+        gcs:send_text(MAV_SEVERITY.ERROR,
+            "FWPull: upload disabled; atomic staged rename not available")
+        state = STATE_IDLE
+        return
+    end
+
     gcs:send_text(MAV_SEVERITY.INFO,
         string.format("FWPull: firmware ready (%d KB), starting download",
                        math.floor(fw_size_expected / 1024)))
 
-    fw_file = io.open(WRITE_DEST, "wb")
+    remove_stage()
+    fw_file = io.open(WRITE_STAGE, "wb")
     if not fw_file then
-        abort("cannot open " .. WRITE_DEST)
+        abort("cannot open staging file " .. WRITE_STAGE)
         return
     end
 
@@ -250,6 +330,69 @@ local function check_status()
     last_progress_kb = 0
     last_data_time = millis()
     gcs:send_text(MAV_SEVERITY.INFO, "FWPull: download connection open, receiving...")
+end
+
+local function write_firmware_chunk(data)
+    if #data == 0 then
+        return true
+    end
+    if fw_bytes_received + #data > fw_size_expected then
+        abort(string.format("body exceeds expected size: %d + %d > %d",
+            fw_bytes_received, #data, fw_size_expected))
+        return false
+    end
+    local ok, err = fw_file:write(data)
+    if not ok then
+        abort("staging write failed: " .. tostring(err))
+        return false
+    end
+    fw_bytes_received = fw_bytes_received + #data
+    return true
+end
+
+local function finish_download()
+    if fw_bytes_received ~= fw_size_expected then
+        abort(string.format("incomplete: %d / %d bytes", fw_bytes_received, fw_size_expected))
+        return
+    end
+    local flush_ok, flush_err = fw_file:flush()
+    if not flush_ok then
+        abort("staging flush failed: " .. tostring(flush_err))
+        return
+    end
+    local close_ok, close_err = fw_file:close()
+    fw_file = nil
+    if not close_ok then
+        abort("staging close failed: " .. tostring(close_err))
+        return
+    end
+    if sock then sock:close(); sock = nil end
+
+    -- Re-sample immediately before making the staged firmware bootloader-visible.
+    local safe, arm_err = freshly_disarmed()
+    if not safe then
+        abort("promotion denied: " .. arm_err)
+        return
+    end
+    local promoted, promote_err = promote_stage()
+    if not promoted then
+        abort(promote_err)
+        return
+    end
+
+    gcs:send_text(MAV_SEVERITY.INFO,
+        string.format("FWPull: DONE — %d KB → %s", math.floor(fw_bytes_received / 1024), WRITE_DEST))
+    gcs:send_text(MAV_SEVERITY.NOTICE, "FWPull: reboot to flash firmware")
+    local ack_sock, ack_err = connect_to_pi("/firmware/ack")
+    if not ack_sock then
+        -- Durable local promotion completed, but never claim delivery to the
+        -- companion without the close-after-completion ACK request.
+        gcs:send_text(MAV_SEVERITY.ERROR, "FWPull: ACK send failed: " .. tostring(ack_err))
+        state = STATE_IDLE
+        return
+    end
+    ack_sock:close()
+    state = STATE_DONE
 end
 
 local function download_firmware()
@@ -270,6 +413,11 @@ local function download_firmware()
     while reads_this_cycle < max_reads do
         local data = sock:recv(DOWNLOAD_CHUNK)
         if not data or #data == 0 then
+            if not sock:is_connected() then
+                abort(string.format("connection closed at %d / %d bytes",
+                    fw_bytes_received, fw_size_expected))
+                return
+            end
             break
         end
         reads_this_cycle = reads_this_cycle + 1
@@ -282,25 +430,33 @@ local function download_firmware()
                     abort(string.format("download HTTP %d", status_code))
                     return
                 end
+                if not content_length or content_length ~= fw_size_expected or
+                        content_length <= 0 or content_length > MAX_FIRMWARE_SIZE then
+                    abort(string.format("Content-Length mismatch: status=%d download=%s",
+                        fw_size_expected, tostring(content_length)))
+                    return
+                end
                 header_done = true
-                gcs:send_text(MAV_SEVERITY.INFO, string.format("FWPull: download headers OK, CL=%s",
-                    tostring(content_length or "nil")))
-                if content_length and content_length > 0 then
-                    fw_size_expected = content_length
-                end
+                gcs:send_text(MAV_SEVERITY.INFO, string.format("FWPull: download headers OK, CL=%d",
+                    content_length))
                 local body_data = string.sub(http_buf, body_start)
-                if #body_data > 0 then
-                    fw_file:write(body_data)
-                    fw_bytes_received = fw_bytes_received + #body_data
-                end
                 http_buf = ""
+                if not write_firmware_chunk(body_data) then
+                    return
+                end
             elseif #http_buf > 8192 then
                 abort("download headers too large")
                 return
             end
         else
-            fw_file:write(data)
-            fw_bytes_received = fw_bytes_received + #data
+            if not write_firmware_chunk(data) then
+                return
+            end
+        end
+
+        if header_done and fw_bytes_received == fw_size_expected then
+            finish_download()
+            return
         end
     end
 
@@ -309,7 +465,11 @@ local function download_firmware()
     end
 
     if fw_file and fw_bytes_received > 0 then
-        fw_file:flush()
+        local flush_ok, flush_err = fw_file:flush()
+        if not flush_ok then
+            abort("staging flush failed: " .. tostring(flush_err))
+            return
+        end
     end
 
     -- Progress every 100KB
@@ -326,29 +486,6 @@ local function download_firmware()
                           current_kb, math.floor(fw_size_expected / 1024), pct))
     end
 
-    if fw_size_expected > 0 and fw_bytes_received >= fw_size_expected then
-        fw_file:close(); fw_file = nil
-        sock:close(); sock = nil
-        gcs:send_text(MAV_SEVERITY.INFO,
-            string.format("FWPull: DONE — %d KB → %s", math.floor(fw_bytes_received / 1024), WRITE_DEST))
-        gcs:send_text(MAV_SEVERITY.NOTICE, "FWPull: reboot to flash firmware")
-        local ack_sock, _ = connect_to_pi("/firmware/ack")
-        if ack_sock then ack_sock:close() end
-        state = STATE_DONE
-        return
-    end
-
-    if reads_this_cycle == 0 and fw_bytes_received > 0 then
-        if fw_size_expected > 0 and fw_bytes_received < fw_size_expected then
-            abort(string.format("incomplete: %d / %d bytes", fw_bytes_received, fw_size_expected))
-        else
-            fw_file:close(); fw_file = nil
-            sock:close(); sock = nil
-            gcs:send_text(MAV_SEVERITY.INFO,
-                string.format("FWPull: DONE — %d KB", math.floor(fw_bytes_received / 1024)))
-            state = STATE_DONE
-        end
-    end
 end
 
 local function update()

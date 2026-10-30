@@ -158,7 +158,7 @@ sudo systemd-analyze verify /etc/systemd/system/camera-stream.service
 
 ### Repair “bad unit file setting” from an earlier installer
 
-The earlier portable installer mistakenly wrapped `WorkingDirectory` in double quotes. Unlike `ExecStart` arguments or `ReadWritePaths` entries, this systemd directive takes one literal path: the quote becomes part of the path and systemd rejects it as non-absolute. This affects paths both with and without spaces. The corrected installers use a separate literal-directory formatter; quoting remains where the other directives require it.
+The earlier portable installers wrapped `WorkingDirectory` and `EnvironmentFile` in double quotes. Both directives take one literal path, not a word list: directory quotes cause a fatal non-absolute-path error, while configuration-file quotes can make systemd ignore the file. This affects paths with and without spaces. Corrected installers emit unquoted, validated single paths for these directives and retain word quoting for `ExecStart`, `Environment`, and `ReadWritePaths`.
 
 Use the corrected suite's standalone repair script on an existing installation:
 
@@ -175,7 +175,23 @@ sudo systemctl enable --now quiver-hub-client
 sudo systemctl status quiver-hub-client --no-pager -l
 ```
 
-The script validates all corrected installed units together using `systemd-analyze verify` **before** replacing any file. It retains `.service.pre-working-directory-fix` backups and is safe to rerun. It never edits `.env`, downloads packages, changes service enablement, or starts/restarts a service. Other already-installed affected services can be restarted individually after repair. If validation identifies another error, no units are replaced and its diagnostics should be investigated first.
+The script validates corrected installed units and drop-ins with `systemd-analyze verify --recursive-errors=one` **before** replacing any file. It retains `.service.pre-working-directory-fix` backups, repairs both quoted directives, skips unrelated generic go2rtc/Funnel units, and retries reload on rerun. It never edits `.env`, downloads packages, changes enablement, or starts/restarts a service. If validation finds another error, no units are replaced. The screenshots alone do not identify your installed rejected directive.
+
+For an exact, credential-redacted diagnostic report (no service changes):
+
+```bash
+bash /path/to/corrected-suite/diagnose_companion.sh --install-dir /your/installed/quiver
+```
+
+The output includes installed source hashes/manifest, unit paths/directories, exact parser errors, and read-only service states. Do not paste your `.env` or API key into support messages.
+
+### Dependency and safety changes in the audited suite
+
+All Python installs use `--break-system-packages -r requirements-companion.txt`. MAVSDK is pinned to **3.17.4** because native MAVSDK v4 has a different API; installers run the actual `System()`/FTP import preflight before unit enablement. Units are staged, parsed, and backed up before replacement. Generated source code is installer-owned; operational data stays in dedicated writable directories. A downloaded suite includes a commit/hash manifest; the diagnostic script distinguishes stale or locally modified source.
+
+New installations default `ENABLE_UAVCAN=false`, with an explicitly configured unique `UAVCAN_NODE_ID` for opt-in active CAN participation. Remote file/config jobs default `ALLOW_REMOTE_FILE_WRITES=false`; opt-in writes are bounded, atomic, and confined to data roots, never service code or `.env`. Existing `.env` values are preserved, so review these flags manually when upgrading. HTTPS is required unless an explicitly allowed loopback-only development mode is used.
+
+Do not treat parser/import/stub tests as flight clearance. Camera protocol/control-byte behavior, CAN privileges/traffic, and firmware staging/promotion must be verified on a non-operational bench. Server-side Socket.IO/job authorization and per-transfer cryptographic capability remain separate unresolved audit items; do not expose control endpoints to an untrusted network.
 
 The installed definitions are under `/etc/systemd/system/`. Editing a `.service` file in your companion source/install folder alone does not change the definition systemd uses. Do not copy an unrendered source template directly into `/etc/systemd/system/`.
 
@@ -190,11 +206,13 @@ The installed definitions are under `/etc/systemd/system/`. Editing a `.service`
 
 The installer sets `GO2RTC_EXTERNAL=true` and `SKIP_FUNNEL_SETUP=true`: the camera manager monitors the existing systemd-managed go2rtc instance rather than launching a duplicate listener or reconfiguring the Funnel. Standalone use can leave these options false.
 
-The installer preserves the existing Tailscale install/authentication workflow on an actual companion. It may ask you to authenticate with `tailscale up`; it never stores Tailscale credentials in `.env`.
+Install Tailscale from its official signed OS repository first, then authenticate with `sudo tailscale up`. The camera installer requires that prerequisite and does not pipe a mutable remote installer into a root shell; Tailscale credentials are never stored in `.env`.
 
 ## Firmware puller: Pi configuration is not readable by FC Lua
 
-The flight controller cannot read the Pi's `.env`. The Hub-client bootstrap or Logs & OTA installer generates `INSTALL_DIR/firmware_puller.param` from `COMPANION_IP` and `FIRMWARE_SERVER_PORT`. Import that file through your GCS into the FC, including on an upgrade of an existing installation, then manually set/verify `FWPULL_ENABLE=1`.
+**Current safety blocker:** firmware promotion is disabled (`RENAME_SUPPORTED=false`) because no atomic rename API was established in the inspected ArduPilot Lua sandbox. Do not enable OTA on an aircraft; see [Audited Upgrade Notes](AUDITED_UPGRADE_NOTES.md). Parameter generation remains available for a qualified non-operational bench implementation.
+
+The flight controller cannot read the Pi's `.env`. The Hub-client bootstrap or Logs & OTA installer generates `INSTALL_DIR/firmware_puller.param` from `COMPANION_IP` and `FIRMWARE_SERVER_PORT`; import the file through your GCS only as part of that controlled FC setup. `FWPULL_ENABLE=1` alone does not bypass the blocked promotion gate.
 
 The generated file sets `FWPULL_PI_IP0` through `FWPULL_PI_IP3` to the four octets of `COMPANION_IP` (`192`, `168`, `144`, `49` for the reserved plan) and `FWPULL_PORT` to `FIRMWARE_SERVER_PORT` (`8070` by default). If either `.env` setting changes, regenerate the file before importing it again:
 

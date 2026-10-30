@@ -23,7 +23,7 @@ function verifyUnits(units: string, names: string[]) {
   const unitPath = [units, "/usr/lib/systemd/system", "/lib/systemd/system"].join(":");
   const result = spawnSync(
     "systemd-analyze",
-    ["verify", ...names.map(name => join(units, name))],
+    ["verify", "--man=no", "--recursive-errors=one", ...names.map(name => join(units, name))],
     {
       encoding: "utf8",
       timeout: 15000,
@@ -31,6 +31,7 @@ function verifyUnits(units: string, names: string[]) {
     },
   );
   expect(result.status, result.stderr + result.stdout).toBe(0);
+  expect(result.stderr.trim()).toBe("");
 }
 
 function download(source: string, variant = "normal") {
@@ -111,7 +112,7 @@ function mockInstallation(script: string, choices: string, options: { local?: bo
     writeFileSync(path, `#!/bin/bash\nprintf '%s %s\\n' '${command}' "$*" >> "$MOCK_LOG"\nexit 0\n`); chmodSync(path, 0o755);
   }
   const dispatcher = join(bin, "python3");
-  writeFileSync(dispatcher, `#!/bin/bash\nif [ "$1" = -m ] && [ "$2" = pip ]; then\n  printf 'pip %s\\n' "$*" >> "$MOCK_LOG"\n  exit "\${MOCK_PIP_EXIT:-0}"\nfi\nexec /usr/bin/python3 "$@"\n`); chmodSync(dispatcher, 0o755);
+  writeFileSync(dispatcher, `#!/bin/bash\nif [ "$1" = -m ] && [ "$2" = pip ]; then\n  printf 'pip %s\\n' "$*" >> "$MOCK_LOG"\n  exit "\${MOCK_PIP_EXIT:-0}"\nfi\nif [[ "$1" == */installer_support.py ]] && [ "$2" = sdk-preflight ]; then\n  printf 'sdk-preflight stub\\n' >> "$MOCK_LOG"\n  exit 0\nfi\nexec /usr/bin/python3 "$@"\n`); chmodSync(dispatcher, 0o755);
   // Only package/service commands are stubbed; real Python/.env/filesystem behavior
   // is exercised. All generated units and service-write paths are temporary.
   const result = spawnSync("sudo", ["-n", "env", `PATH=${bin}:/usr/bin:/bin`, `QUIVER_ENV_FILE=${envFile}`, `QUIVER_SYSTEMD_DIR=${units}`, `MOCK_LOG=${log}`, `MOCK_PIP_EXIT=${options.pipExit ?? 0}`, "bash", join(suite, script), ...(options.local ? ["--local"] : [])], { input: choices, encoding: "utf8", timeout: 30000 });
@@ -132,9 +133,9 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     const unit = readFileSync(join(run.units, "quiver-hub-client.service"), "utf8");
     expect(unit).toContain(`WorkingDirectory=${run.install}`);
     expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`EnvironmentFile=${run.envFile}`);
     expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "raspberry_pi_client.py")}"`);
-    expect(unit).toContain(`ReadWritePaths="${run.install}"`);
+    expect(unit).toContain(`ReadWritePaths="${join(run.install, "config")}"`);
     expect(unit).not.toContain("test-secret");
     verifyUnits(run.units, ["quiver-hub-client.service"]);
     expect(readFileSync(run.log, "utf8")).not.toMatch(/systemctl (start|restart|enable)/);
@@ -151,7 +152,7 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     const unit = readFileSync(join(run.units, "telemetry-forwarder.service"), "utf8");
     expect(unit).toContain(`WorkingDirectory=${run.install}`);
     expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`EnvironmentFile=${run.envFile}`);
     expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "telemetry_forwarder.py")}"`);
     expect(unit).toContain(`ReadWritePaths="${run.install}"`);
     expect(unit).not.toContain("test-secret");
@@ -170,7 +171,7 @@ describe("Portable installer integration (mocked privileged operations)", () => 
     const unit = readFileSync(join(run.units, "logs-ota.service"), "utf8");
     expect(unit).toContain(`WorkingDirectory=${run.install}`);
     expect(unit).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(unit).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(unit).toContain(`EnvironmentFile=${run.envFile}`);
     expect(unit).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "logs_ota_service.py")}"`);
     expect(unit).toContain(`ReadWritePaths="${run.install}" "${join(run.root, "fc logs")}" /tmp`);
     expect(unit).not.toContain("--api-key");
@@ -205,4 +206,29 @@ describe("Portable installer integration (mocked privileged operations)", () => 
       expect(text, name).not.toMatch(/192\.168\.144\./);
     }
   });
+});
+
+
+describe("All retained companion service templates", () => {
+ it("renders every placeholder with single-path versus word grammar and passes a clean real parser", () => {
+  const root=temp(), install=join(root,"companion 100% ready"), units=join(root,"units"), envFile=join(install,"settings.conf");
+  mkdirSync(install); mkdirSync(units); writeFileSync(envFile,"DRONE_ID=fixture\n");
+  const literal=(value:string)=>value.replace(/%/g,"%%");
+  const word=(value:string)=>`"${literal(value).replace(/\\/g,"\\\\").replace(/"/g,'\\"')}"`;
+  const replacements:Record<string,string>={
+   INSTALL_DIR_PLACEHOLDER:word(install), WORKING_DIRECTORY_PLACEHOLDER:literal(install),
+   ENV_FILE_PLACEHOLDER:literal(envFile), ENV_ASSIGNMENT_PLACEHOLDER:word(`QUIVER_ENV_FILE=${envFile}`),
+   SERVICE_USER_PLACEHOLDER:"ubuntu", SERVICE_GROUP_PLACEHOLDER:"ubuntu",
+  };
+  for(const [key,file] of Object.entries({HUB_CLIENT_SCRIPT_PLACEHOLDER:"raspberry_pi_client.py",TELEMETRY_FORWARDER_SCRIPT_PLACEHOLDER:"telemetry_forwarder.py",LOGS_OTA_SCRIPT_PLACEHOLDER:"logs_ota_service.py",CAMERA_STREAM_SCRIPT_PLACEHOLDER:"camera_stream_service.py",SIYI_CONTROLLER_SCRIPT_PLACEHOLDER:"siyi_camera_controller.py"})) replacements[key]=word(join(install,file));
+  const names=["quiver-hub-client.service","telemetry-forwarder.service","logs-ota.service","camera-stream.service","siyi-camera.service"];
+  for(const name of names){
+   let text=readFileSync(join(suite,name),"utf8");
+   for(const [key,value] of Object.entries(replacements)) text=text.replaceAll(key,value);
+   expect(text).not.toMatch(/\b[A-Z_]+_PLACEHOLDER\b/);
+   writeFileSync(join(units,name),text);
+  }
+  for(const name of ["go2rtc.service","tailscale-funnel.service"]) writeFileSync(join(units,name),"[Service]\nExecStart=/usr/bin/true\n");
+  verifyUnits(units,names);
+ });
 });

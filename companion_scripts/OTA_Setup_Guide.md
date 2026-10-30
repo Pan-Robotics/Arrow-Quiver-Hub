@@ -1,5 +1,7 @@
 # Quiver OTA Firmware Update — Setup Guide
 
+> **2026-10-30 safety gate:** the audited Lua scripts currently disable firmware promotion (`RENAME_SUPPORTED=false`). The current ArduPilot sandbox source does not establish an atomic rename API. Do not enable this flow on an aircraft until a target-specific staged-promotion implementation passes a non-operational bench test. The architecture below describes the intended flow, not a verified working transfer in this revision. See [Audited Upgrade Notes](AUDITED_UPGRADE_NOTES.md).
+
 This guide configures firmware delivery from Quiver Hub through a Raspberry Pi companion to an ArduPilot flight controller. It uses the companion suite's portable shared `.env` and FC-side ArduPilot parameters; the FC cannot read files from the Pi.
 
 ## Architecture
@@ -8,7 +10,7 @@ This guide configures firmware delivery from Quiver Hub through a Raspberry Pi c
 Quiver Hub -- HTTPS --> companion downloads firmware
                          companion HTTP server (:8070 by default)
 Flight controller -- HTTP GET --> firmware_puller.lua pulls firmware
-                         writes /APM/ardupilot.abin
+                         stages an inert .part file; promotion currently blocked
 companion -- MAVLink --> request reboot
 flight controller bootloader flashes firmware
 ```

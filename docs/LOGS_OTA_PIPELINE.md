@@ -2,6 +2,8 @@
 
 **Quiver Hub — Companion Computer to Cloud**
 
+> **2026-10-30 audited runtime:** MAVSDK is pinned to 3.17.4; FC actions require fresh explicitly DISARMED telemetry. Firmware jobs require the original artifact SHA-256, approved FC peer and exact-size ACK, successful reboot, and matching version before completion. Unknown/reboot timeout/unverified version now report failure (`reboot_timeout_unknown`, `version_unverified`). **FC firmware promotion is currently blocked** in both Lua applets pending bench-qualified atomic rename support; this is not an operationally verified OTA release. See [Audited Upgrade Notes](../companion_scripts/AUDITED_UPGRADE_NOTES.md).
+
 This document describes the full architecture of the Logs & OTA Updates pipeline, covering the companion Python script that runs on the Raspberry Pi, the server-side endpoints and WebSocket handlers on Quiver Hub, the database schema, and the browser-based frontend UI. All components are designed to work together over the internet via Tailscale, with no requirement that the drone and the user's PC share a local network.
 
 ---

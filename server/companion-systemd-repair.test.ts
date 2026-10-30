@@ -44,12 +44,12 @@ describe("Companion installed-unit repair", () => {
     expect(existsSync(f.unit + ".pre-working-directory-fix")).toBe(false);
     expect(existsSync(f.log)).toBe(false);
   });
-  it("removes only directory quotes, keeps percent escapes/word quoting, backs up, and reloads without starting services", () => {
+  it("removes directory/config-path quotes, keeps percent escapes/word quoting, backs up, and reloads without starting services", () => {
     const f = fixture();
     const config = readFileSync(f.config, "utf8");
     const result = f.run();
     expect(result.status, result.stderr).toBe(0);
-    const expected = f.content.replace(`WorkingDirectory="${f.escaped}"`, `WorkingDirectory=${f.escaped}`);
+    const expected = f.content.replace(`WorkingDirectory="${f.escaped}"`, `WorkingDirectory=${f.escaped}`).replace(`EnvironmentFile="${f.escaped}/.env"`, `EnvironmentFile=${f.escaped}/.env`);
     expect(readFileSync(f.unit, "utf8")).toBe(expected);
     expect(readFileSync(f.unit + ".pre-working-directory-fix", "utf8")).toBe(f.content);
     expect(readFileSync(f.config, "utf8")).toBe(config);
@@ -58,7 +58,7 @@ describe("Companion installed-unit repair", () => {
     expect(again.status, again.stderr).toBe(0);
     expect(again.stdout).toContain("repaired 0");
     expect(readFileSync(f.unit + ".pre-working-directory-fix", "utf8")).toBe(f.content);
-    expect(readFileSync(f.log, "utf8")).toBe("daemon-reload\n");
+    expect(readFileSync(f.log, "utf8")).toBe("daemon-reload\ndaemon-reload\n");
   });
   it("validates all candidates before replacing any unit if another unit is invalid", () => {
     const f = fixture();
@@ -80,12 +80,12 @@ describe("Companion installed-unit repair", () => {
   });
   it("the directory formatter passes a literal space/percent-containing path to the real systemd parser", () => {
     const f = fixture();
-    const result = spawnSync("bash", ["-c", 'source "$1"; quiver_systemd_directory "$2"', "test", resolve("companion_scripts/installer_common.sh"), f.install], { encoding: "utf8" });
+    const result = spawnSync("bash", ["-c", 'SCRIPT_DIR=$(dirname "$1"); source "$1"; quiver_systemd_directory "$2"', "test", resolve("companion_scripts/installer_common.sh"), f.install], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe(f.escaped);
     expect(result.stdout).not.toContain('"');
     for (const invalid of ["relative/path", "/tmp/bad\nInjected=setting"]) {
-      const rejected = spawnSync("bash", ["-c", 'source "$1"; quiver_systemd_directory "$2"', "test", resolve("companion_scripts/installer_common.sh"), invalid], { encoding: "utf8" });
+      const rejected = spawnSync("bash", ["-c", 'SCRIPT_DIR=$(dirname "$1"); source "$1"; quiver_systemd_directory "$2"', "test", resolve("companion_scripts/installer_common.sh"), invalid], { encoding: "utf8" });
       expect(rejected.status).not.toBe(0);
     }
   });

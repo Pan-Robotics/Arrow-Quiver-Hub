@@ -45,6 +45,7 @@ import argparse
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -55,16 +56,26 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import quote
 from companion_config import load_environment
 
 
 # Load all files before configuration constants or parser defaults are defined.
 CONFIG = load_environment()
+
+def _configured_port(key, fallback):
+    try:
+        port = int(CONFIG.get(key, str(fallback)))
+    except (ValueError, TypeError):
+        raise SystemExit(f"{key} must be an integer from 1 to 65535") from None
+    if not 1 <= port <= 65535:
+        raise SystemExit(f"{key} must be from 1 to 65535")
+    return port
 
 # Optional imports with graceful fallback
 try:
@@ -105,6 +116,35 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("logs_ota")
+
+
+# ArduPilot log names are plain file names.  Do not turn FC-provided listing
+# values into local paths, URLs, or symlink escape opportunities.
+_FC_LOG_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:BIN|bin|LOG|log)$")
+
+
+def _safe_fc_log_filename(filename: object) -> Optional[str]:
+    """Return a safe FC log basename, or ``None`` for an unsafe listing value."""
+    if not isinstance(filename, str):
+        return None
+    if filename != Path(filename).name or not _FC_LOG_FILENAME_RE.fullmatch(filename):
+        return None
+    return filename
+
+
+def _cache_path_under_root(cache_root: Path, filename: object, temporary: bool = False) -> Path:
+    """Build a validated cache path which cannot escape the configured cache root."""
+    safe_name = _safe_fc_log_filename(filename)
+    if safe_name is None:
+        raise ValueError("unsafe FC log filename")
+    root = cache_root.resolve(strict=False)
+    candidate_name = f".{safe_name}.tmp" if temporary else safe_name
+    candidate = (root / candidate_name).resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError as error:
+        raise ValueError("FC log cache path escapes configured root") from error
+    return candidate
 
 
 # ─── Hub REST Client ────────────────────────────────────────────────────────
@@ -355,6 +395,15 @@ class _FCLogDirParser(HTMLParser):
             if name in ("Name", "..", ".", ""):
                 self._current_href = None
                 return
+            # Both the displayed name and href are untrusted controller input.
+            # Keep only plain log basenames before either can reach a URL or a
+            # local cache path.
+            safe_name = _safe_fc_log_filename(name.rstrip("/"))
+            safe_href = _safe_fc_log_filename(self._current_href or name)
+            if safe_name is None or safe_href is None:
+                logger.warning("Ignoring unsafe FC log listing entry: %r", name)
+                self._current_href = None
+                return
             # Parse size
             size = 0
             if size_str and size_str != "0":
@@ -365,13 +414,12 @@ class _FCLogDirParser(HTMLParser):
                         size = int(size_str)
                 except ValueError:
                     pass
-            is_dir = name.endswith("/")
             self.entries.append({
-                "name": name.rstrip("/"),
+                "name": safe_name,
                 "size": size,
-                "type": "directory" if is_dir else "file",
+                "type": "file",
                 "modtime": modtime,
-                "href": self._current_href or name,
+                "href": safe_href,
             })
             self._current_href = None
 
@@ -425,12 +473,14 @@ class FCLogSyncer:
     SYNC_INTERVAL = 60  # seconds between sync cycles
     DOWNLOAD_CHUNK_SIZE = 65536  # 64KB chunks for streaming download
     MAX_DOWNLOAD_ATTEMPTS = 3  # Skip file after this many failed attempts
+    ARM_STATE_TIMEOUT = 5
+    ARM_STATE_TIMEOUT = 5
 
     def __init__(self, fc_webserver_url: str = None,
                  log_store_dir: str = None,
                  mavsdk_system=None):
         self.fc_url = (fc_webserver_url or self.DEFAULT_FC_WEBSERVER_URL).rstrip("/")
-        self.log_store_dir = Path(log_store_dir or self.DEFAULT_LOG_STORE_DIR)
+        self.log_store_dir = Path(log_store_dir or self.DEFAULT_LOG_STORE_DIR).expanduser().resolve(strict=False)
         self.mavsdk_system = mavsdk_system  # For arm-state checks
         self._manifest: Dict[str, dict] = {}
         self._syncing = False
@@ -474,22 +524,33 @@ class FCLogSyncer:
         Returns True if DISARMED (safe to sync), False if ARMED.
         """
         if self.mavsdk_system is None:
-            # No MAVSDK connection — assume disarmed (allow sync)
-            return True
+            logger.warning("Arm state unavailable; refusing FC log sync")
+            return False
+        stream = None
         try:
-            async for armed in self.mavsdk_system.telemetry.armed():
-                self._armed = armed
-                self._arm_state_known = True
-                return not armed  # Return True if disarmed
+            stream = self.mavsdk_system.telemetry.armed()
+            armed = await asyncio.wait_for(anext(stream), timeout=self.ARM_STATE_TIMEOUT)
+            self._armed = armed
+            self._arm_state_known = isinstance(armed, bool)
+            return armed is False  # Unknown/non-boolean samples are not DISARMED
         except Exception as e:
             logger.debug(f"Arm state check failed: {e}")
-            # If we can't check, be conservative — don't sync
-            if not self._arm_state_known:
-                return True  # First time, assume disarmed
-            return not self._armed  # Use last known state
+            # A historical sample cannot authorize a new filesystem action.
+            return False
+        finally:
+            close = getattr(stream, "aclose", None)
+            if close:
+                try:
+                    await close()
+                except Exception:
+                    pass
 
     async def _fetch_directory_listing(self) -> Optional[List[Dict[str, Any]]]:
         """Fetch and parse the FC log directory listing via HTTP."""
+        return await asyncio.to_thread(self._fetch_directory_listing_blocking)
+
+    def _fetch_directory_listing_blocking(self) -> Optional[List[Dict[str, Any]]]:
+        """Blocking listing transaction; invoke only through ``asyncio.to_thread``."""
         url = f"{self.fc_url}{self.LOGS_PATH}"
         try:
             if not requests:
@@ -575,51 +636,44 @@ class FCLogSyncer:
     async def _download_log_file(self, entry: Dict[str, Any]) -> bool:
         """
         Download a single log file from the FC webserver to local store.
-        Uses streaming with asyncio.sleep(0) yields to avoid starving
-        the event loop (keeps Socket.IO heartbeats alive during large downloads).
+        The blocking ``requests`` stream is in a worker thread while this
+        coroutine remains able to abort when a fresh arm sample is unsafe.
         """
-        filename = entry["name"]
-        url = f"{self.fc_url}{self.LOGS_PATH}{entry['href']}"
-        local_path = self.log_store_dir / filename
-        tmp_path = self.log_store_dir / f".{filename}.tmp"
+        filename = _safe_fc_log_filename(entry.get("name"))
+        href = _safe_fc_log_filename(entry.get("href"))
+        if filename is None or href is None:
+            logger.error("Refusing unsafe FC log filename or href")
+            return False
+
+        try:
+            local_path = _cache_path_under_root(self.log_store_dir, filename)
+            tmp_path = _cache_path_under_root(self.log_store_dir, filename, temporary=True)
+        except ValueError as error:
+            logger.error("Refusing unsafe FC log cache operation: %s", error)
+            return False
 
         try:
             logger.info(f"Downloading {filename} from FC webserver...")
-            resp = requests.get(url, stream=True, timeout=600)  # 10 min for very large files
-            resp.raise_for_status()
+            if not await self._check_arm_state():
+                raise RuntimeError("arm state is not freshly DISARMED")
 
-            total_size = int(resp.headers.get("Content-Length", 0))
-            downloaded = 0
-            sha256 = hashlib.sha256()
-
-            with open(tmp_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=self.DOWNLOAD_CHUNK_SIZE):
-                    if chunk:
-                        f.write(chunk)
-                        sha256.update(chunk)
-                        downloaded += len(chunk)
-
-                        # Yield to event loop every ~512KB to keep Socket.IO heartbeats alive
-                        if downloaded % (512 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
-                            await asyncio.sleep(0)
-
-                        # Check arm state periodically (every ~4MB)
-                        if downloaded % (4 * 1024 * 1024) < self.DOWNLOAD_CHUNK_SIZE:
-                            if not await self._check_arm_state():
-                                logger.warning(
-                                    f"Drone ARMED during download of {filename}, "
-                                    f"aborting for safety ({downloaded}/{total_size} bytes)")
-                                try:
-                                    tmp_path.unlink()
-                                except OSError:
-                                    pass
-                                self._record_attempt(filename, False, "Drone armed during download")
-                                return False
-
-            # Rename tmp to final
-            tmp_path.rename(local_path)
-            file_size = local_path.stat().st_size
-            file_hash = sha256.hexdigest()
+            cancelled = threading.Event()
+            checkpoint_requested = threading.Event()
+            checkpoint_approved = threading.Event()
+            worker = asyncio.create_task(asyncio.to_thread(
+                self._download_log_file_blocking, href, tmp_path, local_path,
+                cancelled, checkpoint_requested, checkpoint_approved))
+            while not worker.done():
+                # The worker pauses before every additional 4 MiB.  The check
+                # happens here, on the asyncio/MAVSDK side, rather than in a
+                # worker thread, and unknown telemetry never releases it.
+                if checkpoint_requested.is_set():
+                    checkpoint_requested.clear()
+                    if not await self._check_arm_state():
+                        cancelled.set()
+                    checkpoint_approved.set()
+                await asyncio.sleep(0.02)
+            file_size, file_hash = await worker
 
             logger.info(f"Downloaded {filename}: {file_size} bytes, "
                         f"SHA-256: {file_hash[:16]}...")
@@ -650,19 +704,67 @@ class FCLogSyncer:
             self._record_attempt(filename, False, str(e))
             return False
 
+    def _download_log_file_blocking(self, href: str, tmp_path: Path,
+                                    local_path: Path, cancelled: threading.Event,
+                                    checkpoint_requested: threading.Event,
+                                    checkpoint_approved: threading.Event) -> Tuple[int, str]:
+        """Run the full HTTP stream transaction in a worker thread."""
+        url = f"{self.fc_url}{self.LOGS_PATH}{quote(href, safe='')}"
+        resp = requests.get(url, stream=True, timeout=(10, 600))
+        try:
+            resp.raise_for_status()
+            sha256 = hashlib.sha256()
+            downloaded = 0
+            next_arm_check = 4 * 1024 * 1024
+            with open(tmp_path, "wb") as handle:
+                for chunk in resp.iter_content(chunk_size=self.DOWNLOAD_CHUNK_SIZE):
+                    if cancelled.is_set():
+                        raise RuntimeError("download cancelled by arm-state guard")
+                    offset = 0
+                    while offset < len(chunk):
+                        until_check = next_arm_check - downloaded
+                        take = min(len(chunk) - offset, until_check)
+                        piece = chunk[offset:offset + take]
+                        if piece:
+                            handle.write(piece)
+                            sha256.update(piece)
+                            downloaded += len(piece)
+                            offset += len(piece)
+                        if downloaded == next_arm_check:
+                            checkpoint_approved.clear()
+                            checkpoint_requested.set()
+                            # No decision is a denial: the asyncio arm sample
+                            # must arrive within the bounded safety window.
+                            if not checkpoint_approved.wait(timeout=10):
+                                raise RuntimeError("arm-state checkpoint timed out")
+                            if cancelled.is_set():
+                                raise RuntimeError("download cancelled by arm-state guard")
+                            next_arm_check += 4 * 1024 * 1024
+            if cancelled.is_set():
+                raise RuntimeError("download cancelled by arm-state guard")
+            tmp_path.replace(local_path)
+            return local_path.stat().st_size, sha256.hexdigest()
+        finally:
+            resp.close()
+
     def _needs_sync(self, entry: Dict[str, Any]) -> bool:
         """
         Determine if a remote file needs to be downloaded.
         Checks: not in manifest, size mismatch, or modtime changed.
         """
-        filename = entry["name"]
+        filename = _safe_fc_log_filename(entry.get("name"))
+        if filename is None:
+            return False
         existing = self._manifest.get(filename)
         if not existing:
             return True
         if not existing.get("synced"):
             return True
         # Check if local file actually exists
-        local_path = self.log_store_dir / filename
+        try:
+            local_path = _cache_path_under_root(self.log_store_dir, filename)
+        except ValueError:
+            return False
         if not local_path.exists():
             return True
         # Check size mismatch (if remote reports size > 0)
@@ -826,11 +928,12 @@ class FCLogSyncer:
         """
         logs = []
         for filename, entry in sorted(self._manifest.items()):
-            if filename.upper().endswith(".BIN") or filename.lower().endswith(".log"):
-                local_path = self.log_store_dir / filename
+            safe_name = _safe_fc_log_filename(filename)
+            if safe_name:
+                local_path = _cache_path_under_root(self.log_store_dir, safe_name)
                 logs.append({
-                    "remote_path": f"/APM/LOGS/{filename}",
-                    "filename": filename,
+                    "remote_path": f"/APM/LOGS/{safe_name}",
+                    "filename": safe_name,
                     "file_size": entry.get("local_size", 0) or entry.get("remote_size", 0),
                     "synced": entry.get("synced", False) and local_path.exists(),
                     "synced_at": entry.get("synced_at"),
@@ -846,7 +949,10 @@ class FCLogSyncer:
         entry = self._manifest.get(filename)
         if not entry or not entry.get("synced"):
             return None
-        path = self.log_store_dir / filename
+        try:
+            path = _cache_path_under_root(self.log_store_dir, filename)
+        except ValueError:
+            return None
         return path if path.exists() else None
 
     def get_status(self) -> Dict[str, Any]:
@@ -1151,10 +1257,11 @@ class LogsOtaJobHandler:
     HTTP_TIMEOUT = 5  # seconds for HTTP HEAD/GET during flash monitoring
 
     # Firmware HTTP server (Approach C: FC pulls firmware from companion Pi)
-    FIRMWARE_SERVER_PORT = int(CONFIG.get("FIRMWARE_SERVER_PORT", "8070"))
+    FIRMWARE_SERVER_PORT = _configured_port("FIRMWARE_SERVER_PORT", 8070)
     # Port for the lightweight firmware HTTP server; its companion FC parameter
     # file is rendered separately by companion_config.py render-fc-params.
     FIRMWARE_SERVER_ACK_TIMEOUT = 300  # max seconds to wait for FC to pull firmware
+    ARM_STATE_TIMEOUT = 5  # bounded fresh telemetry sample before each hazardous action
 
     def __init__(self, hub: HubClient, ftp: MavFtpClient,
                  log_syncer: Optional['FCLogSyncer'] = None,
@@ -1170,7 +1277,46 @@ class LogsOtaJobHandler:
         self._fw_serve_path = None  # path to firmware file being served
         self._fw_serve_size = 0
         self._fw_serve_downloaded = False  # set True when FC acks download
-        self._fw_serve_bytes_sent = 0  # track bytes served for progress
+        self._fw_serve_bytes_sent = 0  # progress only; never delivery proof
+        self._fw_download_requested = False
+        self._fw_download_response_size = 0
+        self._approved_fc_ip: Optional[str] = None
+
+    @staticmethod
+    def _configured_fc_ip() -> Optional[str]:
+        """Return the configured unicast IPv4 FC peer, refusing invalid config."""
+        configured = CONFIG.get("FC_IP", "").strip()
+        try:
+            address = ipaddress.ip_address(configured)
+        except ValueError:
+            return None
+        if address.version != 4 or address.is_unspecified or address.is_multicast or address.is_loopback or address.is_reserved:
+            return None
+        return str(address)
+
+    async def _require_fresh_disarmed(self, context: str) -> Tuple[bool, str]:
+        """Get one fresh bounded arm sample; unknown telemetry is never safe."""
+        if not self.ftp.connected or not self.ftp.system:
+            return False, f"Cannot {context}: MAVSDK FC connection is unavailable"
+
+        stream = None
+        try:
+            stream = self.ftp.system.telemetry.armed()
+            armed = await asyncio.wait_for(anext(stream), timeout=self.ARM_STATE_TIMEOUT)
+            if armed is not False:
+                return False, f"Cannot {context}: FC is ARMED or arm state is UNKNOWN"
+            return True, ""
+        except asyncio.TimeoutError:
+            return False, f"Cannot {context}: arm-state telemetry timed out"
+        except Exception as error:
+            return False, f"Cannot {context}: arm-state telemetry unavailable ({error})"
+        finally:
+            close = getattr(stream, "aclose", None)
+            if close:
+                try:
+                    await close()
+                except Exception:
+                    pass
 
     @staticmethod
     def _extract_abin_git_hash(abin_path: str) -> Optional[str]:
@@ -1360,13 +1506,29 @@ class LogsOtaJobHandler:
             logger.warning("aiohttp not available — cannot start firmware server")
             return False
 
+        self._approved_fc_ip = self._configured_fc_ip()
+        if self._approved_fc_ip is None:
+            logger.error("Refusing firmware server: FC_IP must be a configured unicast IPv4 address")
+            return False
+
         self._fw_serve_path = firmware_path
         self._fw_serve_size = os.path.getsize(firmware_path)
         self._fw_serve_downloaded = False
         self._fw_serve_bytes_sent = 0
+        self._fw_download_requested = False
+        self._fw_download_response_size = 0
+
+        def approved_peer(request) -> bool:
+            peer = request.remote
+            if peer != self._approved_fc_ip:
+                logger.warning("Rejected firmware HTTP request from unapproved peer %r", peer)
+                return False
+            return True
 
         async def handle_status(request):
             """GET /firmware/status — FC polls this to check for available firmware."""
+            if not approved_peer(request):
+                raise aiohttp_web.HTTPForbidden(text="firmware service restricted to configured FC_IP")
             if self._fw_serve_path and os.path.exists(self._fw_serve_path):
                 return aiohttp_web.json_response({
                     "ready": True,
@@ -1386,6 +1548,8 @@ class LogsOtaJobHandler:
             StreamResponse caused ClientConnectionResetError because
             aiohttp's write() pipeline conflicts with slow Lua readers.
             """
+            if not approved_peer(request):
+                raise aiohttp_web.HTTPForbidden(text="firmware service restricted to configured FC_IP")
             if not self._fw_serve_path or not os.path.exists(self._fw_serve_path):
                 return aiohttp_web.Response(status=404, text="No firmware available")
 
@@ -1393,6 +1557,10 @@ class LogsOtaJobHandler:
                 with open(self._fw_serve_path, "rb") as f:
                     firmware_data = f.read()
 
+                self._fw_download_requested = True
+                self._fw_download_response_size = len(firmware_data)
+                # This only records bytes offered to aiohttp/TCP.  It is useful
+                # for progress but never authorizes a reboot without FC ACK.
                 self._fw_serve_bytes_sent = len(firmware_data)
                 logger.info(f"Serving firmware: {len(firmware_data)} bytes as single response")
 
@@ -1409,9 +1577,15 @@ class LogsOtaJobHandler:
                 return aiohttp_web.Response(status=500, text=str(e))
 
         async def handle_ack(request):
-            """GET /firmware/ack — FC signals download completed."""
+            """GET /firmware/ack — accepted only after the exact full response."""
+            if not approved_peer(request):
+                raise aiohttp_web.HTTPForbidden(text="firmware service restricted to configured FC_IP")
+            if (not self._fw_download_requested or
+                    self._fw_download_response_size != self._fw_serve_size):
+                logger.warning("Rejected firmware ACK without exact full-size download response")
+                raise aiohttp_web.HTTPConflict(text="download has not completed exactly")
             self._fw_serve_downloaded = True
-            logger.info("FC acknowledged firmware download complete")
+            logger.info("Configured FC acknowledged exact full-size firmware download completion")
             return aiohttp_web.json_response({"status": "ok"})
 
         app = aiohttp_web.Application()
@@ -1443,6 +1617,9 @@ class LogsOtaJobHandler:
         self._fw_serve_size = 0
         self._fw_serve_downloaded = False
         self._fw_serve_bytes_sent = 0
+        self._fw_download_requested = False
+        self._fw_download_response_size = 0
+        self._approved_fc_ip = None
 
     async def _wait_for_fc_pull(self, update_id: int, timeout: int = None) -> bool:
         """
@@ -1486,13 +1663,6 @@ class LogsOtaJobHandler:
             if self._fw_serve_downloaded:
                 logger.info(f"FC pulled firmware in {elapsed}s "
                             f"({self._fw_serve_bytes_sent} bytes served)")
-                return True
-
-            # Also check if all bytes were served (ack may be lost)
-            if (self._fw_serve_size > 0 and
-                    self._fw_serve_bytes_sent >= self._fw_serve_size):
-                logger.info(f"All firmware bytes served ({self._fw_serve_bytes_sent}), "
-                            f"treating as complete (ack may be delayed)")
                 return True
 
         logger.warning(f"FC did not pull firmware within {timeout}s "
@@ -1766,7 +1936,9 @@ class LogsOtaJobHandler:
         if not log_id or not remote_path:
             return False, "Missing logId or remotePath in job payload"
 
-        filename = remote_path.split("/")[-1]
+        filename = _safe_fc_log_filename(remote_path.split("/")[-1])
+        if filename is None:
+            return False, "Unsafe FC log filename"
 
         try:
             # ── 1. Serve from local cache (instant) ──
@@ -1782,36 +1954,10 @@ class LogsOtaJobHandler:
                 logger.info(f"Downloading {filename} via HTTP from FC webserver...")
                 self.hub.report_fc_log_progress(log_id, "downloading", 5)
 
-                fc_url = f"{self.log_syncer.fc_url}{self.log_syncer.LOGS_PATH}{filename}"
                 try:
-                    resp = requests.get(fc_url, stream=True, timeout=300)
-                    resp.raise_for_status()
-
-                    total_size = int(resp.headers.get("Content-Length", 0))
-                    downloaded = 0
-                    sha256 = hashlib.sha256()
-
-                    # Stream to local store (cache for future use)
-                    self.log_syncer._ensure_store_dir()
-                    tmp_path = self.log_syncer.log_store_dir / f".{filename}.tmp"
-                    final_path = self.log_syncer.log_store_dir / filename
-
-                    with open(tmp_path, "wb") as f:
-                        for chunk in resp.iter_content(
-                                chunk_size=self.log_syncer.DOWNLOAD_CHUNK_SIZE):
-                            if chunk:
-                                f.write(chunk)
-                                sha256.update(chunk)
-                                downloaded += len(chunk)
-                                if total_size > 0:
-                                    pct = min(int(downloaded / total_size * 70), 70)
-                                    self.hub.report_fc_log_progress(
-                                        log_id, "downloading", pct)
-
-                    # Rename tmp to final and update manifest
-                    tmp_path.rename(final_path)
-                    file_size = final_path.stat().st_size
-                    file_hash = sha256.hexdigest()
+                    final_path, file_size, file_hash, total_size, remote_modtime = (
+                        await asyncio.to_thread(
+                            self._download_on_demand_log_blocking, filename, log_id))
 
                     logger.info(f"Downloaded {filename} via HTTP: {file_size} bytes, "
                                 f"SHA-256: {file_hash[:16]}...")
@@ -1820,7 +1966,7 @@ class LogsOtaJobHandler:
                     self.log_syncer._manifest[filename] = {
                         "filename": filename,
                         "remote_size": total_size or file_size,
-                        "remote_modtime": resp.headers.get("Last-Modified", ""),
+                        "remote_modtime": remote_modtime,
                         "local_size": file_size,
                         "synced": True,
                         "synced_at": time.strftime(
@@ -1845,7 +1991,8 @@ class LogsOtaJobHandler:
                 finally:
                     # Clean up tmp file on failure
                     try:
-                        tmp_p = self.log_syncer.log_store_dir / f".{filename}.tmp"
+                        tmp_p = _cache_path_under_root(
+                            self.log_syncer.log_store_dir, filename, temporary=True)
                         if tmp_p.exists():
                             tmp_p.unlink()
                     except OSError:
@@ -1869,20 +2016,8 @@ class LogsOtaJobHandler:
                 file_size = os.path.getsize(tmp_path)
                 logger.info(f"Downloaded {filename} via MAVFTP: {file_size} bytes")
 
-                self.hub.report_fc_log_progress(log_id, "uploading", 85)
-
-                with open(tmp_path, "rb") as f:
-                    content = f.read()
-
-                url = self.hub.upload_fc_log(log_id, filename, content, file_size)
-
-                if url:
-                    logger.info(f"Uploaded {filename} to Hub: {url}")
-                    return True, None
-                else:
-                    error_msg = "Failed to upload log to Hub"
-                    self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
-                    return False, error_msg
+                return await self._upload_local_file_to_hub(
+                    log_id, filename, Path(tmp_path))
 
             finally:
                 try:
@@ -1896,17 +2031,54 @@ class LogsOtaJobHandler:
             self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
             return False, error_msg
 
+    def _download_on_demand_log_blocking(
+            self, filename: str, log_id: int
+    ) -> Tuple[Path, int, str, int, str]:
+        """Download and cache one FC log; call only through ``asyncio.to_thread``."""
+        if not self.log_syncer:
+            raise RuntimeError("FC log syncer is unavailable")
+        safe_name = _safe_fc_log_filename(filename)
+        if safe_name is None:
+            raise ValueError("unsafe FC log filename")
+        self.log_syncer._ensure_store_dir()
+        tmp_path = _cache_path_under_root(
+            self.log_syncer.log_store_dir, safe_name, temporary=True)
+        final_path = _cache_path_under_root(self.log_syncer.log_store_dir, safe_name)
+        fc_url = (f"{self.log_syncer.fc_url}{self.log_syncer.LOGS_PATH}"
+                  f"{quote(safe_name, safe='')}")
+        resp = requests.get(fc_url, stream=True, timeout=(10, 300))
+        try:
+            resp.raise_for_status()
+            total_size = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            sha256 = hashlib.sha256()
+            with open(tmp_path, "wb") as handle:
+                for chunk in resp.iter_content(
+                        chunk_size=self.log_syncer.DOWNLOAD_CHUNK_SIZE):
+                    if chunk:
+                        handle.write(chunk)
+                        sha256.update(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            pct = min(int(downloaded / total_size * 70), 70)
+                            self.hub.report_fc_log_progress(
+                                log_id, "downloading", pct)
+            tmp_path.replace(final_path)
+            return (final_path, final_path.stat().st_size, sha256.hexdigest(),
+                    total_size, resp.headers.get("Last-Modified", ""))
+        finally:
+            resp.close()
+
     async def _upload_local_file_to_hub(
             self, log_id: int, filename: str, local_path: Path
     ) -> Tuple[bool, Optional[str]]:
         """Helper: read a local file and upload it to the Hub via REST."""
         self.hub.report_fc_log_progress(log_id, "uploading", 75)
 
-        file_size = local_path.stat().st_size
-        with open(local_path, "rb") as f:
-            content = f.read()
-
-        url = self.hub.upload_fc_log(log_id, filename, content, file_size)
+        file_size, content = await asyncio.to_thread(
+            self._read_local_log_for_upload, local_path)
+        url = await asyncio.to_thread(
+            self.hub.upload_fc_log, log_id, filename, content, file_size)
 
         if url:
             logger.info(f"Uploaded {filename} to Hub: {url}")
@@ -1915,6 +2087,11 @@ class LogsOtaJobHandler:
             error_msg = f"Failed to upload {filename} to Hub"
             self.hub.report_fc_log_progress(log_id, "failed", 0, error_msg)
             return False, error_msg
+
+    @staticmethod
+    def _read_local_log_for_upload(local_path: Path) -> Tuple[int, bytes]:
+        """Read a cached log outside the event loop before its HTTP upload."""
+        return local_path.stat().st_size, local_path.read_bytes()
 
     async def handle_flash_firmware(self, job: dict) -> Tuple[bool, Optional[str]]:
         """
@@ -1958,6 +2135,18 @@ class LogsOtaJobHandler:
         if not update_id or not firmware_url:
             return False, "Missing updateId or firmwareUrl in job payload"
 
+        expected_hash = payload.get("sha256Hash")
+        if not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash):
+            error_msg = "Queued firmware job requires a syntactically valid SHA-256 hash"
+            logger.error(error_msg)
+            self.hub.report_firmware_progress(
+                update_id, "failed", 0,
+                flash_stage="hash_verification_failed",
+                error_message=error_msg,
+            )
+            return False, error_msg
+        expected_hash = expected_hash.lower()
+
         # Determine if we need .apj → .abin conversion
         is_apj = firmware_filename.lower().endswith(".apj")
 
@@ -1977,6 +2166,25 @@ class LogsOtaJobHandler:
                     lambda: requests.get(firmware_url, timeout=120)
                 )
                 resp.raise_for_status()
+
+                # Verify the exact artifact bytes received from the Hub before
+                # conversion, file creation, or serving them to the FC.
+                actual_hash = hashlib.sha256(resp.content).hexdigest()
+                if actual_hash != expected_hash:
+                    error_msg = (
+                        f"SHA-256 mismatch! Expected: {expected_hash[:16]}... "
+                        f"Got: {actual_hash[:16]}... Firmware may be corrupted — aborting flash."
+                    )
+                    logger.error(error_msg)
+                    self.hub.report_firmware_progress(
+                        update_id, "failed", 0,
+                        flash_stage="hash_verification_failed",
+                        error_message=error_msg,
+                    )
+                    return False, error_msg
+                logger.info(f"SHA-256 verified: {actual_hash[:16]}...")
+                self.hub.report_firmware_progress(
+                    update_id, "transferring", 8, flash_stage="hash_verified")
 
                 # ── .apj → .abin auto-conversion ──
                 if is_apj:
@@ -2000,33 +2208,6 @@ class LogsOtaJobHandler:
 
                 file_size = os.path.getsize(tmp_path)
                 logger.info(f"{'Converted' if is_apj else 'Downloaded'} firmware: {file_size} bytes")
-
-                # ── SHA-256 Artefact Integrity Check ──
-                # Hash is verified against the original downloaded bytes (before
-                # any .apj → .abin conversion), matching what the Hub computed.
-                expected_hash = payload.get("sha256Hash")
-                if expected_hash:
-                    actual_hash = hashlib.sha256(resp.content).hexdigest()
-                    if actual_hash != expected_hash:
-                        error_msg = (
-                            f"SHA-256 mismatch! Expected: {expected_hash[:16]}... "
-                            f"Got: {actual_hash[:16]}... "
-                            f"Firmware may be corrupted — aborting flash."
-                        )
-                        logger.error(error_msg)
-                        self.hub.report_firmware_progress(
-                            update_id, "failed", 0,
-                            flash_stage="hash_verification_failed",
-                            error_message=error_msg
-                        )
-                        return False, error_msg
-                    logger.info(f"SHA-256 verified: {actual_hash[:16]}...")
-                    self.hub.report_firmware_progress(
-                        update_id, "transferring", 8,
-                        flash_stage="hash_verified"
-                    )
-                else:
-                    logger.warning("No SHA-256 hash in job payload — skipping integrity check")
 
                 # ── Extract expected git hash from .abin header ──
                 # Used after reboot to verify the correct firmware was flashed
@@ -2072,6 +2253,17 @@ class LogsOtaJobHandler:
                     self.hub.report_firmware_progress(
                         update_id, "failed", 0, error_message=error_msg)
                     return False, error_msg
+
+                safe_to_expose, arm_error = await self._require_fresh_disarmed(
+                    "expose firmware to the FC")
+                if not safe_to_expose:
+                    logger.error(arm_error)
+                    self.hub.report_firmware_progress(
+                        update_id, "failed", 0,
+                        flash_stage="arm_state_denied_before_exposure",
+                        error_message=arm_error,
+                    )
+                    return False, arm_error
 
                 logger.info("Starting firmware HTTP server for FC pull (Approach C)...")
                 self.hub.report_firmware_progress(
@@ -2120,23 +2312,33 @@ class LogsOtaJobHandler:
                 self.hub.report_firmware_progress(update_id, "flashing", 70,
                                                    flash_stage="rebooting")
 
-                # Send MAVLink reboot command
-                reboot_sent = False
-                if self.ftp.connected and self.ftp.system:
-                    try:
-                        logger.info("Sending reboot command to FC...")
-                        await self.ftp.system.action.reboot()
-                        reboot_sent = True
-                        logger.info("Reboot command sent — FC will flash firmware on boot")
-                    except Exception as reboot_err:
-                        logger.warning(f"Reboot command failed: {reboot_err}")
-
-                if not reboot_sent:
-                    logger.warning("Could not send reboot command — please reboot FC manually")
+                # The transfer has finished.  Take a second *fresh* sample at
+                # the point of action rather than relying on the earlier check.
+                safe_to_reboot, arm_error = await self._require_fresh_disarmed(
+                    "reboot FC for firmware flash")
+                if not safe_to_reboot:
+                    logger.error(arm_error)
                     self.hub.report_firmware_progress(
-                        update_id, "flashing", 75,
-                        flash_stage="awaiting_manual_reboot"
+                        update_id, "failed", 0,
+                        flash_stage="arm_state_denied_before_reboot",
+                        error_message=arm_error,
                     )
+                    return False, arm_error
+
+                try:
+                    logger.info("Sending reboot command to FC...")
+                    await self.ftp.system.action.reboot()
+                    reboot_sent = True
+                    logger.info("Reboot command sent — FC will flash firmware on boot")
+                except Exception as reboot_err:
+                    error_msg = f"Firmware delivered but reboot command was not sent: {reboot_err}"
+                    logger.error(error_msg)
+                    self.hub.report_firmware_progress(
+                        update_id, "failed", 0,
+                        flash_stage="reboot_command_failed",
+                        error_message=error_msg,
+                    )
+                    return False, error_msg
 
                 # ── Step 5: Wait for FC to come back online ──
                 # After reboot, the bootloader flashes firmware (takes ~10-30s),
@@ -2216,31 +2418,35 @@ class LogsOtaJobHandler:
                     # FC is back but we don't have an expected hash to compare
                     logger.info("FC back online but no expected git hash — skipping verification")
 
-                # Final status report
-                if fc_back:
-                    flash_stage = "verified" if verified else "reboot_verified"
+                # Successful job completion requires both a sent reboot and a
+                # post-reboot version match.  A transport timeout is unknown,
+                # not a successful firmware update.
+                if not fc_back:
+                    error_msg = (f"FC did not return within {max_wait}s after reboot; "
+                                 "firmware state is unknown and requires intervention")
+                    logger.error(error_msg)
                     self.hub.report_firmware_progress(
-                        update_id, "completed", 100,
-                        flash_stage=flash_stage,
-                        firmware_version=firmware_version_str
+                        update_id, "failed", 0,
+                        flash_stage="reboot_timeout_unknown",
+                        error_message=error_msg,
                     )
-                elif not fc_back:
-                    if reboot_sent:
-                        # Reboot was sent, FC hasn't come back — could be slow flash
-                        logger.warning(f"FC not back after {max_wait}s — may still be flashing. "
-                                       f"Check Mission Planner for status.")
-                        self.hub.report_firmware_progress(
-                            update_id, "completed", 95,
-                            flash_stage="reboot_timeout_check_manually"
-                        )
-                    else:
-                        # No reboot sent, waiting for manual reboot
-                        logger.info("Awaiting manual FC reboot to flash firmware")
-                        self.hub.report_firmware_progress(
-                            update_id, "completed", 90,
-                            flash_stage="awaiting_manual_reboot"
-                        )
+                    return False, error_msg
+                if not verified:
+                    error_msg = "FC returned after reboot but firmware version could not be verified"
+                    logger.error(error_msg)
+                    self.hub.report_firmware_progress(
+                        update_id, "failed", 0,
+                        flash_stage="version_unverified",
+                        error_message=error_msg,
+                        firmware_version=firmware_version_str,
+                    )
+                    return False, error_msg
 
+                self.hub.report_firmware_progress(
+                    update_id, "completed", 100,
+                    flash_stage="verified",
+                    firmware_version=firmware_version_str,
+                )
                 return True, None
 
             finally:
@@ -2523,7 +2729,9 @@ class LogsOtaService:
                  fc_connection: str, poll_interval: int = 5,
                  diagnostics_interval: int = 10,
                  fc_webserver_url: str = None,
-                 log_store_dir: str = None):
+                 log_store_dir: str = None,
+                 fc_enabled: bool = True):
+        self.fc_enabled = fc_enabled
         self.hub = HubClient(hub_url, drone_id, api_key)
         self.ftp = MavFtpClient(fc_connection)
         self.log_syncer = FCLogSyncer(
@@ -2533,7 +2741,7 @@ class LogsOtaService:
         self.job_handler = LogsOtaJobHandler(self.hub, self.ftp,
                                               log_syncer=self.log_syncer)
         self.diagnostics = DiagnosticsCollector(
-            fc_webserver_url=self.log_syncer.fc_url
+            fc_webserver_url=self.log_syncer.fc_url if self.fc_enabled else None
         )
         self.drone_id = drone_id
         self.hub_url = hub_url
@@ -2609,7 +2817,7 @@ class LogsOtaService:
         """Poll for and execute pending jobs."""
         while self.running:
             try:
-                jobs = self.hub.get_pending_jobs()
+                jobs = await asyncio.to_thread(self.hub.get_pending_jobs)
 
                 for job in jobs:
                     job_id = job.get("id")
@@ -2623,15 +2831,23 @@ class LogsOtaService:
 
                     # Acknowledge with mutex lock (companion identifier)
                     companion_id = f"logs_ota@{platform.node()}"
-                    if not self.hub.acknowledge_job(job_id, locked_by=companion_id):
+                    if not await asyncio.to_thread(
+                            self.hub.acknowledge_job, job_id, companion_id):
                         logger.warning(f"Job {job_id} already locked by another companion, skipping")
+                        continue
+
+                    if not self.fc_enabled:
+                        error_msg = "FC jobs are disabled because service is running with --no-fc"
+                        logger.warning("Rejecting job %s: %s", job_id, error_msg)
+                        await asyncio.to_thread(self.hub.complete_job, job_id, False, error_msg)
                         continue
 
                     # Check FC connection for MAVFTP jobs
                     if not self._fc_connected:
                         logger.warning("FC not connected, attempting reconnection...")
                         if not await self.connect_fc():
-                            self.hub.complete_job(job_id, False, "FC not connected")
+                            await asyncio.to_thread(
+                                self.hub.complete_job, job_id, False, "FC not connected")
                             continue
 
                     # Execute
@@ -2650,7 +2866,7 @@ class LogsOtaService:
                         logger.error(error_msg)
 
                     # Report completion
-                    self.hub.complete_job(job_id, success, error_msg)
+                    await asyncio.to_thread(self.hub.complete_job, job_id, success, error_msg)
 
             except Exception as e:
                 logger.error(f"Job poll error: {e}")
@@ -2661,8 +2877,8 @@ class LogsOtaService:
         """Periodically collect and report system diagnostics."""
         while self.running:
             try:
-                diag = self.diagnostics.collect()
-                self.hub.report_diagnostics(diag)
+                diag = await asyncio.to_thread(self.diagnostics.collect)
+                await asyncio.to_thread(self.hub.report_diagnostics, diag)
                 logger.debug(f"Diagnostics reported: CPU={diag.get('cpu_percent')}% "
                              f"MEM={diag.get('memory_percent')}% "
                              f"TEMP={diag.get('cpu_temp_c')}°C")
@@ -2685,12 +2901,14 @@ class LogsOtaService:
         logger.info(f"  Diagnostics: {self.diagnostics_interval}s")
         logger.info("=" * 60)
 
-        # Connect to FC (non-blocking — jobs will retry if not connected)
-        asyncio.create_task(self._initial_fc_connect())
+        # --no-fc is diagnostics/log-streaming-only: it starts no FC connect,
+        # HTTP sync, or FC job execution path.
+        if self.fc_enabled:
+            asyncio.create_task(self._initial_fc_connect())
 
         # Pass MAVSDK system to log syncer for arm-state checks
         # (done after FC connect attempt so system is initialized)
-        if self.ftp.system:
+        if self.fc_enabled and self.ftp.system:
             self.log_syncer.mavsdk_system = self.ftp.system
 
         # Set up Socket.IO for real-time features
@@ -2700,10 +2918,13 @@ class LogsOtaService:
         tasks = [
             asyncio.create_task(self._job_poll_loop()),
             asyncio.create_task(self._diagnostics_loop()),
-            asyncio.create_task(
-                self.log_syncer.run_sync_loop(lambda: self.running)
-            ),
         ]
+        if self.fc_enabled:
+            tasks.append(asyncio.create_task(
+                self.log_syncer.run_sync_loop(lambda: self.running)
+            ))
+        else:
+            logger.info("--no-fc: FC log sync and all FC jobs are disabled")
 
         try:
             await asyncio.gather(*tasks)
@@ -2779,10 +3000,10 @@ Examples:
                         help="API key for Hub authentication (default: API_KEY)")
     parser.add_argument("--fc-connection", default=CONFIG.get("FC_CONNECTION", "serial:///dev/ttyAMA1:921600"),
                         help="MAVSDK connection string (default: FC_CONNECTION)")
-    parser.add_argument("--poll-interval", type=int, default=int(CONFIG.get("POLL_INTERVAL", "5")),
+    parser.add_argument("--poll-interval", type=int, default=CONFIG.get("POLL_INTERVAL", "5"),
                         help="Job polling interval in seconds (default: POLL_INTERVAL)")
     parser.add_argument("--diagnostics-interval", type=int,
-                        default=int(CONFIG.get("DIAGNOSTICS_INTERVAL", "10")),
+                        default=CONFIG.get("DIAGNOSTICS_INTERVAL", "10"),
                         help="Diagnostics reporting interval in seconds (default: DIAGNOSTICS_INTERVAL)")
     parser.add_argument("--no-fc", action="store_true",
                         default=CONFIG.get("NO_FC", "false").lower() in ("1", "true", "yes", "on"),
@@ -2843,6 +3064,7 @@ Examples:
         diagnostics_interval=args.diagnostics_interval,
         fc_webserver_url=args.fc_webserver_url,
         log_store_dir=args.log_store_dir,
+        fc_enabled=not args.no_fc,
     )
 
     # Handle signals

@@ -116,7 +116,7 @@ local WEB_MAX_UPLOAD = bind_add_param('MAX_UPLOAD', 7, 16777216)
   // @Values: 0:Disabled,1:Enabled
   // @User: Standard
 --]]
-local WEB_PUT_ENABLE = bind_add_param('PUT_ENABLE', 8, 1)
+local WEB_PUT_ENABLE = bind_add_param('PUT_ENABLE', 8, 0)
 
 if WEB_ENABLE:get() ~= 1 then
    gcs:send_text(MAV_SEVERITY.INFO, "WebServer: disabled")
@@ -142,6 +142,16 @@ local MNT_PREFIX2 = MNT_PREFIX .. "/"
 
 -- Allowed upload path prefix (security restriction)
 local UPLOAD_PATH_PREFIX = "/APM/"
+local PUT_FINAL_PATH = "/APM/ardupilot.abin"
+local PUT_STAGE_PATH = "/APM/.ardupilot.abin.part"
+local MAX_HEADER_BYTES = 8192
+local MAX_HEADER_LINES = 64
+
+-- The ArduPilot Lua sandbox documents io and remove(), but not an atomic
+-- filesystem rename API.  Keep legacy PUT disabled unless a target-specific,
+-- bench-qualified port enables and implements the guarded atomic promotion
+-- below.  Opening PUT_FINAL_PATH directly is intentionally never permitted.
+local RENAME_SUPPORTED = false
 
 local MIME_TYPES = {
    ["apj"]  = CONTENT_OCTET_STREAM,
@@ -295,10 +305,50 @@ local function Client(sock, idx)
    
    -- PUT upload state
    local put_file = nil
-   local put_path = nil     -- track path for cleanup on timeout
+   local put_path = nil     -- staging path for cleanup on timeout/error
    local put_remaining = 0
    local put_received = 0
+   local put_expected = 0
    local put_body_leftover = nil
+
+   function self.cleanup_partial_upload(reason)
+      if put_file then
+         pcall(function() put_file:close() end)
+         put_file = nil
+      end
+      if put_path then
+         pcall(function()
+            if type(remove) == "function" then
+               remove(put_path)
+            end
+         end)
+      end
+      if reason then
+         gcs:send_text(MAV_SEVERITY.ERROR, "WebServer: PUT failed: " .. reason)
+      end
+   end
+
+   function self.put_error(code, text, reason)
+      self.cleanup_partial_upload(reason)
+      self.send_header(code, text, { ["Content-Type"]="text/plain" })
+      self.sendstring(reason or text)
+      run = nil
+      self.remove()
+   end
+
+   function self.promote_staged_upload()
+      if not RENAME_SUPPORTED then
+         return false, "atomic staged rename unavailable in this ArduPilot Lua sandbox"
+      end
+      if type(os) ~= "table" or type(os.rename) ~= "function" then
+         return false, "verified atomic rename API unavailable"
+      end
+      local ok, err = os.rename(PUT_STAGE_PATH, PUT_FINAL_PATH)
+      if not ok then
+         return false, "staged rename failed: " .. tostring(err)
+      end
+      return true, nil
+   end
 
    function self.read_header()
       local s = sock:recv(2048)
@@ -316,6 +366,13 @@ local function Client(sock, idx)
          return false
       end
       header = header .. s
+      if #header > MAX_HEADER_BYTES then
+         protocol = "HTTP/1.0"
+         self.send_header(431, "Request Header Fields Too Large", { ["Content-Type"]="text/plain" })
+         self.sendstring("Request header too large")
+         self.remove()
+         return false
+      end
       local eoh = string.find(header, '\r\n\r\n')
       if eoh then
          DEBUG(string.format("%u: got header", idx))
@@ -323,7 +380,14 @@ local function Client(sock, idx)
          -- Split header from any body data that arrived in the same recv
          local header_part = string.sub(header, 1, eoh + 3)
          put_body_leftover = string.sub(header, eoh + 4)
-         header_lines = split(header_part, "[^\r\n]+")
+          header_lines = split(header_part, "[^\r\n]+")
+          if #header_lines > MAX_HEADER_LINES then
+             protocol = "HTTP/1.0"
+             self.send_header(431, "Request Header Fields Too Large", { ["Content-Type"]="text/plain" })
+            self.sendstring("Too many request header lines")
+            self.remove()
+            return false
+         end
          -- blocking for reply
          sock:set_blocking(true)
          return true
@@ -562,6 +626,9 @@ local function Client(sock, idx)
          return MIME_TYPES["html"]
       end
       local _, ext = string.match(path, '(.*[.])(.*)')
+      if not ext or ext == "" then
+         return CONTENT_OCTET_STREAM
+      end
       ext = string.lower(ext)
       local ret = MIME_TYPES[ext]
       if not ret then
@@ -651,11 +718,32 @@ local function Client(sock, idx)
    --]]
    function self.receive_file()
       if put_remaining <= 0 then
-         -- All data received — flush once and close
-         if put_file then
-            put_file:flush()
-            put_file:close()
-            put_file = nil
+         if put_received ~= put_expected then
+            self.put_error(400, "Bad Request", "PUT body length mismatch")
+            return
+         end
+         -- All exact bytes received — every final filesystem operation must
+         -- succeed before the caller can see a 201 Created response.
+         local flushed, flush_err = put_file:flush()
+         if not flushed then
+            self.put_error(500, "Internal Server Error", "staging flush failed: " .. tostring(flush_err))
+            return
+         end
+         local closed, close_err = put_file:close()
+         put_file = nil
+         if not closed then
+            self.put_error(500, "Internal Server Error", "staging close failed: " .. tostring(close_err))
+            return
+         end
+         local safe, arm_err = pcall(function() return arming:is_armed() end)
+         if not safe or arm_err == nil or arm_err then
+            self.put_error(403, "Forbidden", "PUT promotion denied: vehicle armed or arm state unavailable")
+            return
+         end
+         local promoted, promote_err = self.promote_staged_upload()
+         if not promoted then
+            self.put_error(503, "Service Unavailable", promote_err)
+            return
          end
          gcs:send_text(MAV_SEVERITY.INFO, string.format("WebServer: PUT complete, %u bytes received", put_received))
          self.send_header(201, "Created", {
@@ -689,22 +777,21 @@ local function Client(sock, idx)
             local now = millis()
             if not sock:is_connected() or now - start_time > 30000 then
                gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT stall timeout after %u bytes", put_received))
-               if put_file then
-                  put_file:close()
-                  put_file = nil
-               end
-               -- Delete partial file to prevent bootloader from flashing corrupt firmware
-               if put_path then
-                  os.remove(put_path)
-                  gcs:send_text(MAV_SEVERITY.WARNING, "WebServer: deleted partial upload file")
-               end
-               run = nil
-               self.remove()
+               self.put_error(408, "Request Timeout", "PUT stall timeout; deleted partial upload file")
             end
             return
          end
 
-         put_file:write(data)
+         if #data > put_remaining then
+            self.put_error(400, "Bad Request", "PUT body exceeds declared Content-Length")
+            return
+         end
+
+         local wrote, write_err = put_file:write(data)
+         if not wrote then
+            self.put_error(500, "Internal Server Error", "staging write failed: " .. tostring(write_err))
+            return
+         end
          put_remaining = put_remaining - #data
          put_received = put_received + #data
          reads_this_cycle = reads_this_cycle + 1
@@ -714,7 +801,11 @@ local function Client(sock, idx)
 
       -- Flush once per update cycle (not per chunk) to reduce SD card I/O
       if reads_this_cycle > 0 then
-         put_file:flush()
+         local flushed, flush_err = put_file:flush()
+         if not flushed then
+            self.put_error(500, "Internal Server Error", "staging flush failed: " .. tostring(flush_err))
+            return
+         end
       end
 
       -- Log progress every ~100KB
@@ -730,11 +821,12 @@ local function Client(sock, idx)
       starts the receive loop.
    --]]
    function self.handle_put(path)
-      -- Security: only allow PUT to /APM/ directory
-      if not startswith(path, UPLOAD_PATH_PREFIX) then
-         gcs:send_text(MAV_SEVERITY.WARNING, string.format("WebServer: PUT rejected, path not in /APM/: %s", path))
+      -- Legacy PUT accepts exactly the bootloader target, but only stages it;
+      -- arbitrary /APM/ writes are not a supported remote filesystem API.
+      if path ~= PUT_FINAL_PATH then
+         gcs:send_text(MAV_SEVERITY.WARNING, string.format("WebServer: PUT rejected, unsupported path: %s", path))
          self.send_header(403, "Forbidden", {["Content-Type"]="text/plain"})
-         self.sendstring("PUT only allowed to /APM/ directory")
+         self.sendstring("PUT only allowed to the supported firmware target")
          self.remove()
          return
       end
@@ -748,11 +840,40 @@ local function Client(sock, idx)
          return
       end
 
+      if not RENAME_SUPPORTED then
+         self.send_header(503, "Service Unavailable", {["Content-Type"]="text/plain"})
+         self.sendstring("PUT unavailable: atomic staged promotion is not supported on this FC")
+         self.remove()
+         return
+      end
+
+      local arm_ok, armed = pcall(function() return arming:is_armed() end)
+      if not arm_ok or armed == nil or armed then
+         self.send_header(403, "Forbidden", {["Content-Type"]="text/plain"})
+         self.sendstring("PUT denied while armed or arm state unavailable")
+         self.remove()
+         return
+      end
+
       -- Require Content-Length header
       local content_length = header_vars['Content-Length']
       if not content_length then
          self.send_header(411, "Length Required", {["Content-Type"]="text/plain"})
          self.sendstring("Content-Length header required for PUT")
+         self.remove()
+         return
+      end
+
+      local content_length_count = 0
+      for _, line in ipairs(header_lines) do
+         local key = string.match(line, '^([^:]+):')
+         if key and string.lower(key) == "content-length" then
+            content_length_count = content_length_count + 1
+         end
+      end
+      if content_length_count ~= 1 or not string.match(content_length, "^%d+$") then
+         self.send_header(400, "Bad Request", {["Content-Type"]="text/plain"})
+         self.sendstring("Content-Length must appear once and be decimal digits")
          self.remove()
          return
       end
@@ -775,21 +896,19 @@ local function Client(sock, idx)
          return
       end
 
-      -- Security: prevent path traversal
-      if string.find(path, "%.%.") then
-         self.send_header(400, "Bad Request", {["Content-Type"]="text/plain"})
-         self.sendstring("Path traversal not allowed")
-         self.remove()
-         return
-      end
-
       gcs:send_text(MAV_SEVERITY.INFO, string.format("WebServer: PUT %s (%u bytes)", path, file_size))
 
-      -- Open file for writing (binary mode)
-      put_path = path  -- save for cleanup on timeout
-      put_file = io.open(path, "wb")
+      -- Open only an inert staging file.  PUT_FINAL_PATH is never opened for
+      -- writing by this applet, even after an interrupted client transfer.
+      put_path = PUT_STAGE_PATH
+      pcall(function()
+         if type(remove) == "function" then
+            remove(put_path)
+         end
+      end)
+      put_file = io.open(put_path, "wb")
       if not put_file then
-         gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT failed to open %s for writing", path))
+         gcs:send_text(MAV_SEVERITY.ERROR, string.format("WebServer: PUT failed to open %s for writing", put_path))
          self.send_header(500, "Internal Server Error", {["Content-Type"]="text/plain"})
          self.sendstring("Failed to open file for writing")
          self.remove()
@@ -798,11 +917,24 @@ local function Client(sock, idx)
 
       put_remaining = file_size
       put_received = 0
+      put_expected = file_size
 
       -- Write any body data that arrived with the header
       if put_body_leftover and #put_body_leftover > 0 then
-         put_file:write(put_body_leftover)
-         put_file:flush()
+         if #put_body_leftover > put_remaining then
+            self.put_error(400, "Bad Request", "PUT header leftover exceeds declared Content-Length")
+            return
+         end
+         local wrote, write_err = put_file:write(put_body_leftover)
+         if not wrote then
+            self.put_error(500, "Internal Server Error", "staging write failed: " .. tostring(write_err))
+            return
+         end
+         local flushed, flush_err = put_file:flush()
+         if not flushed then
+            self.put_error(500, "Internal Server Error", "staging flush failed: " .. tostring(flush_err))
+            return
+         end
          put_remaining = put_remaining - #put_body_leftover
          put_received = put_received + #put_body_leftover
          put_body_leftover = nil

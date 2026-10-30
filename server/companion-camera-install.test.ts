@@ -34,7 +34,7 @@ ExecStart=/usr/bin/true
   const unitPath = [units, verifierUnits, "/usr/lib/systemd/system", "/lib/systemd/system"].join(":");
   const result = spawnSync(
     "systemd-analyze",
-    ["verify", ...names.map(name => join(units, name))],
+    ["verify", "--man=no", "--recursive-errors=one", ...names.map(name => join(units, name))],
     {
       encoding: "utf8",
       timeout: 15000,
@@ -42,6 +42,7 @@ ExecStart=/usr/bin/true
     },
   );
   expect(result.status, result.stderr + result.stdout).toBe(0);
+  expect(result.stderr.trim()).toBe("");
 }
 
 function runMockedCameraInstallation() {
@@ -53,6 +54,8 @@ function runMockedCameraInstallation() {
   const log = join(root, "commands.log");
   mkdirSync(bin);
   mkdirSync(install);
+  mkdirSync(units);
+  writeFileSync(join(units, "tailscaled.service"), "[Service]\nType=oneshot\nExecStart=/usr/bin/true\n");
   writeFileSync(envFile, [
     "# This comment must survive the installer.",
     "HUB_URL=\"https://hub.invalid\"",
@@ -82,6 +85,10 @@ if [ "$1" = -m ] && [ "$2" = pip ]; then
   printf 'pip %s\\n' "$*" >> "$MOCK_LOG"
   exit 0
 fi
+if [[ "$1" == */installer_support.py ]] && [ "$2" = sdk-preflight ]; then
+  printf 'sdk-preflight stub\\n' >> "$MOCK_LOG"
+  exit 0
+fi
 exec /usr/bin/python3 "$@"
 `);
   executable(join(bin, "curl"), `#!/usr/bin/env bash
@@ -97,6 +104,7 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$output" ] && printf '#!/bin/sh\\nexit 0\\n' > "$output"
 `);
+  executable(join(bin, "sha256sum"), '#!/bin/bash\ncat >/dev/null\nexit 0\n');
   executable(join(bin, "tailscale"), `#!/usr/bin/env bash
 printf 'tailscale %s\\n' "$*" >> "$MOCK_LOG"
 case "$1 $2" in
@@ -107,7 +115,7 @@ exit 0
 `);
 
   // The actual common installer, literal config parser, copying and renderer run.
-  // Package management, downloads, Tailscale and service-manager calls are stubs.
+  // Package management, binary downloads/checksums, Tailscale and service-manager calls are stubs.
   // QUIVER_TEST_MODE only bypasses the installer root guard. `sudo` is mocked
   // to execute the otherwise-privileged temporary-directory operations as this
   // test user; no package manager or systemd command reaches the host.
@@ -151,21 +159,21 @@ describe("Camera services installer (mocked privileged integration)", () => {
 
     expect(go2rtc).toContain(`WorkingDirectory=${run.install}`);
     expect(go2rtc).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(go2rtc).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(go2rtc).toContain(`EnvironmentFile=${run.envFile}`);
     expect(go2rtc).toContain(`Environment="QUIVER_ENV_FILE=${run.envFile}"`);
     expect(go2rtc).toContain("render-go2rtc");
     expect(go2rtc).toContain(`"${join(run.install, "companion_config.py")}"`);
     expect(go2rtc).toContain(`ExecStart="${join(run.install, "bin/go2rtc")}" -config "${join(run.install, "go2rtc.yaml")}"`);
     expect(funnel).toContain("--https=${TAILSCALE_FUNNEL_PORT}");
     expect(funnel).toContain("http://${GO2RTC_API_HOST}:${GO2RTC_API_PORT}");
-    expect(funnel).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(funnel).toContain(`EnvironmentFile=${run.envFile}`);
     expect(camera).toContain(`WorkingDirectory=${run.install}`);
     expect(camera).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(camera).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(camera).toContain(`EnvironmentFile=${run.envFile}`);
     expect(camera).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "camera_stream_service.py")}"`);
     expect(siyi).toContain(`WorkingDirectory=${run.install}`);
     expect(siyi).not.toContain(`WorkingDirectory="${run.install}"`);
-    expect(siyi).toContain(`EnvironmentFile="${run.envFile}"`);
+    expect(siyi).toContain(`EnvironmentFile=${run.envFile}`);
     expect(siyi).toContain(`ExecStart=/usr/bin/python3 "${join(run.install, "siyi_camera_controller.py")}"`);
     expect(camera).not.toContain("test-secret");
     expect(siyi).not.toContain("test-secret");

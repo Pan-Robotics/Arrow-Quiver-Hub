@@ -200,11 +200,11 @@ asyncio.run(camera.main())
 describe("camera runtime configuration behavior", () => {
   it("an explicit API port and stream selection override derived endpoints", () => {
     const result = cameraRuntime("SIYI_CAMERA_IP=10.50.0.25\nGO2RTC_API_PORT=1984\n", ["--api-port", "2999", "--stream", "main"]);
-    expect(result.api).toBe("http://localhost:2999");
+    expect(result.api).toBe("http://127.0.0.1:2999");
     expect(result.rtsp).toBe("rtsp://10.50.0.25:8554/main.264");
   });
   it("explicit whole-URL CLI settings override file settings", () => {
-    const result = cameraRuntime("RTSP_URL=rtsp://configured.invalid/source\nGO2RTC_API_URL=http://configured.invalid:1984\n", ["--api-port", "2999", "--go2rtc-api", "http://override.invalid:4000", "--rtsp-url", "rtsp://override.invalid/source"]);
+    const result = cameraRuntime("RTSP_URL=rtsp://configured.invalid/source\nGO2RTC_API_URL=http://configured.invalid:1984\n", ["--api-port", "4000", "--go2rtc-api", "http://override.invalid:4000", "--rtsp-url", "rtsp://override.invalid/source"]);
     expect(result.api).toBe("http://override.invalid:4000");
     expect(result.rtsp).toBe("rtsp://override.invalid/source");
   });

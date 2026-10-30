@@ -1,0 +1,10 @@
+# Direct dependency set tested on ARM64 / Python 3.13.
+# mavsdk >=4 is the native API and is NOT compatible with this suite.
+mavsdk==3.17.4
+grpcio==1.85.0
+protobuf==7.36.2
+requests==2.34.2
+aiohttp==3.14.5
+dronecan==1.0.27
+psutil==7.2.2
+python-socketio[asyncio_client]==5.17.0

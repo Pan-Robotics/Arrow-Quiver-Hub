@@ -8,6 +8,7 @@ of executing a shell or importing a dotenv package.  Values are never interpolat
 import argparse
 import ipaddress
 import json
+import math
 import os
 import re
 import stat
@@ -39,12 +40,15 @@ def _decode_value(value: str) -> str:
         closing = value.find("'", 1)
         if closing >= 0:
             return value[1:closing]
-        return value[1:]
+        raise ValueError("Multiline/unclosed quoted configuration is unsupported; use one assignment per line")
     if value[0] != '"':
-        return value
+        if value.endswith("\\"):
+            raise ValueError("Configuration line continuations are unsupported; use quoted single-line values")
+        return re.sub(r"\\(.)", r"\1", value)
 
     result: List[str] = []
     escaped = False
+    closed = False
     for character in value[1:]:
         if escaped:
             # EnvironmentFile supports escaped quote/backslash.  Preserve an
@@ -57,11 +61,12 @@ def _decode_value(value: str) -> str:
         elif character == "\\":
             escaped = True
         elif character == '"':
+            closed = True
             break
         else:
             result.append(character)
-    if escaped:
-        result.append("\\")
+    if not closed:
+        raise ValueError("Multiline/unclosed quoted configuration is unsupported; use one assignment per line")
     return "".join(result)
 
 
@@ -168,9 +173,9 @@ def _synchronize_aliases(lines: List[str], values: Mapping[str, str]) -> None:
     """Migrate a one-name Hub URL configuration without replacing known values."""
     hub = values.get("HUB_URL")
     web = values.get("WEB_SERVER_URL")
-    if hub is not None and web is None:
+    if hub and not web:
         _replace_or_append(lines, "WEB_SERVER_URL", hub)
-    elif web is not None and hub is None:
+    elif web and not hub:
         _replace_or_append(lines, "HUB_URL", web)
 
 
@@ -261,7 +266,7 @@ def _normalize_hub_aliases(values: Dict[str, str], sources: Mapping[str, int]) -
     """
     candidates = []
     for index, key in enumerate(_ALIAS_KEYS):
-        if key in values:
+        if key in values and values[key].strip():
             candidates.append((sources.get(key, -1), -index, key, values[key]))
     if not candidates:
         return
@@ -407,7 +412,7 @@ def render_fc_params(env_file: Path, output_file: Path) -> None:
         raise ValueError("FIRMWARE_SERVER_PORT must be an integer from 1 to 65535") from error
     if not 1 <= firmware_port <= 65535:
         raise ValueError("FIRMWARE_SERVER_PORT must be from 1 to 65535")
-    if companion_ip.packed[0] == 0 or companion_ip.packed[0] >= 224:
+    if companion_ip.is_loopback or companion_ip.packed[0] == 0 or companion_ip.packed[0] >= 224:
         raise ValueError("COMPANION_IP must be a unicast IPv4 address accepted by firmware_puller.lua")
 
     octets = str(companion_ip).split(".")
@@ -459,6 +464,9 @@ def load_environment() -> Dict[str, str]:
     if not values.get("PARSERS_DIR"):
         values["PARSERS_DIR"] = str(_SCRIPT_DIR / "parsers")
 
+    for key, old in list(_MANAGED_ENVIRONMENT.items()):
+        if key not in values and os.environ.get(key) == old and key not in _INITIAL_PROCESS_ENV:
+            os.environ.pop(key, None)
     os.environ.update(values)
     _LAST_EXPLICIT.clear()
     _LAST_EXPLICIT.update(explicit)
@@ -472,6 +480,57 @@ def is_explicit(key: str) -> bool:
     return key in _LAST_EXPLICIT
 
 
+def validate_configuration(values: Mapping[str, str], require_identity: bool = True) -> None:
+    """Validate file-backed settings before packages, unit replacement or starts."""
+    from urllib.parse import urlsplit
+    if require_identity:
+        url = urlsplit(values.get("HUB_URL", ""))
+        allowed_http = _bool_text(values.get("ALLOW_INSECURE_HUB", "false"))
+        if not url.hostname or url.username or url.password or url.query or url.fragment or url.scheme not in ({"https", "http"} if allowed_http else {"https"}):
+            raise ValueError("HUB_URL must be an HTTPS Hub base URL (ALLOW_INSECURE_HUB=true is development-only)")
+        if not values.get("DRONE_ID", "").strip() or not values.get("API_KEY", "").strip():
+            raise ValueError("DRONE_ID and API_KEY are required")
+    for key in ("FC_WEBSERVER_PORT", "FC_MAVLINK_TCP_PORT", "MAVLINK_UDP_PORT", "SIYI_SDK_PORT", "SIYI_RTSP_PORT", "GO2RTC_API_PORT", "GO2RTC_WEBRTC_PORT", "FIRMWARE_SERVER_PORT"):
+        try:
+            number = int(values.get(key, "0"))
+        except ValueError:
+            raise ValueError(f"{key} must be an integer from 1 to 65535") from None
+        if not 1 <= number <= 65535:
+            raise ValueError(f"{key} must be from 1 to 65535")
+    if values.get("TAILSCALE_FUNNEL_PORT") not in {"443", "8443", "10000"}:
+        raise ValueError("TAILSCALE_FUNNEL_PORT must be 443, 8443, or 10000")
+    for key in ("POLL_INTERVAL", "DIAGNOSTICS_INTERVAL"):
+        try:
+            number = int(values.get(key, "0"))
+        except ValueError:
+            raise ValueError(f"{key} must be an integer from 1 to 3600") from None
+        if not 1 <= number <= 3600:
+            raise ValueError(f"{key} must be from 1 to 3600")
+    try:
+        rate = float(values.get("UPDATE_RATE_HZ", "0"))
+    except ValueError:
+        raise ValueError("UPDATE_RATE_HZ must be finite and greater than zero, at most 100") from None
+    if not math.isfinite(rate) or not 0 < rate <= 100:
+        raise ValueError("UPDATE_RATE_HZ must be finite and greater than zero, at most 100")
+    for key in ("FC_IP", "COMPANION_IP", "SIYI_CAMERA_IP"):
+        try:
+            address = ipaddress.IPv4Address(values.get(key, ""))
+        except ValueError:
+            raise ValueError(f"{key} must be a valid usable IPv4 address") from None
+        if address.is_loopback or address.is_multicast or address.is_unspecified or address.packed[0] >= 224:
+            raise ValueError(f"{key} must be a usable unicast IPv4 address, not loopback")
+    for key in ("INSTALL_DIR", "CONFIG_DIR", "PARSERS_DIR", "UPLOAD_DIR", "LOG_STORE_DIR"):
+        value = values.get(key)
+        if value and (not Path(value).is_absolute() or any(ord(c) < 32 or c in '\"\'' for c in value)):
+            raise ValueError(f"{key} must be an absolute path without control characters or quotes")
+    try:
+        node_id = int(values.get("UAVCAN_NODE_ID", "111"))
+    except ValueError:
+        raise ValueError("UAVCAN_NODE_ID must be a unique integer from 1 to 127") from None
+    if not 1 <= node_id <= 127:
+        raise ValueError("UAVCAN_NODE_ID must be a unique integer from 1 to 127")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage literal companion EnvironmentFile settings")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -482,6 +541,9 @@ def _build_parser() -> argparse.ArgumentParser:
     get_parser = subparsers.add_parser("get", help="print one resolved literal value")
     get_parser.add_argument("env_file", type=Path)
     get_parser.add_argument("key")
+
+    validate_parser = subparsers.add_parser("validate", help="validate companion settings before installation")
+    validate_parser.add_argument("env_file", type=Path)
 
     set_parser = subparsers.add_parser("set", help="set one or more literal KEY VALUE pairs")
     set_parser.add_argument("env_file", type=Path)
@@ -508,6 +570,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     if args.command == "get":
         print(_resolve_file_environment(args.env_file).get(args.key, ""))
+        return 0
+    if args.command == "validate":
+        validate_configuration(_resolve_file_environment(args.env_file))
+        print("Companion configuration validation passed (credentials not printed)")
         return 0
     if args.command == "render-go2rtc":
         render_go2rtc_config(args.env_file, args.output_file)

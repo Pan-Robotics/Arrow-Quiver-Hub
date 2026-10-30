@@ -167,9 +167,9 @@ Confirm the rendered unit points to the intended `.env`, that its selected servi
 
 ### “Bad unit file setting” / “WorkingDirectory= path is not absolute”
 
-An earlier installer quoted the entire `WorkingDirectory` value, which systemd interprets as a non-absolute path. The corrected installers emit a literal directory value, including spaces when needed, while retaining appropriate quoting for `EnvironmentFile`, `ExecStart`, and path lists. This is a service-definition error, not a pip or API-key error.
+Earlier installers quoted `WorkingDirectory` and `EnvironmentFile`, which systemd treats as literal non-absolute paths. Corrected installers emit unquoted literal directory/configuration-file paths, including spaces when needed, while retaining word quoting for `Environment`, `ExecStart`, and path lists. The fatal directory error and ignored configuration-file warning are distinct; exact installed-unit/drop-in diagnostics determine the reported cause.
 
-Run `sudo bash /path/to/corrected-suite/repair_companion_services.sh --check` to inspect the proposed fix, then run the same command without `--check` to apply it. The standalone script validates every corrected installed unit before replacing files, makes non-overwritten backups, and reloads systemd. It does not edit `.env`, change enablement, or start/restart anything. See the [README repair instructions](README.md#repair-bad-unit-file-setting-from-an-earlier-installer) for explicit Hub-client start commands.
+Run `bash /path/to/corrected-suite/diagnose_companion.sh --install-dir /your/installed/quiver` first for a credential-redacted, read-only report. Then use `sudo bash /path/to/corrected-suite/repair_companion_services.sh --check` and the same command without `--check` to repair recognized installed units. Validation includes drop-ins and warnings (`--recursive-errors=one`); backups are retained and reload is retried on rerun. No `.env`, enablement, or service start/restart is changed. See the [README repair instructions](README.md#repair-bad-unit-file-setting-from-an-earlier-installer).
 
 Only the definitions in `/etc/systemd/system/` affect the installed services; editing the source-folder `.service` template alone does not repair them. Never install a template containing `PLACEHOLDER` markers directly.
 

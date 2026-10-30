@@ -67,29 +67,31 @@ case "${ROOT_CHOICE:-Y}" in y|Y|yes|YES) RUN_AS_ROOT=true; quiver_set ALLOW_NON_
 esac
 printf '\nInstall directory: %s\nShared configuration: %s\n' "$INSTALL_DIR" "$ENV_FILE"
 printf 'FC endpoint: %s\n' "$(quiver_get FC_WEBSERVER_URL)"
+quiver_validate_config
 read -r -p "Proceed with installation? [Y/n]: " CONFIRM
 case "${CONFIRM:-Y}" in y|Y|yes|YES) ;; *) echo "Aborted."; exit 0 ;; esac
 
 apt-get update
 apt-get install -y python3 python3-pip
 # pipefail is enabled: a dependency failure must not appear to succeed.
-python3 -m pip install --break-system-packages mavsdk requests psutil 'python-socketio[asyncio_client]' aiohttp
+python3 -m pip install --break-system-packages -r "$SCRIPT_DIR/requirements-companion.txt"
+python3 "$SCRIPT_DIR/installer_support.py" sdk-preflight
 quiver_copy logs_ota_service.py
 quiver_copy firmware_puller.lua
 quiver_copy net_webserver_put.lua
 quiver_install_helpers
 python3 "$INSTALL_DIR/companion_config.py" render-fc-params "$ENV_FILE" "$INSTALL_DIR/firmware_puller.param"
 chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/firmware_puller.param"
-LOG_STORE_DIR=$(quiver_get LOG_STORE_DIR)
-mkdir -p -- "$LOG_STORE_DIR"
-chown "$SERVICE_USER:$SERVICE_GROUP" "$LOG_STORE_DIR"
+LOG_STORE_DIR=$(quiver_data_directory "$(quiver_get LOG_STORE_DIR)")
 if [ "$RUN_AS_ROOT" = false ]; then
     usermod -aG dialout "$SERVICE_USER"
     usermod -aG systemd-journal "$SERVICE_USER"
 fi
 
 mkdir -p -- "$SYSTEMD_DIR"
-cat > "$SERVICE_FILE" <<EOF
+UNIT_STAGING=$(mktemp -d)
+trap 'rm -rf -- "$UNIT_STAGING"' EXIT
+cat > "$UNIT_STAGING/logs-ota.service" <<EOF
 [Unit]
 Description=Quiver Hub Logs & OTA Service
 Documentation=https://github.com/Pan-Robotics/Arrow-Quiver-Hub
@@ -102,7 +104,7 @@ StartLimitBurst=5
 Type=simple
 $(if [ "$RUN_AS_ROOT" = false ]; then printf 'User=%s\nGroup=%s\n' "$SERVICE_USER" "$SERVICE_GROUP"; fi)
 WorkingDirectory=$(quiver_systemd_directory "$INSTALL_DIR")
-EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")
+EnvironmentFile=$(quiver_systemd_environment_file "$ENV_FILE")
 Environment=$(quiver_systemd_path "QUIVER_ENV_FILE=$ENV_FILE")
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 $(quiver_systemd_path "$INSTALL_DIR/logs_ota_service.py")
@@ -119,6 +121,7 @@ NoNewPrivileges=$([ "$RUN_AS_ROOT" = true ] && echo false || echo true)
 [Install]
 WantedBy=multi-user.target
 EOF
+quiver_install_units "$UNIT_STAGING"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service"
 systemctl restart "${SERVICE_NAME}.service"

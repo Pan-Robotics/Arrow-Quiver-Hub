@@ -1,0 +1,98 @@
+[
+  {
+    "file": "COMPANION_SERVICES.md",
+    "sha256": "aec9ce2ad2cc6c1cf7d3fbdce49702486a58dab6d9dc4cd712b35eb3ffb386eb"
+  },
+  {
+    "file": "FLASH_FLOW_AUDIT.md",
+    "sha256": "520d3d4f400e0168025fdcb313eb45b9a6d927e5b2efb1e76628c089bf9d5c53"
+  },
+  {
+    "file": "OTA_Setup_Guide.md",
+    "sha256": "7f9751438a3feb7665f1e10e5b8f56c5df2f1b68294002ab7f9a6b456da1b372"
+  },
+  {
+    "file": "README.md",
+    "sha256": "3af933777b05174c1ce43a1720c5d3f590e443befc9b031798375f3e6aa816d8"
+  },
+  {
+    "file": "camera-stream.service",
+    "sha256": "1fa3332907256ec161a5b40940674e73e188ddaf76113538aa748ea95717c605"
+  },
+  {
+    "file": "camera_stream_service.py",
+    "sha256": "a4d07f89b9d843000b610a80f410c26e0996c42e68bac139199a8c049a0bda1f"
+  },
+  {
+    "file": "companion-config.example",
+    "sha256": "bc94a6fb6ff21b8c4519cc349d3a07e0eaccb3bb28c8368e7fc5bab341f4d399"
+  },
+  {
+    "file": "companion_config.py",
+    "sha256": "b0172b2623fd6ab57a57ce29b80129c27e88cf6f25fd1b06e023d5bf6f7750df"
+  },
+  {
+    "file": "firmware_puller.lua",
+    "sha256": "b4aed2bf665b5d002917a673a4cd7861572a30fbdf53e480436e8d29fe496f31"
+  },
+  {
+    "file": "install_camera_services.sh",
+    "sha256": "03d507d14ab009473a37c4b3e0cdae3ba04b30a3916db43cb5da0d43632be18f"
+  },
+  {
+    "file": "install_hub_client.sh",
+    "sha256": "9d88b1e62cc1fe2bacf5ff76b1d350d21bfcac791ad398683d7d95d404fd3059"
+  },
+  {
+    "file": "install_logs_ota.sh",
+    "sha256": "60e3cfffbf0ad2e7c0a179065824937f3158796a3dc9892e2d0c9b23b0884532"
+  },
+  {
+    "file": "install_telemetry_forwarder.sh",
+    "sha256": "0532601a1158894ffac353bc7eb56a3434bd044c5e3236e9745655dba9007aa3"
+  },
+  {
+    "file": "installer_common.sh",
+    "sha256": "e446c8ba091d492957208c6c482c435dd1d20ec37dbcb40af0b5e197b4d2f575"
+  },
+  {
+    "file": "logs-ota.service",
+    "sha256": "e37710aa22017ed8ef2a6fa91509f4e0ce6f335a4bceb5ba833b28237f115523"
+  },
+  {
+    "file": "logs_ota_service.py",
+    "sha256": "a5ef8a858320c0c3273bdabe2f814b5f092696f90b65cd825869802a8989897d"
+  },
+  {
+    "file": "net_webserver_put.lua",
+    "sha256": "0784d37c9d41934aae2c253bef80f494ad632986d730d6950a3ebaa292cd148c"
+  },
+  {
+    "file": "quiver-hub-client.service",
+    "sha256": "9a5d99bbf77e8532d4346abaa43ad35986c8328297b8e92b1acd891a22f54966"
+  },
+  {
+    "file": "raspberry_pi_client.py",
+    "sha256": "673cad696e0ef361b3f647bedf987546d105a629039b6d4dbc15f3143ce983b9"
+  },
+  {
+    "file": "repair_companion_services.sh",
+    "sha256": "09798b45d70252f8a81ce08630bcd3f460a11cb826919b118c628d6e07ae1ff8"
+  },
+  {
+    "file": "siyi-camera.service",
+    "sha256": "08a609cc5d9c48411214ad9875c292b759fae70bc02c8c0860bbfd3632728b9c"
+  },
+  {
+    "file": "siyi_camera_controller.py",
+    "sha256": "f41d01536a60d11e2eae43ef9a77c07bdf65fb9d4e8c64bf3d4df86e39de54a7"
+  },
+  {
+    "file": "telemetry-forwarder.service",
+    "sha256": "0a08f5c4dedcfcd9067da788e23212e0a5efdb90f7e4bc4d116a97acf3dbf739"
+  },
+  {
+    "file": "telemetry_forwarder.py",
+    "sha256": "05e284219a1ebb1172a576a1a0085c9c6b40ed85d530e43b7e9e6779b29aaf31"
+  }
+]

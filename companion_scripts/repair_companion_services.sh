@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fix the quoted WorkingDirectory defect in previously installed Quiver units.
+# Fix quoted WorkingDirectory/EnvironmentFile in previously installed Quiver units.
 # Usage: sudo bash repair_companion_services.sh [--check]
 # No downloads, package installs, credential edits, or service starts/restarts.
 set -euo pipefail
@@ -46,13 +46,13 @@ def corrected(content):
         stripped = line.strip()
         if stripped.startswith('[') and stripped.endswith(']'):
             in_service = stripped == '[Service]'
-        match = re.fullmatch(r'(\s*WorkingDirectory=)"((?:[^"\\]|\\.)*)"[ \t]*(\r?\n)?', line)
+        match = re.fullmatch(r'(\s*(?:WorkingDirectory|EnvironmentFile)=)"((?:[^"\\]|\\.)*)"[ \t]*(\r?\n)?', line)
         if in_service and match:
             # Percent specifiers were already escaped by the original installer;
             # keep them escaped. Only undo the formatter's slash/quote escaping.
             value = re.sub(r'\\([\\"])', r'\1', match[2])
             if not value.startswith('/') or any(c in value for c in '\r\n\0'):
-                raise ValueError('Refusing a quoted WorkingDirectory that is not an absolute single path.')
+                raise ValueError('Refusing a quoted directory/configuration path that is not absolute single-line text.')
             line = match[1] + value + (match[3] or '')
         output.append(line)
     return ''.join(output)
@@ -66,9 +66,15 @@ for name in names:
     if not path.is_file():
         continue
     original = path.read_text(encoding='utf-8')
+    if name in ('go2rtc.service', 'tailscale-funnel.service') and 'QUIVER_ENV_FILE=' not in original:
+        print(f'Skipping {path}: generic unit has no Quiver ownership marker.')
+        continue
     if re.search(r'^[^#\n]*\b[A-Z_]+_PLACEHOLDER\b', original, re.MULTILINE):
         raise SystemExit(f'{path} is an unrendered source template. Rerun the corrected installer; do not copy templates directly.')
-    fixed = corrected(original)
+    try:
+        fixed = corrected(original)
+    except ValueError as error:
+        raise SystemExit(f'{path}: {error}; no units changed.')
     candidates.append((path, original, fixed))
 
 if not candidates:
@@ -85,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix='quiver-unit-repair-') as stage:
     # dependencies against the corrected versions before replacing any file.
     default_path = '/etc/systemd/system:/run/systemd/system:/usr/local/lib/systemd/system:/usr/lib/systemd/system:/lib/systemd/system'
     environment['SYSTEMD_UNIT_PATH'] = stage + ':' + str(unit_dir) + ':' + environment.get('SYSTEMD_UNIT_PATH', default_path)
-    result = subprocess.run(['systemd-analyze', 'verify', '--man=no', *paths], env=environment)
+    result = subprocess.run(['systemd-analyze', 'verify', '--man=no', '--recursive-errors=one', *paths], env=environment)
     if result.returncode:
         raise SystemExit('Unit validation failed; no installed units or configuration files were changed.')
 
@@ -122,8 +128,10 @@ else:
             if os.path.exists(temporary):
                 os.unlink(temporary)
         print(f'Repaired: {path}\nBackup: {backup}')
-    if changed:
-        subprocess.run(['systemctl', 'daemon-reload'], check=True)
+    # Always retry reload, even if an earlier run replaced files then reload failed.
+    result = subprocess.run(['systemctl', 'daemon-reload'])
+    if result.returncode:
+        raise SystemExit('Unit files were repaired, but daemon-reload failed. Fix the systemd connection and rerun this repair; do not start services yet.')
     print(f'Validation passed for {len(candidates)} unit(s); repaired {len(changed)}.')
     print('Your .env, credentials, scripts, and enablement were not changed. No service was started or restarted.')
     print('When ready: sudo systemctl reset-failed quiver-hub-client')

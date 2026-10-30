@@ -482,10 +482,11 @@ describe("Logs & OTA Updates - Install Script", () => {
 
   it("installs required Python packages with --break-system-packages", () => {
     expect(source).toContain("python3 -m pip install --break-system-packages");
-    expect(source).toContain("mavsdk");
-    expect(source).toContain("requests");
-    expect(source).toContain("psutil");
-    expect(source).toContain("python-socketio");
+    expect(source).toContain('requirements-companion.txt');
+    expect(source).toContain('sdk-preflight');
+    const requirements = fs.readFileSync('./companion_scripts/requirements-companion.txt', 'utf-8');
+    expect(requirements).toContain('mavsdk==3.17.4');
+    for (const dependency of ['requests', 'psutil', 'python-socketio']) expect(requirements).toContain(dependency);
   });
 
   it("prompts for Hub URL, drone ID, API key", () => {
@@ -505,7 +506,8 @@ describe("Logs & OTA Updates - Install Script", () => {
     expect(source).toContain("systemctl daemon-reload");
     expect(source).toContain('systemctl enable "${SERVICE_NAME}.service"');
     expect(source).toContain('systemctl restart "${SERVICE_NAME}.service"');
-    expect(source).toContain('EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")');
+    expect(source).toContain('EnvironmentFile=$(quiver_systemd_environment_file "$ENV_FILE")');
+    expect(source).toContain('quiver_install_units "$UNIT_STAGING"');
   });
 
   it("shows useful commands after installation", () => {
@@ -884,17 +886,18 @@ describe("FCLogSyncer - Retry limit and skip list", () => {
 describe("FCLogSyncer - Network coexistence for large downloads", () => {
   const source = fs.readFileSync("./companion_scripts/logs_ota_service.py", "utf-8");
 
-  it("yields to event loop with asyncio.sleep(0) during download", () => {
-    expect(source).toContain("await asyncio.sleep(0)");
+  it("moves the blocking stream to a worker while retaining async scheduling", () => {
+    expect(source).toContain("asyncio.to_thread(");
+    expect(source).toContain("self._download_log_file_blocking");
   });
 
-  it("yields every ~512KB to keep Socket.IO heartbeats alive", () => {
-    expect(source).toContain("512 * 1024");
-    expect(source).toContain("Socket.IO heartbeats");
+  it("keeps the event loop responsive while supervising fresh arm checkpoints", () => {
+    expect(source).toContain("await asyncio.sleep(0.02)");
+    expect(source).toContain("checkpoint_requested");
   });
 
   it("uses 600s timeout for very large files", () => {
-    expect(source).toContain("timeout=600");
+    expect(source).toContain("timeout=(10, 600)");
   });
 
   it("checks arm state every ~4MB instead of every ~1MB", () => {
@@ -1192,9 +1195,9 @@ describe("OTA flash flow - handle_flash_firmware integration", () => {
   });
 
   it("Step 4 handles reboot command failure gracefully", () => {
-    expect(flashMethod).toContain("Could not send reboot command");
-    expect(flashMethod).toContain("please reboot FC manually");
-    expect(flashMethod).toContain('flash_stage="awaiting_manual_reboot"');
+    expect(flashMethod).toContain("reboot command was not sent");
+    expect(flashMethod).toContain('flash_stage="reboot_command_failed"');
+    expect(flashMethod).toContain("return False, error_msg");
   });
 
   // ── Step 5: Poll FC webserver until back online ──
@@ -1202,16 +1205,17 @@ describe("OTA flash flow - handle_flash_firmware integration", () => {
   it("Step 5 polls FC webserver to confirm reboot", () => {
     expect(flashMethod).toContain("await asyncio.to_thread(self._http_fc_reachable)");
     expect(flashMethod).toContain("FC back online after");
-    // flash_stage is now set dynamically: "verified" if git hash matches, "reboot_verified" otherwise
-    expect(flashMethod).toContain('flash_stage = "verified" if verified else "reboot_verified"');
+    expect(flashMethod).toContain('flash_stage="verified"');
+    expect(flashMethod).toContain('flash_stage="version_unverified"');
   });
 
   it("Step 5 has 120s timeout for FC to come back", () => {
     expect(flashMethod).toContain("max_wait = 120");
   });
 
-  it("Step 5 reports timeout with check-manually status", () => {
-    expect(flashMethod).toContain('flash_stage="reboot_timeout_check_manually"');
+  it("Step 5 fails on timeout with unknown firmware state, never successful completion", () => {
+    expect(flashMethod).toContain('flash_stage="reboot_timeout_unknown"');
+    expect(flashMethod).toContain("firmware state is unknown and requires intervention");
   });
 
   // ── No MAVFTP in flash path ──
@@ -1493,7 +1497,10 @@ describe("Firmware flash - .apj auto-conversion integration", () => {
   });
 
   it("SHA-256 check is on original downloaded bytes (before conversion)", () => {
-    expect(flashMethod).toContain("Hash is verified against the original downloaded bytes");
+    const originalHash = flashMethod.indexOf("hashlib.sha256(resp.content).hexdigest()");
+    const conversion = flashMethod.indexOf("self._convert_apj_to_abin(resp.content, tmp_path)");
+    expect(originalHash).toBeGreaterThan(0);
+    expect(conversion).toBeGreaterThan(originalHash);
     expect(flashMethod).toContain("hashlib.sha256(resp.content)");
   });
 
@@ -1623,9 +1630,9 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
     expect(source).toContain("self.handle_put(path)");
   });
 
-  it("restricts PUT to /APM/ directory only", () => {
+  it("restricts PUT to one supported /APM/ firmware target", () => {
     expect(source).toContain('UPLOAD_PATH_PREFIX = "/APM/"');
-    expect(source).toContain("not startswith(path, UPLOAD_PATH_PREFIX)");
+    expect(source).toContain("path ~= PUT_FINAL_PATH");
   });
 
   it("has WEB_PUT_ENABLE parameter to toggle PUT support", () => {
@@ -1646,8 +1653,8 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
   });
 
   it("prevents path traversal attacks", () => {
-    expect(source).toContain('string.find(path, "%.%.")');
-    expect(source).toContain("Path traversal not allowed");
+    expect(source).toContain("path ~= PUT_FINAL_PATH");
+    expect(source).toContain("PUT only allowed to the supported firmware target");
   });
 
   it("returns 201 Created on successful upload", () => {
@@ -1685,8 +1692,9 @@ describe("net_webserver_put.lua - FC Web Server with PUT Support", () => {
     expect(source).toContain("put_file:write(put_body_leftover)");
   });
 
-  it("opens file for writing in binary mode", () => {
-    expect(source).toContain('io.open(path, "wb")');
+  it("opens only the inert staging file for binary writes", () => {
+    expect(source).toContain('io.open(put_path, "wb")');
+    expect(source).toContain("put_path = PUT_STAGE_PATH");
   });
 
   it("cleans up put_file on remove", () => {
@@ -1904,7 +1912,7 @@ describe("firmware_puller.lua (FC Lua applet)", () => {
   });
 
   it("should remove partial file on abort", () => {
-    expect(luaContent).toContain("os.remove");
+    expect(luaContent).toContain("remove(WRITE_STAGE)");
   });
 
   it("should use HTTP/1.0 for simple connection handling", () => {
@@ -1928,7 +1936,7 @@ describe("Approach C: Companion Pi firmware HTTP server", () => {
   });
 
   it("should read FIRMWARE_SERVER_PORT from shared configuration", () => {
-    expect(pyContent).toMatch(/FIRMWARE_SERVER_PORT\s*=\s*int\(.*["']FIRMWARE_SERVER_PORT["']/);
+    expect(pyContent).toContain('FIRMWARE_SERVER_PORT = _configured_port("FIRMWARE_SERVER_PORT", 8070)');
     expect(fs.readFileSync("./companion_scripts/companion-config.example", "utf-8")).toContain("FIRMWARE_SERVER_PORT=8070");
   });
 
@@ -2362,13 +2370,13 @@ describe("Audit Fix: net_webserver_put.lua PUT stall timeout reduced to 30s", ()
   });
 
   it("deletes partial file on timeout to prevent corrupt flash", () => {
-    expect(source).toContain("os.remove(put_path)");
+    expect(source).toContain("remove(put_path)");
     expect(source).toContain("deleted partial upload file");
   });
 
   it("tracks put_path for cleanup", () => {
     expect(source).toContain("local put_path = nil");
-    expect(source).toContain("put_path = path");
+    expect(source).toContain("put_path = PUT_STAGE_PATH");
   });
 });
 
@@ -2554,7 +2562,9 @@ describe("Firmware version readback - companion script", () => {
   });
 
   it("sets flash_stage based on verification result", () => {
-    expect(flashMethod).toContain('flash_stage = "verified" if verified else "reboot_verified"');
+    expect(flashMethod).toContain('flash_stage="verified"');
+    expect(flashMethod).toContain('flash_stage="version_unverified"');
+    expect(flashMethod).toContain("if not verified:");
   });
 
   it("uses ensure_ready to reconnect MAVSDK before version query", () => {

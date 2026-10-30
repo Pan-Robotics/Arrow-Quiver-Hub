@@ -1,5 +1,7 @@
 # Firmware Flash Flow — Audit Report (Updated)
 
+> **Historical record:** the April findings below are not the current safety disposition. The 2026-10-30 full-suite audit added disarmed/hash/peer/ACK/version gates and currently blocks FC firmware promotion pending verified atomic-rename support. See [Audited Upgrade Notes](AUDITED_UPGRADE_NOTES.md); do not treat the older successful-flash conclusions below as bench clearance for this revision.
+
 **Date:** 2026-04-22 (updated after external field work)
 **Scope:** `logs_ota_service.py` (companion Pi), `firmware_puller.lua` (FC Lua applet), `net_webserver_put.lua` (FC HTTP server)
 

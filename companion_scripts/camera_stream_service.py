@@ -43,7 +43,8 @@ import argparse
 import logging
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+from urllib.parse import urlsplit
 from companion_config import is_explicit, load_environment
 
 try:
@@ -65,7 +66,7 @@ logger = logging.getLogger('camera_stream')
 # Files are resolved at startup, so service restarts use any edited IP/port.
 CONFIG = load_environment()
 SIYI_CAMERA_IP = CONFIG.get("SIYI_CAMERA_IP", "")
-RTSP_PORT = int(CONFIG.get("SIYI_RTSP_PORT", "8554"))
+RTSP_PORT = CONFIG.get("SIYI_RTSP_PORT", "8554")
 STREAM_TYPE = CONFIG.get("STREAM_TYPE", "sub")
 RTSP_URL = CONFIG.get("RTSP_URL", "")
 
@@ -77,15 +78,61 @@ if RTSP_URL:
     RTSP_STREAMS[STREAM_TYPE] = RTSP_URL
 
 # go2rtc defaults
-GO2RTC_API_HOST = CONFIG.get("GO2RTC_API_HOST", "localhost")
-GO2RTC_API_PORT = int(CONFIG.get("GO2RTC_API_PORT", "1984"))
+GO2RTC_API_HOST = CONFIG.get("GO2RTC_API_HOST", "127.0.0.1")
+GO2RTC_API_PORT = CONFIG.get("GO2RTC_API_PORT", "1984")
 GO2RTC_API_URL = CONFIG.get("GO2RTC_API_URL", f"http://{GO2RTC_API_HOST}:{GO2RTC_API_PORT}")
-GO2RTC_WEBRTC_PORT = int(CONFIG.get("GO2RTC_WEBRTC_PORT", "8555"))
+GO2RTC_WEBRTC_PORT = CONFIG.get("GO2RTC_WEBRTC_PORT", "8555")
 GO2RTC_BINARY = CONFIG.get("GO2RTC_BINARY", "go2rtc")
 GO2RTC_EXTERNAL = CONFIG.get("GO2RTC_EXTERNAL", "false").lower() in ("1", "true", "yes", "on")
 
 # Tailscale funnel port (must be 443, 8443, or 10000)
-TAILSCALE_FUNNEL_PORT = int(CONFIG.get("TAILSCALE_FUNNEL_PORT", "443"))
+TAILSCALE_FUNNEL_PORT = CONFIG.get("TAILSCALE_FUNNEL_PORT", "443")
+ALLOWED_FUNNEL_PORTS = frozenset({443, 8443, 10000})
+
+
+def normalize_go2rtc_api_url(api_url: str, api_port: Optional[int] = None) -> Tuple[str, str, int]:
+    """Return a canonical API base URL together with its host and port.
+
+    ``--go2rtc-api`` is a whole-endpoint override.  Parsing it once avoids
+    starting/configuring one go2rtc endpoint while health-checking another.
+    A separately supplied port is accepted only when it agrees with a port in
+    the URL (or supplies the port for a URL without one).
+    """
+    parsed = urlsplit(api_url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("go2rtc API URL must be an absolute http(s) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("go2rtc API URL may not include credentials, query, or fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("go2rtc API URL must not include a path")
+    try:
+        url_port = parsed.port
+    except ValueError as error:
+        raise ValueError("go2rtc API URL has an invalid port") from error
+
+    if api_port is not None:
+        if not 1 <= api_port <= 65535:
+            raise ValueError("go2rtc API port must be from 1 to 65535")
+        if url_port is not None and url_port != api_port:
+            raise ValueError("go2rtc API URL port conflicts with --api-port")
+        port = api_port
+    elif url_port is not None:
+        port = url_port
+    else:
+        port = 443 if parsed.scheme == "https" else 80
+
+    host = parsed.hostname
+    host_for_url = f"[{host}]" if ":" in host else host
+    return f"{parsed.scheme}://{host_for_url}:{port}", host, port
+
+
+def normalize_hub_rest_url(hub_url: str) -> str:
+    """Convert a Hub socket URL to its REST base without corrupting paths."""
+    rest_base = hub_url.replace("wss://", "https://", 1).replace("ws://", "http://", 1)
+    rest_base = rest_base.rstrip("/")
+    if rest_base.endswith("/ws"):
+        rest_base = rest_base[:-len("/ws")]
+    return rest_base.rstrip("/")
 
 
 # ============================================================================
@@ -211,33 +258,23 @@ def get_tailscale_funnel_url(funnel_port: int = TAILSCALE_FUNNEL_PORT,
 def setup_tailscale_funnel(local_port: int = GO2RTC_API_PORT,
                             funnel_port: int = TAILSCALE_FUNNEL_PORT) -> bool:
     """
-    Configure Tailscale serve + funnel to expose go2rtc API.
+    Configure Tailscale Funnel to expose the local go2rtc API.
     
     This runs:
-      tailscale serve --bg --https=<funnel_port> http://localhost:<local_port>
-      tailscale funnel <funnel_port> on
+      tailscale funnel --bg --https=<funnel_port> http://127.0.0.1:<local_port>
     
     Returns True if successful.
     """
+    if funnel_port not in ALLOWED_FUNNEL_PORTS:
+        logger.error("Tailscale Funnel port must be one of %s", sorted(ALLOWED_FUNNEL_PORTS))
+        return False
     try:
-        # Step 1: Set up tailscale serve (proxy HTTPS to local HTTP)
-        serve_cmd = [
-            "tailscale", "serve", "--bg",
+        funnel_cmd = [
+            "tailscale", "funnel", "--bg",
             f"--https={funnel_port}",
-            f"http://localhost:{local_port}"
+            f"http://127.0.0.1:{local_port}",
         ]
-        logger.info(f"Setting up Tailscale serve: {' '.join(serve_cmd)}")
-        result = subprocess.run(serve_cmd, capture_output=True, text=True, timeout=15)
-        
-        if result.returncode != 0:
-            logger.error(f"tailscale serve failed: {result.stderr}")
-            return False
-        
-        logger.info("Tailscale serve configured")
-        
-        # Step 2: Enable funnel (make it public)
-        funnel_cmd = ["tailscale", "funnel", str(funnel_port), "on"]
-        logger.info(f"Enabling Tailscale funnel: {' '.join(funnel_cmd)}")
+        logger.info(f"Setting up Tailscale funnel: {' '.join(funnel_cmd)}")
         result = subprocess.run(funnel_cmd, capture_output=True, text=True, timeout=15)
         
         if result.returncode != 0:
@@ -275,7 +312,7 @@ class WebRTCStreamingService:
     def __init__(self,
                  stream_type: str = "sub",
                  rtsp_url: Optional[str] = None,
-                 api_port: int = GO2RTC_API_PORT,
+                 api_port: Optional[int] = None,
                  go2rtc_api: str = GO2RTC_API_URL,
                  webrtc_port: int = GO2RTC_WEBRTC_PORT,
                  funnel_port: int = TAILSCALE_FUNNEL_PORT,
@@ -287,8 +324,7 @@ class WebRTCStreamingService:
         
         self.stream_type = stream_type
         self.rtsp_url = rtsp_url or RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
-        self.api_port = api_port
-        self.go2rtc_api = go2rtc_api.rstrip("/")
+        self.go2rtc_api, self.api_host, self.api_port = normalize_go2rtc_api_url(go2rtc_api, api_port)
         self.webrtc_port = webrtc_port
         self.funnel_port = funnel_port
         
@@ -308,6 +344,10 @@ class WebRTCStreamingService:
         # go2rtc process
         self.go2rtc_process: Optional[subprocess.Popen] = None
         self.config_path: Optional[str] = None
+        # This process does not own a systemd-managed go2rtc.  Keep separate
+        # availability state rather than treating a missing child as a restart.
+        self.go2rtc_external = GO2RTC_EXTERNAL
+        self.external_go2rtc_available = False
         
         self.running = False
         self.stream_healthy = False
@@ -320,7 +360,7 @@ class WebRTCStreamingService:
             rtsp_url=self.rtsp_url,
             api_port=self.api_port,
             webrtc_port=self.webrtc_port,
-            api_host=self.go2rtc_api.split("://", 1)[-1].rsplit(":", 1)[0],
+            api_host=self.api_host,
         )
         
         config_dir = Path("/tmp/go2rtc")
@@ -336,7 +376,7 @@ class WebRTCStreamingService:
     def _start_go2rtc(self) -> bool:
         """Start the go2rtc process."""
         try:
-            if GO2RTC_EXTERNAL:
+            if self.go2rtc_external:
                 # The installer gives go2rtc its own systemd unit. Monitor that
                 # instance; never bind another listener or stop its process.
                 if requests is None:
@@ -376,6 +416,9 @@ class WebRTCStreamingService:
     
     def _stop_go2rtc(self):
         """Stop the go2rtc process."""
+        if self.go2rtc_external:
+            # go2rtc.service owns an external process lifecycle.
+            return
         if self.go2rtc_process:
             try:
                 os.killpg(os.getpgid(self.go2rtc_process.pid), signal.SIGTERM)
@@ -390,7 +433,7 @@ class WebRTCStreamingService:
     
     def _check_stream_health(self) -> bool:
         """Check if go2rtc is healthy by querying its API."""
-        if not GO2RTC_EXTERNAL and (self.go2rtc_process is None or self.go2rtc_process.poll() is not None):
+        if not self.go2rtc_external and (self.go2rtc_process is None or self.go2rtc_process.poll() is not None):
             return False
         
         if requests is None:
@@ -440,7 +483,7 @@ class WebRTCStreamingService:
         
         # Fallback to local (won't work remotely)
         logger.warning("No public URL available. Stream will only be accessible on LAN.")
-        url = f"http://localhost:{self.api_port}/api/webrtc?src=camera"
+        url = f"{self.go2rtc_api}/api/webrtc?src=camera"
         return url
     
     def _register_stream_with_hub(self, webrtc_url: str):
@@ -458,8 +501,7 @@ class WebRTCStreamingService:
             return
         
         try:
-            rest_base = self.hub_url.replace("wss://", "https://").replace("ws://", "http://")
-            rest_base = rest_base.rstrip("/ws").rstrip("/")
+            rest_base = normalize_hub_rest_url(self.hub_url)
             register_url = f"{rest_base}/api/rest/camera/stream-register"
             
             logger.info(f"Registering stream with Hub: POST {register_url}")
@@ -508,8 +550,7 @@ class WebRTCStreamingService:
             return
         
         try:
-            rest_base = self.hub_url.replace("wss://", "https://").replace("ws://", "http://")
-            rest_base = rest_base.rstrip("/ws").rstrip("/")
+            rest_base = normalize_hub_rest_url(self.hub_url)
             unregister_url = f"{rest_base}/api/rest/camera/stream-unregister"
             
             requests.post(unregister_url, json={
@@ -530,14 +571,19 @@ class WebRTCStreamingService:
         # Setup Tailscale funnel if not skipped and no explicit public URL
         if not self.skip_funnel_setup and not self.public_url:
             logger.info("Setting up Tailscale funnel...")
-            if not setup_tailscale_funnel(self.api_port, self.funnel_port):
+            if not await asyncio.to_thread(setup_tailscale_funnel, self.api_port, self.funnel_port):
                 logger.warning("Tailscale funnel setup failed. "
                              "Stream may only be accessible on LAN.")
         
         while self.running:
             try:
-                # Start go2rtc if not running
-                if self.go2rtc_process is None or self.go2rtc_process.poll() is not None:
+                # A systemd-owned external go2rtc has no local child sentinel.
+                # Observe health only; never restart/stop it from this service.
+                local_process_missing = (
+                    not self.go2rtc_external
+                    and (self.go2rtc_process is None or self.go2rtc_process.poll() is not None)
+                )
+                if local_process_missing:
                     if self.reconnect_count >= self.max_reconnects:
                         logger.error("Max reconnection attempts reached. Waiting 30s...")
                         await asyncio.sleep(30)
@@ -546,7 +592,7 @@ class WebRTCStreamingService:
                     
                     logger.info(f"Starting go2rtc with RTSP source: {self.rtsp_url}")
                     
-                    if self._start_go2rtc():
+                    if await asyncio.to_thread(self._start_go2rtc):
                         self.reconnect_count = 0
                     else:
                         self.reconnect_count += 1
@@ -556,29 +602,37 @@ class WebRTCStreamingService:
                 
                 # Monitor stream health
                 was_healthy = self.stream_healthy
-                self.stream_healthy = self._check_stream_health()
+                self.stream_healthy = await asyncio.to_thread(self._check_stream_health)
+                if self.go2rtc_external:
+                    if self.stream_healthy != self.external_go2rtc_available:
+                        logger.info(
+                            "Externally managed go2rtc is now %s",
+                            "healthy" if self.stream_healthy else "unhealthy",
+                        )
+                    self.external_go2rtc_available = self.stream_healthy
                 
                 if not self.stream_healthy and was_healthy:
                     logger.warning("Stream became unhealthy, restarting go2rtc...")
                     self._stream_registered = False
                     self._detected_webrtc_url = None
-                    self._stop_go2rtc()
-                    self.reconnect_count += 1
-                    await asyncio.sleep(2)
-                    continue
+                    if not self.go2rtc_external:
+                        await asyncio.to_thread(self._stop_go2rtc)
+                        self.reconnect_count += 1
+                        await asyncio.sleep(2)
+                        continue
                 
                 # Register with Hub when stream is healthy
                 if self.stream_healthy:
                     # Detect URL on first healthy transition
                     if not was_healthy or self._detected_webrtc_url is None:
-                        self._detected_webrtc_url = self._detect_webrtc_url()
+                        self._detected_webrtc_url = await asyncio.to_thread(self._detect_webrtc_url)
                     
                     # Register (or retry registration) if not yet registered
                     if self._detected_webrtc_url and not self._stream_registered:
                         now = time.time()
                         if now - self._last_registration_attempt >= self._registration_retry_interval:
                             self._last_registration_attempt = now
-                            self._register_stream_with_hub(self._detected_webrtc_url)
+                            await asyncio.to_thread(self._register_stream_with_hub, self._detected_webrtc_url)
                     
                     # Periodic heartbeat re-registration (handles server restarts
                     # that wipe the in-memory registry)
@@ -598,8 +652,8 @@ class WebRTCStreamingService:
                 await asyncio.sleep(5)
         
         # Cleanup
-        self._unregister_stream_from_hub()
-        self._stop_go2rtc()
+        await asyncio.to_thread(self._unregister_stream_from_hub)
+        await asyncio.to_thread(self._stop_go2rtc)
     
     def stop(self):
         """Stop the service."""
@@ -614,7 +668,11 @@ class WebRTCStreamingService:
             "api_port": self.api_port,
             "webrtc_port": self.webrtc_port,
             "stream_healthy": self.stream_healthy,
-            "go2rtc_running": self.go2rtc_process is not None and self.go2rtc_process.poll() is None,
+            "go2rtc_running": (
+                self.external_go2rtc_available if self.go2rtc_external
+                else self.go2rtc_process is not None and self.go2rtc_process.poll() is None
+            ),
+            "go2rtc_external": self.go2rtc_external,
             "reconnect_count": self.reconnect_count,
             "registered": self._stream_registered,
             "webrtc_url": self._detected_webrtc_url,
@@ -640,7 +698,7 @@ class CombinedCameraService:
                  api_key: str,
                  stream_type: str = "sub",
                  rtsp_url: Optional[str] = None,
-                 api_port: int = GO2RTC_API_PORT,
+                 api_port: Optional[int] = None,
                  go2rtc_api: str = GO2RTC_API_URL,
                  webrtc_port: int = GO2RTC_WEBRTC_PORT,
                  funnel_port: int = TAILSCALE_FUNNEL_PORT,
@@ -714,13 +772,20 @@ async def main():
                        help='Skip Tailscale funnel setup (if already configured)')
     
     args = parser.parse_args()
-    # An explicit --api-port overrides the file-derived API endpoint, while
-    # --go2rtc-api is the strongest whole-URL override.
-    if args.go2rtc_api is None:
-        args.go2rtc_api = (f"http://{GO2RTC_API_HOST}:{args.api_port}"
-                           if args.api_port is not None else GO2RTC_API_URL)
-    if args.api_port is None:
-        args.api_port = GO2RTC_API_PORT
+    if not 1 <= args.webrtc_port <= 65535:
+        parser.error('--webrtc-port must be from 1 to 65535')
+    if args.funnel_port not in ALLOWED_FUNNEL_PORTS:
+        parser.error('--funnel-port must be 443, 8443, or 10000')
+    # A URL-only override supplies host and port everywhere.  An explicit
+    # contradictory --api-port is rejected instead of creating split state.
+    raw_api_url = args.go2rtc_api or (
+        f"http://{GO2RTC_API_HOST}:{args.api_port}"
+        if args.api_port is not None else GO2RTC_API_URL
+    )
+    try:
+        args.go2rtc_api, _, args.api_port = normalize_go2rtc_api_url(raw_api_url, args.api_port)
+    except ValueError as error:
+        parser.error(str(error))
     # A file-provided RTSP_URL is deliberate; a derived one follows --stream.
     if args.rtsp_url is None and is_explicit("RTSP_URL"):
         args.rtsp_url = RTSP_URL

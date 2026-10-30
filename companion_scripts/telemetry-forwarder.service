@@ -1,4 +1,5 @@
-# TEMPLATE — render through the companion installer. Do not install directly.
+# Illustrative TEMPLATE; install_telemetry_forwarder.sh generates the authoritative unit.
+# Do not install this source template directly.
 # Required renderer placeholders: INSTALL_DIR_PLACEHOLDER, SERVICE_USER_PLACEHOLDER,
 # SERVICE_GROUP_PLACEHOLDER, ENV_FILE_PLACEHOLDER, ENV_ASSIGNMENT_PLACEHOLDER.
 # WORKING_DIRECTORY_PLACEHOLDER is a literal path, not a quoted argument.
@@ -29,7 +30,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=INSTALL_DIR_PLACEHOLDER
+# The installer generates the actual writable-data policy; code stays installer-owned.
 
 [Install]
 WantedBy=multi-user.target

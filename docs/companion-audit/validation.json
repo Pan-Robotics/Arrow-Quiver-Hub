@@ -1,0 +1,15 @@
+{
+  "tests": 1079,
+  "test_files": 36,
+  "date": "2026-10-30",
+  "python": "3.13.17 ARM64",
+  "systemd": "257.13-1~deb13u1 ARM64; also Ubuntu 255",
+  "typescript": "passed",
+  "production_build": "passed",
+  "bash_syntax": "passed",
+  "python_ast": "passed",
+  "lua53_syntax": "passed",
+  "hardware_accessed": false,
+  "firmware_promotion": "BLOCKED pending qualified atomic rename",
+  "remote_authorization": "unresolved backend audit finding"
+}

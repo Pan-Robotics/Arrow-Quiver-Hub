@@ -20,8 +20,7 @@ if [ "${EUID}" -eq 0 ]; then
 else
     privileged() { sudo "$@"; }
 fi
-privileged apt-get update
-privileged apt-get install -y python3 python3-pip ca-certificates
+command -v python3 >/dev/null || { echo "Install Python 3 before running the bootstrap." >&2; exit 1; }
 
 STAGING_DIR=$(mktemp -d)
 trap 'rm -rf -- "$STAGING_DIR"' EXIT
@@ -31,12 +30,13 @@ if [ "${1:-}" = --local ]; then
     # repositories or an existing package cache; no GitHub download is attempted.
     cp -a -- "$ORIGINAL_DIR/." "$STAGING_DIR/"
     rm -f -- "$STAGING_DIR/.env" "$STAGING_DIR/forwarder.env"
-    for required in companion_config.py companion-config.example installer_common.sh; do
+    for required in companion_config.py companion-config.example installer_common.sh installer_support.py requirements-companion.txt raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh firmware_puller.lua net_webserver_put.lua quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service; do
         [ -f "$STAGING_DIR/$required" ] || { echo "Local suite is missing $required" >&2; exit 1; }
     done
 else
 python3 - "$SOURCE_URL" "$STAGING_DIR" <<'PY'
 import json
+import hashlib
 import pathlib
 import sys
 import urllib.parse
@@ -75,6 +75,7 @@ try:
     if tree.get('truncated'):
         raise ValueError('Repository tree is truncated; use a smaller source repository.')
     count = 0
+    hashes = {}
     for entry in tree.get('tree', []):
         path = entry.get('path', '')
         if not path.startswith(folder + '/') or entry.get('type') != 'blob':
@@ -85,7 +86,7 @@ try:
         if entry.get('mode') == '120000':
             raise ValueError('Symlink source files are not supported: ' + path)
         # Secrets and local generated configuration are never downloaded.
-        if relative.name in ('.env', 'forwarder.env', 'go2rtc.yaml'):
+        if relative.name in ('.env', 'forwarder.env', 'go2rtc.yaml', 'companion-suite.manifest.json'):
             continue
         raw_url = ('https://raw.githubusercontent.com/' + urllib.parse.quote(owner) + '/' +
                    urllib.parse.quote(repo) + '/' + sha + '/' + urllib.parse.quote(path, safe='/'))
@@ -93,6 +94,7 @@ try:
         target = root.joinpath(*relative.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
+        hashes[str(relative)] = hashlib.sha256(payload).hexdigest()
         count += 1
     required = ['raspberry_pi_client.py', 'telemetry_forwarder.py', 'logs_ota_service.py',
                 'siyi_camera_controller.py', 'camera_stream_service.py', 'firmware_puller.lua',
@@ -100,11 +102,14 @@ try:
                 'install_logs_ota.sh', 'install_camera_services.sh', 'installer_common.sh',
                 'companion_config.py', 'companion-config.example', 'quiver-hub-client.service',
                 'telemetry-forwarder.service', 'logs-ota.service', 'siyi-camera.service',
-                'camera-stream.service', 'COMPANION_SERVICES.md', 'OTA_Setup_Guide.md']
+                'camera-stream.service', 'COMPANION_SERVICES.md', 'OTA_Setup_Guide.md',
+                'installer_support.py', 'requirements-companion.txt', 'diagnose_companion.sh',
+                'repair_companion_services.sh']
     missing = [name for name in required if not (root / name).is_file()]
     if missing:
         raise ValueError('Source is missing updated suite files: ' + ', '.join(missing) +
                          '. Publish the updated companion_scripts folder to this repository first.')
+    (root / 'companion-suite.manifest.json').write_text(json.dumps({'source_commit': sha, 'files': hashes}, indent=2) + '\n')
     print(f'Downloaded {count} files from commit {sha[:12]}.')
 except Exception as error:
     raise SystemExit(f'Download failed; the installed suite was not changed: {error}')
@@ -131,10 +136,14 @@ if [ -z "$(quiver_get API_KEY)" ] || [ -z "$(quiver_get WEB_SERVER_URL)" ] || [ 
     exit 1
 fi
 quiver_set COMPANION_SOURCE_URL "$SOURCE_URL"
+quiver_validate_config
 printf '\nNetwork defaults are in %s. Edit them for your hardware before starting services.\n' "$ENV_FILE"
 printf 'No DHCP server or host network interface configuration will be installed.\n'
 
-privileged python3 -m pip install --break-system-packages requests
+privileged apt-get update
+privileged apt-get install -y python3 python3-pip ca-certificates
+privileged python3 -m pip install --break-system-packages -r "$SCRIPT_DIR/requirements-companion.txt"
+privileged python3 "$SCRIPT_DIR/installer_support.py" sdk-preflight
 # Install every fetched file, including shell/Python/Lua/service/Markdown files.
 while IFS= read -r -d '' file; do
     relative=${file#"$SCRIPT_DIR/"}
@@ -146,7 +155,8 @@ done < <(find "$SCRIPT_DIR" -type f -print0)
 privileged python3 "$INSTALL_DIR/companion_config.py" render-fc-params "$ENV_FILE" "$INSTALL_DIR/firmware_puller.param"
 privileged chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/firmware_puller.param"
 
-cat > "$STAGING_DIR/hub-client.unit" <<EOF
+mkdir -p "$STAGING_DIR/units"
+cat > "$STAGING_DIR/units/quiver-hub-client.service" <<EOF
 [Unit]
 Description=Quiver Hub Companion Client
 After=network-online.target
@@ -159,7 +169,7 @@ Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
 WorkingDirectory=$(quiver_systemd_directory "$INSTALL_DIR")
-EnvironmentFile=$(quiver_systemd_path "$ENV_FILE")
+EnvironmentFile=$(quiver_systemd_environment_file "$ENV_FILE")
 Environment=$(quiver_systemd_path "QUIVER_ENV_FILE=$ENV_FILE")
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 $(quiver_systemd_path "$INSTALL_DIR/raspberry_pi_client.py")
@@ -172,13 +182,13 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$(quiver_systemd_path "$INSTALL_DIR") $(quiver_systemd_path "$(quiver_get CONFIG_DIR)") $(quiver_systemd_path "$(quiver_get PARSERS_DIR)")
+ReadWritePaths=$(quiver_systemd_path "$(quiver_get CONFIG_DIR)") $(quiver_systemd_path "$(quiver_get PARSERS_DIR)") $(quiver_systemd_path "$(quiver_get UPLOAD_DIR)")
 
 [Install]
 WantedBy=multi-user.target
 EOF
 privileged mkdir -p -- "$SYSTEMD_DIR"
-privileged install -m 644 "$STAGING_DIR/hub-client.unit" "$SYSTEMD_DIR/quiver-hub-client.service"
+quiver_install_units "$STAGING_DIR/units"
 privileged systemctl daemon-reload
 printf '\nInstalled the complete companion suite in %s\n' "$INSTALL_DIR"
 printf 'Shared configuration: %s\n' "$ENV_FILE"
