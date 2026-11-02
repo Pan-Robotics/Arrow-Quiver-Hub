@@ -44,6 +44,46 @@ sudo bash /chosen/folder/install_logs_ota.sh
 
 Install only the services needed on a particular companion. A typical order is Hub client, telemetry, camera, then Logs & OTA.
 
+### 3. Refresh an existing suite and bench-test telemetry
+
+Do not fix a native-MAVSDK4 error by replacing only one old installer. Refresh the entire source suite from one reviewed GitHub commit with `update_companion_suite.sh`, then invoke the refreshed telemetry installer. The source refresh replaces changed shell/Python/Lua/service-template/docs/requirements files, including the Hub-client retry fix, and records SHA-256 hashes in `companion-suite.manifest.json`. It stages and validates the download before writing, backs up changed source in a root-only `.source-backup-*` folder, and restores previous source if replacement fails. It does **not** overwrite `.env`, `forwarder.env`, `go2rtc.yaml`, `firmware_puller.param`, user data, or installed unit definitions.
+
+```bash
+sudo bash update_companion_suite.sh \
+  --install-dir /your/chosen/quiver \
+  --ref REVIEWED_40_CHARACTER_COMMIT \
+  --install-telemetry --test-run --test-seconds 30
+```
+
+`--ref` defaults to `main`, resolved once to an immutable commit before archive download. Use the exact release commit in the supplied download command to avoid version mixing. The updater is standalone and uses Python standard-library downloads; the selected folder must already be an installed companion suite. Source-only invocation (without `--install-telemetry`) makes no package or service changes. Running processes keep their already loaded code until deliberately restarted; only telemetry is stopped/restarted by the telemetry installation path. Restart the Hub client separately when safe if its on-disk code was refreshed.
+
+The telemetry installer repairs the **exact `mavsdk==3.17.4` legacy API** from the pinned requirements and retains `--break-system-packages`. It validates the actual API, not just a package name/version claim. A service-account check uses `/usr/bin/python3` with user-site packages disabled, matching the unit's `PYTHONNOUSERSITE=1`, so a user's `~/.local` native-v4 copy cannot shadow the repaired system package. The existing telemetry service is stopped before package repair and foreground testing to avoid duplicate UDP/CAN consumers. Other services are not restarted.
+
+Use `--test-run --test-seconds 30` on `install_telemetry_forwarder.sh` to require a bounded live bench test before the service is started. A pass requires a connected MAVLink source, real FC telemetry, acknowledged Hub ingest, and an operational CAN collector if explicitly enabled. An enabled but silent CAN battery is reported separately; the installer does not invent battery data. No FC heartbeat, no live data, rejected/rate-limited Hub posts, dead workers, or interruption cannot be reported as a healthy pass. On failure telemetry stays stopped and the command returns nonzero; `systemctl` showing a Python PID alone is not proof that telemetry is working. `--no-start` leaves telemetry stopped even after a successful test.
+
+For a companion without the configured CAN interface, choose the explicit FC-only option:
+
+```bash
+sudo bash /your/chosen/quiver/install_telemetry_forwarder.sh \
+  --test-run --test-seconds 30 --disable-uavcan
+```
+
+`--disable-uavcan` intentionally writes `ENABLE_UAVCAN=false` to the selected `.env`; omit it when CAN is actually available and commissioned. Otherwise a missing-interface prompt offers an explicit disable or abort—blank does not silently enable/reconfigure a bus. Present-but-down/wrong-type/unusable interfaces fail preflight. Enabled DroneCAN is active bus participation and requires an unused configured node ID; these scripts never create an interface, choose a bitrate, install DHCP, arm the vehicle, or start a flight.
+
+For an offline dependency/config/interface check (no FC connection or Hub POST), use the runtime's `--check` with the selected service environment. To test it manually, first stop the installed telemetry service; do not start a second listener alongside it:
+
+```bash
+sudo systemctl stop telemetry-forwarder.service
+sudo -u YOUR_SERVICE_USER env QUIVER_ENV_FILE=/your/chosen/quiver/.env \
+  PYTHONNOUSERSITE=1 /usr/bin/python3 -s \
+  /your/chosen/quiver/telemetry_forwarder.py --check
+sudo -u YOUR_SERVICE_USER env QUIVER_ENV_FILE=/your/chosen/quiver/.env \
+  PYTHONNOUSERSITE=1 /usr/bin/python3 -s \
+  /your/chosen/quiver/telemetry_forwarder.py --test-run --test-seconds 30
+```
+
+Bring the FC online, verify its telemetry is actually sent to `MAVLINK_URL`, and choose a reachable Hub at the install prompt. Blank preserves existing Hub/API-key values. A development-preview gateway that returns 429 cannot deliver live telemetry just because its client is installed correctly; use the appropriate published Hub configuration only after confirming that is your intended endpoint. The healthy path retains the configured telemetry rate, one reusable HTTP session, a bounded live-only queue, and no automatic replay of stale samples.
+
 ### Hub job polling and temporary outages
 
 `raspberry_pi_client.py` polls immediately on startup, reuses one HTTP session, and processes returned jobs without a retry delay. After a valid jobs response (including an empty list), the next poll uses the existing `POLL_INTERVAL` (default five seconds). Healthy polling frequency is unchanged; this is polling, not a promise of instantaneous job delivery.

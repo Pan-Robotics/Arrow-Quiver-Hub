@@ -35,6 +35,15 @@ def load_environment():
 
   writeStub(
     root,
+    "installer_support.py",
+    `def sdk_preflight():
+    from mavsdk import System
+    System()  # Constructor only: no connect, sockets, workers or CAN.
+`,
+  );
+
+  writeStub(
+    root,
     "mavsdk/__init__.py",
     `import asyncio
 import os

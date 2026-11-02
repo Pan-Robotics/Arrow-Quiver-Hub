@@ -107,15 +107,20 @@ function mockInstallation(script: string, choices: string, options: { local?: bo
   const root = temp(), bin = join(root, "bin"), install = join(root, "my companion"), envFile = join(install, ".env"), units = join(root, "units"), log = join(root, "commands.log");
   mkdirSync(bin); mkdirSync(install);
   writeFileSync(envFile, `# retained comment\nWEB_SERVER_URL=https://hub.invalid\nAPI_KEY=test-secret\nDRONE_ID=demo-drone\nINSTALL_DIR="${install}"\nSERVICE_USER=ubuntu\nFC_IP=10.42.0.51\nCOMPANION_IP=10.42.0.49\nLOG_STORE_DIR="${root}/fc logs"\nUNRELATED=preserve-me\n`);
-  for (const command of ["apt-get", "systemctl", "usermod"]) {
+  writeFileSync(join(root, "active"), "inactive\n");
+  for (const command of ["apt-get", "usermod"]) {
     const path = join(bin, command);
     writeFileSync(path, `#!/bin/bash\nprintf '%s %s\\n' '${command}' "$*" >> "$MOCK_LOG"\nexit 0\n`); chmodSync(path, 0o755);
   }
+  const systemctl = join(bin, "systemctl");
+  writeFileSync(systemctl, `#!/bin/bash\nprintf 'systemctl %s\\n' "$*" >> "$MOCK_LOG"\ncase "$1" in\n  is-active) [ "$(cat "$MOCK_STATE")" = active ] ;;\n  stop) echo inactive > "$MOCK_STATE" ;;\n  start|restart) echo active > "$MOCK_STATE" ;;\n  *) exit 0 ;;\nesac\n`); chmodSync(systemctl, 0o755);
+  const runuser = join(bin, "runuser");
+  writeFileSync(runuser, `#!/bin/bash\nprintf 'runuser %s\\n' "$*" >> "$MOCK_LOG"\n[ "$1" = --user ] && [ "$2" = ubuntu ] && [ "$3" = -- ] && [ "$4" = /usr/bin/python3 ] && [ "$5" = -s ] || exit 99\ncase " $* " in\n  *' --check '*|*' --test-run '*) exit 0 ;;\n  *) echo 'Unexpected runuser call; refusing hardware/network execution' >&2; exit 99 ;;\nesac\n`); chmodSync(runuser, 0o755);
   const dispatcher = join(bin, "python3");
   writeFileSync(dispatcher, `#!/bin/bash\nif [ "$1" = -m ] && [ "$2" = pip ]; then\n  printf 'pip %s\\n' "$*" >> "$MOCK_LOG"\n  exit "\${MOCK_PIP_EXIT:-0}"\nfi\nif [[ "$1" == */installer_support.py ]] && [ "$2" = sdk-preflight ]; then\n  printf 'sdk-preflight stub\\n' >> "$MOCK_LOG"\n  exit 0\nfi\nexec /usr/bin/python3 "$@"\n`); chmodSync(dispatcher, 0o755);
   // Only package/service commands are stubbed; real Python/.env/filesystem behavior
   // is exercised. All generated units and service-write paths are temporary.
-  const result = spawnSync("sudo", ["-n", "env", `PATH=${bin}:/usr/bin:/bin`, `QUIVER_ENV_FILE=${envFile}`, `QUIVER_SYSTEMD_DIR=${units}`, `MOCK_LOG=${log}`, `MOCK_PIP_EXIT=${options.pipExit ?? 0}`, "bash", join(suite, script), ...(options.local ? ["--local"] : [])], { input: choices, encoding: "utf8", timeout: 30000 });
+  const result = spawnSync("sudo", ["-n", "env", `PATH=${bin}:/usr/bin:/bin`, `QUIVER_ENV_FILE=${envFile}`, `QUIVER_SYSTEMD_DIR=${units}`, `MOCK_LOG=${log}`, `MOCK_STATE=${join(root, "active")}`, `MOCK_PIP_EXIT=${options.pipExit ?? 0}`, "bash", join(suite, script), ...(options.local ? ["--local"] : [])], { input: choices, encoding: "utf8", timeout: 30000 });
   return { result, root, install, envFile, units, log };
 }
 

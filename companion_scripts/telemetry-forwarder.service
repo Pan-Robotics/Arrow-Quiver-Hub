@@ -17,11 +17,12 @@ WorkingDirectory=WORKING_DIRECTORY_PLACEHOLDER
 EnvironmentFile=ENV_FILE_PLACEHOLDER
 Environment=ENV_ASSIGNMENT_PLACEHOLDER
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONNOUSERSITE=1
 # telemetry_forwarder.py reads all network and telemetry settings from the
 # service environment populated by the shared .env.
 ExecStart=/usr/bin/python3 TELEMETRY_FORWARDER_SCRIPT_PLACEHOLDER
-Restart=always
-RestartSec=10
+Restart=on-failure
+RestartSec=5
 LimitNOFILE=65536
 StandardOutput=journal
 StandardError=journal

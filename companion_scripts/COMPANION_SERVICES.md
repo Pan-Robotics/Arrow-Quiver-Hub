@@ -114,6 +114,8 @@ UPDATE_RATE_HZ=10
 POLL_INTERVAL=5
 ```
 
+The current installer pins and validates `mavsdk==3.17.4`, checks the actual service account/interpreter with user-site packages disabled, and supports `--test-run --test-seconds 30` before startup. A systemd “running” process is not evidence of MAVLink data or acknowledged Hub ingest. CAN remains an explicit opt-in; a missing/unusable configured interface fails clearly instead of silently claiming readiness. For complete-suite refresh, exact download commands, bench-test criteria and configuration preservation, use the single [README telemetry upgrade guide](README.md#3-refresh-an-existing-suite-and-bench-test-telemetry).
+
 After a change:
 
 ```bash

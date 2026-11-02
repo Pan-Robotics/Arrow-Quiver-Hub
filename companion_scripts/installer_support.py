@@ -101,14 +101,36 @@ def copy_source(source, target):
 
 def sdk_preflight():
     from importlib.metadata import version
+    installed = version('mavsdk')
+    if installed != '3.17.4':
+        raise ValueError('This suite requires mavsdk==3.17.4; found ' + installed +
+                         '. Run the updated installer with its pinned requirements. Native v4 is incompatible.')
     import requests, aiohttp
+    import mavsdk
     from mavsdk import System
     from mavsdk.ftp import FtpResult
-    installed = version('mavsdk')
-    if installed.split('.')[0] != '3':
-        raise ValueError('This suite requires legacy mavsdk 3.17.4; native v4 uses a different API.')
-    System()  # No connect(), process start, or hardware operation.
+    try:
+        System()  # No connect(), process start, or hardware operation.
+    except Exception as error:
+        raise ValueError('MAVSDK System API does not match legacy 3.17.4 (' +
+                         type(error).__name__ + '); reinstall the pinned requirements.') from None
     print('Legacy MAVSDK/FTP API preflight passed:', installed)
+    print('Interpreter:', sys.executable)
+    print('MAVSDK module:', getattr(mavsdk, '__file__', 'unknown'))
+
+
+def service_run(env_file, command):
+    """Execute checks with literal service settings; never source shell data."""
+    from companion_config import parse_environment_file
+    env_file = safe_path(str(env_file))
+    if not env_file.is_file():
+        raise ValueError('Service configuration file is missing.')
+    if not command or not os.path.isabs(command[0]):
+        raise ValueError('An absolute service interpreter/command is required.')
+    environment = os.environ.copy()
+    environment.update(parse_environment_file(env_file))
+    environment['QUIVER_ENV_FILE'] = str(env_file)
+    os.execve(command[0], command, environment)
 
 
 def main():
@@ -118,15 +140,19 @@ def main():
     copy = commands.add_parser('copy'); copy.add_argument('source'); copy.add_argument('target')
     units = commands.add_parser('install-units'); units.add_argument('stage',type=Path); units.add_argument('destination',type=Path)
     commands.add_parser('sdk-preflight')
+    service = commands.add_parser('service-run')
+    service.add_argument('env_file', type=Path)
+    service.add_argument('program', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command == 'path': print(safe_path(args.value))
     elif args.command == 'copy': copy_source(args.source,args.target)
     elif args.command == 'install-units': install_units(args.stage,args.destination)
     elif args.command == 'sdk-preflight': sdk_preflight()
+    elif args.command == 'service-run': service_run(args.env_file, args.program)
 
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, ImportError, TypeError) as error:
+    except (OSError, ValueError, ImportError, TypeError, RuntimeError) as error:
         print('Quiver installer preflight:', error, file=sys.stderr)
         raise SystemExit(2)
