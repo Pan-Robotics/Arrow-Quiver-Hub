@@ -44,6 +44,18 @@ sudo bash /chosen/folder/install_logs_ota.sh
 
 Install only the services needed on a particular companion. A typical order is Hub client, telemetry, camera, then Logs & OTA.
 
+### Hub job polling and temporary outages
+
+`raspberry_pi_client.py` polls immediately on startup, reuses one HTTP session, and processes returned jobs without a retry delay. After a valid jobs response (including an empty list), the next poll uses the existing `POLL_INTERVAL` (default five seconds). Healthy polling frequency is unchanged; this is polling, not a promise of instantaneous job delivery.
+
+Unsuccessful polls use exponential backoff with equal jitter instead of retrying at a fixed five-second rate. With the default interval, successive local wait ranges are **5–10, 10–20, 20–40, 40–80, 80–160, then 150–300 seconds**, with subsequent waits randomized within 150–300 seconds. The local ceiling is the larger of 300 seconds and four times the configured interval; this preserves growth and jitter even for deliberately slow pollers and never shortens their normal interval. Network/timeouts, HTTP errors (including 429 and temporary 5xx), and malformed JSON/response schemas all back off. Invalid individual jobs are filtered; a truly empty list or a list containing valid jobs counts as recovery, but a nonempty list of only malformed jobs does not.
+
+For HTTP **408, 429, and 5xx**, a valid `Retry-After` header—integer seconds or an absolute HTTP date—is a minimum wait. A server cooldown longer than the local ceiling is honored rather than clipped; absent, invalid, or expired values do not remove local backoff. Dates are converted once using the companion's clock, so keep its time synchronized. Waiting uses a monotonic clock and interruptible chunks. The first subsequent valid response immediately resets the retry state to the configured normal interval.
+
+Logs report HTTP status and the planned next delay without printing API-key-bearing URLs, response bodies, or header values. There are no hidden retries of job acknowledgement/completion POSTs, no parallel pollers, and no new packages or `.env` settings. This policy applies only to the **Hub client**, not the separate telemetry, camera, or Logs & OTA loops. It reduces traffic during outages but does not remove a preview gateway's limits or make that preview an always-on deployment.
+
+Updating source or repairing a systemd unit does not replace a running Python process. Deploy the reviewed client to the selected `INSTALL_DIR`, preserve the existing configuration/ownership, then deliberately restart only `quiver-hub-client` when it is safe to interrupt Hub job processing. Do not rerun an older installer to apply this one-file change. The standalone client still requires the suite's existing `companion_config.py` and `requests` dependency.
+
 ## Shared configuration
 
 The canonical configuration is:

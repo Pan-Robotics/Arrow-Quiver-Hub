@@ -120,6 +120,14 @@ After a change:
 sudo systemctl restart quiver-hub-client telemetry-forwarder
 ```
 
+### Hub-client polling backoff (2026-11-02)
+
+The Hub client keeps normal `POLL_INTERVAL` latency, polls immediately at startup, and reuses a single HTTP session. Unsuccessful pending-job GETs use exponential equal-jitter backoff, capped locally at the larger of 300 seconds and four times the normal interval, preserving growth/jitter for slow pollers. At the default five-second interval the local ranges are 5–10, 10–20, 20–40, 40–80, 80–160, then 150–300 seconds. HTTP errors, connection/timeouts, invalid JSON/job-list envelopes, and nonempty lists with no valid jobs back off. An empty list or one containing valid jobs resets the delay immediately; malformed individual entries are filtered.
+
+HTTP 408/429/5xx responses can supply `Retry-After` as integer seconds or an HTTP date. It is a minimum, including values longer than the local cap; invalid/expired headers fall back to local backoff. Absolute dates rely on the companion's synchronized wall clock when received, followed by monotonic, interruptible waiting. Logs include status and delay, not raw URLs/headers/bodies. Only the pending-job GET loop is rescheduled: acknowledgement/completion POSTs are never automatically replayed. Separate Logs & OTA, camera, and telemetry retry policies are not changed by this fix.
+
+Installing an updated client requires a controlled `quiver-hub-client` restart to replace the running process. No new environment settings, Python packages, or systemd-unit edits are required. This does not eliminate the development-preview gateway's rate limit.
+
 ## Logs & OTA
 
 The Logs & OTA service uses the same Hub identity and has separate FC/log settings, for example:

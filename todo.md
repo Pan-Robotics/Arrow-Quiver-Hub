@@ -1513,3 +1513,16 @@ Plan: independent read-only audits of every executable source file (including it
 Measured acceptance: 1,079 tests passed in 36 files with ARM64 Python 3.13.17 and Debian Trixie systemd 257.13 tooling on PATH; all five retained templates parse with clean stderr, including space/percent paths. Ubuntu systemd 255, TypeScript, production build, Bash syntax, Python AST and Lua 5.3 syntax passed. MAVSDK 3.17.4 actual System/FtpResult imports passed; real pinned go2rtc ARM64 SHA-256 matched. No user companion, FC, CAN, camera, live service/network, managed web .env, or flight action was accessed.
 
 Remaining gates are explicit, not complete fixes: backend Socket.IO/job authorization and cryptographic per-transfer capability remain unresolved; CAN/protocol/physical stop behavior needs a safe bench. Firmware promotion is intentionally BLOCKED in both Lua applets (RENAME_SUPPORTED=false) pending verified atomic rename support. The generic screenshots do not identify the installed rejected directive; the redacted diagnostic script reports exact errors and installed source hashes. Mission Planner remains design-only.
+
+
+## Hub-client rate-limit-aware polling (2026-11-02)
+
+Scope: raspberry_pi_client.py job polling only. Preserve configured healthy polling latency, sequential processing, connection reuse, TLS checks, credential-safe logs, and existing job/write safety. Do not change gateway limits, URLs, .env, server authentication, other services, or hardware.
+
+- [x] Add bounded exponential backoff with jitter for unsuccessful polls, including HTTP 429, temporary 5xx, timeout/connection errors, and invalid response schemas.
+- [x] Honor valid Retry-After delta-seconds and HTTP dates as a minimum wait on 429/temporary HTTP errors; safely ignore malformed values.
+- [x] Restore the configured poll interval only after a valid jobs response; do not retry mutating requests or replay jobs automatically.
+- [x] Add deterministic fake-clock/network/sleep regressions for retry escalation/cap, cooldowns, recovery, cleanup, and credential-safe logs.
+- [x] Update operational documentation, run full Vitest/TypeScript/Python validation, and save a checkpoint with a downloadable updated client.
+
+Validation: 1,108 tests passed across 37 files, including 29 new deterministic polling regressions. Hub retry/behavior tests also passed under private ARM64 Python 3.13.17 (30 tests). TypeScript, production build, Python AST and whitespace checks passed. Independent review led to retained exponential/jitter headroom for slow pollers (local ceiling max(300, 4*normal interval)) and rejection of malformed-only nonempty job lists as recovery. Valid Retry-After can exceed the local cap; waits use monotonic <=60-second chunks. Default local ranges: 5–10, 10–20, 20–40, 40–80, 80–160, 150–300 seconds. Valid empty/mixed-with-valid jobs resets the configured interval immediately. No new dependencies/config keys, gateway bypass, mutation replay, deployed companion changes, hardware access, or Mission Planner implementation. Other services' polling policies are unchanged. Downloadable client is byte-verified against tested source and requires the existing companion_config.py/requests.

@@ -17,11 +17,13 @@ import logging
 import math
 import os
 import platform
+import random
 import re
 import stat
 import sys
 import tempfile
 import time
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlparse
@@ -42,8 +44,31 @@ logger = logging.getLogger(__name__)
 MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_POLL_INTERVAL_SECONDS = 3600.0
+MAX_POLL_BACKOFF_SECONDS = 300.0
 STREAM_CHUNK_SIZE = 64 * 1024
 SAFE_DATA_SUFFIXES = frozenset({".bin", ".csv", ".dat", ".geojson", ".json", ".log", ".txt"})
+
+
+def _parse_retry_after(value: Any, now: Optional[float] = None) -> Optional[float]:
+    """Parse Retry-After without echoing an untrusted header into logs.
+
+    A valid server cooldown is a minimum, not subject to the local backoff cap.
+    HTTP dates are converted once to a duration; subsequent waits are monotonic.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    try:
+        if re.fullmatch(r"[0-9]+", value):
+            delay = float(value)
+        else:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None or date.utcoffset() is None:
+                return None
+            delay = max(0.0, date.timestamp() - (time.time() if now is None else now))
+        return delay if math.isfinite(delay) else None
+    except (ValueError, TypeError, OverflowError, OSError):
+        return None
 
 
 def _bool_setting(value: Any) -> bool:
@@ -157,6 +182,8 @@ class QuiverHubClient:
         self.drone_id = drone_id
         self.api_key = api_key
         self.poll_interval = _parse_poll_interval(poll_interval)
+        self.next_poll_delay = self.poll_interval
+        self._poll_backoff_ceiling = 0.0
         self.companion_id = companion_id or "hub_client@{}".format(platform.node())
         self.session = requests.Session()
         self.allow_remote_file_writes = (
@@ -212,6 +239,52 @@ class QuiverHubClient:
         if isinstance(response_url, str) and response_url:
             validate_remote_url(response_url, self.allow_insecure_hub, allow_query=True)
 
+    def _poll_failed(self, response: Any = None, error: Optional[Exception] = None) -> None:
+        """Increase only the next GET-poll delay; never replay a mutating request."""
+        # Retain room to grow and jitter even for a deliberately slow poller.
+        cap = max(MAX_POLL_BACKOFF_SECONDS, self.poll_interval * 4.0)
+        self._poll_backoff_ceiling = min(
+            cap,
+            self._poll_backoff_ceiling * 2.0
+            if self._poll_backoff_ceiling
+            else max(10.0, self.poll_interval * 2.0),
+        )
+        delay = random.uniform(
+            max(self.poll_interval, self._poll_backoff_ceiling / 2.0),
+            self._poll_backoff_ceiling,
+        )
+        status = getattr(response, "status_code", None)
+        if not isinstance(status, int) or isinstance(status, bool):
+            status = None
+        if status in (408, 429) or (status is not None and 500 <= status <= 599):
+            headers = getattr(response, "headers", {})
+            retry_after = _parse_retry_after(headers.get("Retry-After"))
+            if retry_after is not None:
+                delay = max(delay, retry_after)
+        self.next_poll_delay = delay
+        if status is not None:
+            logger.warning("Pending-jobs poll failed (HTTP %d); retrying in %.1fs", status, delay)
+        else:
+            logger.warning(
+                "Pending-jobs poll failed (%s); retrying in %.1fs",
+                error.__class__.__name__ if error is not None else "invalid response",
+                delay,
+            )
+
+    def _poll_succeeded(self) -> None:
+        if self._poll_backoff_ceiling:
+            logger.info("Pending-jobs polling recovered; restored %.1fs interval", self.poll_interval)
+        self._poll_backoff_ceiling = 0.0
+        self.next_poll_delay = self.poll_interval
+
+    def _wait_for_next_poll(self) -> None:
+        """Honor cooldowns without clock-jump sensitivity or oversized sleep calls."""
+        remaining = self.next_poll_delay
+        deadline = time.monotonic() + remaining
+        while remaining > 0:
+            time.sleep(min(remaining, 60.0))
+            remaining = deadline - time.monotonic()
+
     def _job_is_valid(self, job: Any, index: int) -> bool:
         if not isinstance(job, Mapping):
             logger.warning("Ignoring malformed job at index %d", index)
@@ -232,7 +305,8 @@ class QuiverHubClient:
         return True
 
     def get_pending_jobs(self) -> List[Dict[str, Any]]:
-        """Fetch and schema-check pending jobs; a bad response becomes one failed poll."""
+        """Make one GET; failures schedule backoff and only valid responses reset it."""
+        response: Any = None
         try:
             url = urljoin(self.server_url, "/api/trpc/droneJobs.getPendingJobs")
             params = {
@@ -243,21 +317,35 @@ class QuiverHubClient:
             response.raise_for_status()
             decoded = self._response_object(response, "Pending-jobs request")
             if decoded is None:
+                self._poll_failed(response)
                 return []
             result = self._trpc_json(decoded, "Pending-jobs request")
             if result is None:
+                self._poll_failed(response)
                 return []
             jobs = result.get("jobs")
             if not isinstance(jobs, list):
                 logger.error("Pending-jobs request returned an invalid jobs list")
+                self._poll_failed(response)
                 return []
             valid_jobs = [dict(job) for index, job in enumerate(jobs) if self._job_is_valid(job, index)]
+            if jobs and not valid_jobs:
+                logger.error("Pending-jobs response contains no valid job entries")
+                self._poll_failed(response)
+                return []
+            self._poll_succeeded()
             if valid_jobs:
                 logger.info("Found %d pending job(s)", len(valid_jobs))
             return valid_jobs
         except Exception as error:
-            self._request_failure("Pending-jobs request", error)
+            self._poll_failed(response, error)
             return []
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
 
     def acknowledge_job(self, job_id: int) -> bool:
         """Acquire the server's job mutex, returning false for malformed server results."""
@@ -660,18 +748,20 @@ class QuiverHubClient:
         self.complete_job(job_id, success, error_message)
 
     def run(self) -> None:
-        """Poll serially until stopped; malformed server data fails only its current poll."""
+        """Poll immediately, then wait normally or back off; keep requests serial."""
         logger.info("Starting Quiver Hub client; press Ctrl+C to stop")
         try:
             while True:
                 for job in self.get_pending_jobs():
                     self.process_job(job)
-                time.sleep(self.poll_interval)
+                self._wait_for_next_poll()
         except KeyboardInterrupt:
             logger.info("Shutting down")
         except Exception as error:
             logger.error("Fatal client error (%s)", error.__class__.__name__)
             sys.exit(1)
+        finally:
+            self.session.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
