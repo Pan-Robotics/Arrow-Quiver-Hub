@@ -444,15 +444,15 @@ Everything is optional and lives in a `.env` file next to `package.json` (see [`
 | `HOST` | `0.0.0.0` | Bind address. Set `127.0.0.1` to keep the Hub reachable from this machine only |
 | `DATABASE_URL` | `./data/quiver.db` | SQLite file (bare path or `file:` URL) |
 | `STORAGE_DIR` | `./data/storage` | Where uploaded files (FC logs, firmware, media) are written |
-| `PUBLIC_BASE_URL` | request host | Absolute base URL embedded in companion jobs (firmware flash, file delivery). Set it to the Hub's address as seen **from the drone**, e.g. `http://192.168.144.200:3000`, when that differs from the browser's address |
+| `PUBLIC_BASE_URL` | tailnet address, else request host | Absolute base URL embedded in companion jobs (firmware flash, file delivery) and shown first in the install command. Auto-detected from the Hub's Tailscale identity when the browser used `localhost`; set it explicitly (e.g. `https://quiver-hub-op1.<tailnet>.ts.net` via `tailscale serve`) to pin it |
 
 ### Access control
 
 The operator UI has no login: whoever can reach the Hub's port is the single local admin operator. Companion computers authenticate to the REST API with per-drone API keys (Drone Configuration page). Keep the Hub on a trusted network (the drone subnet, a tailnet) or set `HOST=127.0.0.1` and reach it through an authenticated tunnel; anyone who can open the UI can queue a firmware flash.
 
-### Remote access over Tailscale (pull mode)
+### Drones are not on your network: Tailscale and pull mode
 
-For drones in the field, Hubs and companion Pis share one Tailscale tailnet: the Hub is exposed to operators with `tailscale serve` ([infra/tailscale/](infra/tailscale/)), and a drone switched to **pull** mode (Drone Configuration → Data Plane & Control) runs `hublink.service`, which the Hub subscribes to over the tailnet — many Hubs can monitor the same drone, and exactly one holds the control lease to send typed payload commands. Push mode (the default) is unchanged. Design: [docs/architecture/Tailscale_Network_Architecture.md](docs/architecture/Tailscale_Network_Architecture.md); wire protocol: [docs/architecture/Quiver_Drone_Stream_Protocol.md](docs/architecture/Quiver_Drone_Stream_Protocol.md).
+Outside bench sessions a drone is on its own 4G/Wi-Fi uplink. Hub and drones share one Tailscale tailnet ([infra/tailscale/](infra/tailscale/)): the drone is a tailnet service (`hublink.service` on `:8765`) that this Hub **dials into** — many Hubs can monitor the same drone, exactly one holds the control lease to send typed payload commands — and the drone reaches the Hub only for jobs, log uploads and camera registration at the Hub's **tailnet address**. The Hub detects its own tailnet identity and uses it for the install command and for every URL it hands a drone (firmware, file delivery); `PUBLIC_BASE_URL` overrides it. The single-command installer defaults to pull mode on a Pi with a tailnet identity and registers the drone with the Hub by itself (`POST /api/rest/drone/connection`). Push mode remains for same-network bench setups (`--push`). Design: [docs/architecture/Tailscale_Network_Architecture.md](docs/architecture/Tailscale_Network_Architecture.md); wire protocol: [docs/architecture/Quiver_Drone_Stream_Protocol.md](docs/architecture/Quiver_Drone_Stream_Protocol.md).
 
 ### Data and backups
 

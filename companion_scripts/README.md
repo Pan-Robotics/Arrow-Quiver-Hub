@@ -25,6 +25,27 @@ curl -fsSL http://192.168.144.200:3000/companion/install.sh | sudo bash -s -- \
 
 Useful options: `--api-key KEY` (embed the key; it then appears in shell history), `--user USER`, `--install-dir DIR`, `--companion-ip IP`, `--disable-uavcan` (FC-only telemetry instead of aborting on a missing CAN bus), `--test-run 30` (bounded live telemetry bench test before start), `--skip-apt` (offline Pi), `--dry-run` (verify + plan only). `--help` lists everything. Re-run the same command to update an installation.
 
+### Field deployment: the drone is never on the Hub's network
+
+Outside bench/config sessions a drone is on its own 4G or Wi-Fi uplink, not on the operator's LAN. The model (the same as the Caribou System Unit) is:
+
+- **Both sides on one Tailscale tailnet.** The Hub is a tagged node (`infra/tailscale/setup-hub-tailscale.sh`); every drone is a tagged node whose hostname is its drone id (`quiver_001` → `quiver-001.<tailnet>.ts.net`). Tailscale ACLs decide who can reach whom; per-drone API keys decide which drone a Hub may read or command.
+- **The drone is the service, the Hub dials in (pull mode).** `hublink.service` listens on `STREAM_PORT` (8765). Any authorised Hub subscribes over the tailnet; one holds the control lease. The drone needs no inbound firewall rule and never has to know its Hubs in advance.
+- **The Pi reaches the Hub only for jobs, log uploads and camera registration**, at the Hub's tailnet address — never at `localhost` or a LAN IP. The Hub detects its own tailnet identity and shows it first in the install command; plain `http://<hub>.<tailnet>.ts.net:3000` is fine (WireGuard-encrypted; `ALLOW_INSECURE_HUB=true` is set for it), or use `tailscale serve` for HTTPS.
+
+What the bootstrap does with this: on a Pi that already has a Tailscale identity it **defaults to pull mode**, installs HubLink, points the telemetry forwarder at the local bridge, **registers the Pi's MagicDNS name and stream port with the Hub itself** (`POST /api/rest/drone/connection`, authenticated by the drone's API key) and prints a connection card. Nothing is typed into the Hub UI. Options:
+
+```bash
+# Pi not yet on the tailnet: join it as part of the install (non-ephemeral, single-use, tagged key)
+... | sudo bash -s -- --hub-url http://quiver-hub-op1.<tailnet>.ts.net:3000 --drone-id quiver_001 \
+        --api-key-prompt --tailscale-authkey tskey-auth-… [--tailscale-tags tag:drone,tag:fleet-houston] [--install-tailscale]
+
+# Same-network bench setup without Tailscale: classic push mode
+... | sudo bash -s -- --hub-url http://192.168.144.200:3000 --drone-id quiver_001 --api-key-prompt --push
+```
+
+An already-connected Pi is never re-joined (`--tailscale-rejoin` to force it with new tags); `--pull` on a Pi without a tailnet identity is refused instead of registering an unreachable address. The camera registers at the Pi's MagicDNS name by default (`CAMERA_REGISTRATION=auto`), so the Hub's WHEP proxy reaches go2rtc over the tailnet too.
+
 The same installers still work interactively from a downloaded folder, as described next.
 
 ## Manual install sequence

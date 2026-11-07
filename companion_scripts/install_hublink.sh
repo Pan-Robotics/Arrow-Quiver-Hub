@@ -122,4 +122,5 @@ else
     fi
 fi
 printf '\nHubLink installed. Status and logs:\n  sudo systemctl status hublink\n  sudo journalctl -u hublink -f\n  curl -s http://127.0.0.1:%s/api/rest/health\n' "$STREAM_PORT_VALUE"
-printf 'Switch the drone to pull mode on the Hub (Drone Configuration -> Data Plane & Control).\n'
+printf 'The bootstrap registers this Pi with the Hub automatically in pull mode; otherwise set\n'
+printf 'Drone Configuration -> Data Plane & Control to pull, this host, port %s.\n' "$STREAM_PORT_VALUE"

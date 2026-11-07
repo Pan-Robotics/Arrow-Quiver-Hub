@@ -6,6 +6,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { droneFacingBaseUrl } from "./hubAddress";
 
 /** Absolute path of the local storage root. */
 export function storageRoot(): string {
@@ -42,22 +43,16 @@ export function storagePublicPath(relKey: string): string {
 /**
  * Turn a relative storage path (e.g. "/files/...") into an absolute URL that a
  * companion computer can fetch over the network. Already-absolute URLs are
- * returned unchanged. Resolution order: PUBLIC_BASE_URL env → the incoming
- * request host → http://localhost:<PORT>.
+ * returned unchanged. The base is the drone-facing Hub address: PUBLIC_BASE_URL,
+ * else the request host unless it is localhost, else the Hub's tailnet address
+ * (see server/hubAddress.ts) — a drone is normally not on the operator's LAN.
  */
 export function toPublicUrl(
   relOrAbsUrl: string,
   req?: { protocol?: string; get?: (header: string) => string | undefined }
 ): string {
   if (/^https?:\/\//i.test(relOrAbsUrl)) return relOrAbsUrl;
-
-  const fromReq =
-    req?.get?.("host") ? `${req.protocol || "http"}://${req.get("host")}` : "";
-  const base =
-    process.env.PUBLIC_BASE_URL?.trim() ||
-    fromReq ||
-    `http://localhost:${process.env.PORT || "3000"}`;
-
+  const base = droneFacingBaseUrl(req);
   const sep = relOrAbsUrl.startsWith("/") ? "" : "/";
   return `${base.replace(/\/+$/, "")}${sep}${relOrAbsUrl}`;
 }

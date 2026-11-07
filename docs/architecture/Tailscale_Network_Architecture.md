@@ -163,6 +163,20 @@ contract is specified in
 with the `drones.setConnection` tRPC mutation (`ingestMode`, `tailnetHost`,
 `streamPort`), or the Drone Configuration **Data Plane & Control** card.
 
+**Quiver implementation note — provisioning and addressing.** The single-command
+installer (`bootstrap_companion.sh`) is the Quiver counterpart of the CSU's
+`bootstrap_drone.sh`: it can join the tailnet (`--tailscale-authkey`, tagged,
+non-ephemeral, hostname = drone id), defaults to pull mode when the Pi has a
+tailnet identity, installs HubLink, and registers `tailnet_host`/`stream_port`
+with the Hub through `POST /api/rest/drone/connection` (authenticated by the
+drone's own API key, which can only describe its own drone), then prints a
+connection card. On the Hub, `server/hubAddress.ts` reads the Hub's own
+Tailscale identity and uses it for drone-facing URLs and the install command,
+so an operator browsing `localhost:3000` never hands a drone a `localhost` URL.
+Plain HTTP to `*.ts.net` names and to 100.64/10 is accepted by the companion
+with `ALLOW_INSECURE_HUB=true` because the tailnet path is WireGuard-encrypted;
+`tailscale serve` gives HTTPS when a browser-trusted certificate is wanted.
+
 **Quiver implementation note — the local ingest bridge.** On the Quiver Pi the
 real telemetry comes from `telemetry_forwarder.py` (MAVSDK + DroneCAN), which
 already speaks the Hub's REST ingest protocol. HubLink therefore does not

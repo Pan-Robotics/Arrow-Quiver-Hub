@@ -12,7 +12,11 @@ import {
   insertTelemetry,
   createFlightLog,
   getLocalUser,
+  updateDroneConnection,
+  getDroneByDroneId,
 } from "./db";
+import { reconcileDroneSubscribers, droneControlStatus } from "./droneSubscriber";
+import { droneFacingBaseUrl, hubCandidateAddresses } from "./hubAddress";
 import { storagePut, storageResolvePath } from "./storage";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { nanoid } from "nanoid";
@@ -1313,6 +1317,91 @@ router.post("/firmware/progress", async (req: Request, res: Response) => {
  *   network: { [iface: string]: { ip: string, rx_bytes: number, tx_bytes: number } }
  * }
  */
+// ─── Drone connection (pull mode self-registration) ─────────────────────────
+
+/**
+ * POST /api/rest/drone/connection
+ * A companion computer registers how the Hub should reach it (Tailscale pull
+ * data plane), so nobody has to type the tailnet name into the Hub UI. The
+ * bootstrap calls this after installing HubLink. Authenticated by the drone's
+ * own API key, which can only ever describe its own drone.
+ *
+ * { api_key, drone_id, ingest_mode: "pull"|"push", tailnet_host?, stream_port?, name? }
+ * Replies with the Hub's drone-facing addresses so the Pi can print a card.
+ */
+router.post("/drone/connection", async (req: Request, res: Response) => {
+  try {
+    const { api_key, drone_id, ingest_mode, tailnet_host, stream_port } = req.body ?? {};
+    if (!api_key || !drone_id) {
+      return res.status(400).json({ success: false, error: "Missing required fields: api_key, drone_id" });
+    }
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) return res.status(401).json({ success: false, error: "Invalid API key" });
+    if (apiKeyRecord.droneId !== drone_id) return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+
+    const updates: { ingestMode?: "push" | "pull"; tailnetHost?: string | null; streamPort?: number } = {};
+    if (ingest_mode !== undefined) {
+      if (ingest_mode !== "push" && ingest_mode !== "pull") {
+        return res.status(400).json({ success: false, error: "ingest_mode must be push or pull" });
+      }
+      updates.ingestMode = ingest_mode;
+    }
+    if (tailnet_host !== undefined) {
+      if (tailnet_host !== null && (typeof tailnet_host !== "string" || !/^[A-Za-z0-9.-]{1,253}$/.test(tailnet_host))) {
+        return res.status(400).json({ success: false, error: "tailnet_host must be a hostname or IP address" });
+      }
+      updates.tailnetHost = tailnet_host;
+    }
+    if (stream_port !== undefined) {
+      const port = Number(stream_port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return res.status(400).json({ success: false, error: "stream_port must be 1..65535" });
+      }
+      updates.streamPort = port;
+    }
+    if (updates.ingestMode === "pull" && !(updates.tailnetHost ?? (await getDroneByDroneId(drone_id))?.tailnetHost)) {
+      return res.status(400).json({ success: false, error: "pull mode needs tailnet_host (the drone's MagicDNS name or tailnet IP)" });
+    }
+
+    const drone = await updateDroneConnection(drone_id, updates);
+    await reconcileDroneSubscribers();
+    console.log(`[Drone] ${drone_id} connection set by companion: mode=${drone?.ingestMode} host=${drone?.tailnetHost ?? "-"} port=${drone?.streamPort}`);
+    return res.status(200).json({
+      success: true,
+      drone: drone && { droneId: drone.droneId, ingestMode: drone.ingestMode, tailnetHost: drone.tailnetHost, streamPort: drone.streamPort },
+      hub: { base_url: droneFacingBaseUrl(req), addresses: hubCandidateAddresses(), hub_id: process.env.HUB_ID?.trim() || null },
+    });
+  } catch (error) {
+    console.error("Error in /api/rest/drone/connection:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/rest/drone/connection?api_key=&drone_id=
+ * The drone's current connection record plus live subscriber state.
+ */
+router.get("/drone/connection", async (req: Request, res: Response) => {
+  try {
+    const api_key = String(req.query.api_key ?? "");
+    const drone_id = String(req.query.drone_id ?? "");
+    if (!api_key || !drone_id) return res.status(400).json({ success: false, error: "Missing api_key, drone_id" });
+    const apiKeyRecord = await validateApiKey(api_key);
+    if (!apiKeyRecord) return res.status(401).json({ success: false, error: "Invalid API key" });
+    if (apiKeyRecord.droneId !== drone_id) return res.status(403).json({ success: false, error: "Drone ID mismatch" });
+    const drone = await getDroneByDroneId(drone_id);
+    return res.status(200).json({
+      success: true,
+      drone: drone && { droneId: drone.droneId, ingestMode: drone.ingestMode, tailnetHost: drone.tailnetHost, streamPort: drone.streamPort },
+      control: droneControlStatus(drone_id),
+      hub: { base_url: droneFacingBaseUrl(req), hub_id: process.env.HUB_ID?.trim() || null },
+    });
+  } catch (error) {
+    console.error("Error in GET /api/rest/drone/connection:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 router.post("/diagnostics/report", async (req: Request, res: Response) => {
   try {
     const { api_key, drone_id, cpu_percent, memory_percent, disk_percent, cpu_temp_c, uptime_seconds, services, network, fc_webserver } = req.body;

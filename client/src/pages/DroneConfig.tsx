@@ -398,8 +398,16 @@ export default function DroneConfig() {
   // browser used, so the operator can override it.
   const [hubAddressOverride, setHubAddressOverride] = useState<string>("");
   const [includeKeyInCommand, setIncludeKeyInCommand] = useState<boolean>(false);
-  const installHubUrl = (hubAddressOverride.trim() || baseUrl).replace(/\/+$/, "");
-  const installWarning = hubAddressWarning(installHubUrl);
+  // The Hub knows how it is reachable (tailnet first, then LAN); a drone is
+  // almost never on the operator's LAN, so the tailnet address is the default.
+  const hubAddressesQuery = trpc.system.hubAddresses.useQuery(undefined, { refetchInterval: 30_000 });
+  const hubCandidates = hubAddressesQuery.data?.candidates ?? [];
+  const preferredHubUrl = hubCandidates.find((c) => c.kind !== "loopback")?.url ?? baseUrl;
+  const installHubUrl = (hubAddressOverride.trim() || preferredHubUrl).replace(/\/+$/, "");
+  const installWarning = hubAddressWarning(installHubUrl)
+    ?? (hubAddressesQuery.data && !hubAddressesQuery.data.tailnet.online && !hubAddressesQuery.data.candidates.some((c) => c.kind === "configured")
+      ? "This Hub has no Tailscale identity. A drone on its own 4G/Wi-Fi uplink cannot reach a LAN address; join the Hub to the tailnet (infra/tailscale/setup-hub-tailscale.sh) or set PUBLIC_BASE_URL."
+      : null);
   const installCommand = useMemo(
     () =>
       buildCompanionInstallCommand({
@@ -902,10 +910,28 @@ export default function DroneConfig() {
               <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                 <div className="space-y-1">
                   <Label htmlFor="hub-address">Hub address as seen from the Pi</Label>
+                  {hubCandidates.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pb-1">
+                      {hubCandidates.map((c) => (
+                        <Button
+                          key={c.url}
+                          type="button"
+                          size="sm"
+                          variant={installHubUrl === c.url ? "default" : "outline"}
+                          className="h-7 text-xs font-mono"
+                          title={c.label}
+                          onClick={() => setHubAddressOverride(c.url)}
+                        >
+                          {c.kind === "tailnet-https" || c.kind === "tailnet" ? "tailnet · " : c.kind === "configured" ? "configured · " : c.kind === "lan" ? "LAN · " : ""}
+                          {c.url}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                   <Input
                     id="hub-address"
                     value={hubAddressOverride}
-                    placeholder={baseUrl}
+                    placeholder={preferredHubUrl}
                     onChange={(e) => setHubAddressOverride(e.target.value)}
                     className="font-mono text-sm"
                   />
@@ -937,6 +963,11 @@ export default function DroneConfig() {
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                On a Pi with a Tailscale identity the installer defaults to <strong>pull mode</strong>: it installs HubLink, registers the Pi's
+                MagicDNS name here automatically, and this Hub dials in over the tailnet — the drone never needs to be on this network.
+                Pass <span className="font-mono">--tailscale-authkey tskey-…</span> to join the tailnet during install, or <span className="font-mono">--push</span> to keep classic push mode.
+              </p>
               <p className="text-xs text-muted-foreground">
                 Installs the Hub client, telemetry forwarder and Logs &amp; OTA by default. Add
                 <span className="font-mono"> --services hub,telemetry,logs-ota,camera</span> for the camera stack (Tailscale must already be connected on the Pi),

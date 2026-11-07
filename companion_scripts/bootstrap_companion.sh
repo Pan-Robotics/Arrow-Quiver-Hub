@@ -6,7 +6,17 @@
 #       --hub-url http://<hub-ip>:3000 --drone-id quiver_001 --api-key-prompt
 #
 # One command on the Raspberry Pi installs (or updates) the whole companion
-# suite: nothing is copied over SSH by hand. It is designed for a non-virgin Pi:
+# suite: nothing is copied over SSH by hand.
+#
+# Network model: a drone is almost never on the Hub's network. Both are on one
+# Tailscale tailnet; the Pi is a tailnet service (HubLink on STREAM_PORT) the
+# Hub dials into (pull mode), and the Pi reaches the Hub only for jobs, log
+# uploads and the camera registration at the Hub's tailnet address. When the
+# Pi has a tailnet identity this script defaults to pull mode, installs HubLink
+# and registers the Pi's MagicDNS name with the Hub itself, so nothing has to
+# be typed into the Hub UI. --tailscale-authkey joins the tailnet first.
+#
+# It is designed for a non-virgin Pi:
 #   * it never changes network interfaces, DHCP, routes, or Tailscale state;
 #   * an existing INSTALL_DIR/.env is kept and only the keys you pass change;
 #   * the complete suite is fetched from the Hub itself (or a pinned GitHub
@@ -21,10 +31,12 @@ BOOTSTRAP_VERSION=1
 DEFAULT_SERVICES="hub,telemetry,logs-ota"
 SUITE_REQUIRED="raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py firmware_puller.lua net_webserver_put.lua install_hub_client.sh install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh installer_common.sh companion_config.py companion-config.example quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service COMPANION_SERVICES.md OTA_Setup_Guide.md installer_support.py requirements-companion.txt diagnose_companion.sh repair_companion_services.sh update_companion_suite.sh bootstrap_companion.sh hublink_service.py install_hublink.sh"
 
-HUB_URL=""; DRONE_ID=""; API_KEY="${API_KEY:-}"; API_KEY_PROMPT=false
+HUB_URL=""; DRONE_ID=""; API_KEY="${API_KEY:-}"; API_KEY_PROMPT=false; STREAM_PORT_OPT=""
 SERVICE_USER=""; INSTALL_DIR=""; SERVICES="$DEFAULT_SERVICES"; SOURCE="hub"
 COMPANION_IP=""; declare -a EXTRA_SETTINGS=(); DISABLE_UAVCAN=false; TEST_RUN=false; TEST_SECONDS=30
 NO_START=false; DRY_RUN=false; SKIP_HUB_CHECK=false; SKIP_APT=false
+MODE="auto"; TS_AUTHKEY="${TS_AUTHKEY:-}"; TS_TAGS="${TS_TAGS:-tag:drone,tag:fleet-quiver}"; TS_HOSTNAME=""; TS_LOGIN_SERVER="${TS_LOGIN_SERVER:-}"
+INSTALL_TAILSCALE=false; TS_REJOIN=false
 
 usage() {
     cat <<'USAGE'
@@ -42,9 +54,24 @@ Placement:
   --companion-ip IP    This Pi's address on the drone subnet (default: existing .env or the suite's COMPANION_IP)
   --set KEY=VALUE      Any other .env setting (repeatable), e.g. --set FC_CONNECTION=tcp
 
+Data plane (how the Hub and this drone exchange telemetry):
+  --pull | --push      pull: the Hub dials into HubLink on this Pi over the tailnet (default when the
+                       Pi has a Tailscale identity); push: classic companion -> Hub POSTs.
+                       Pull installs hublink and registers this Pi's MagicDNS name with the Hub.
+  --stream-port N      HubLink port the Hub connects to (default: existing STREAM_PORT or 8765)
+
+Tailscale (never touches an already-connected Pi unless --tailscale-rejoin):
+  --tailscale-authkey KEY   Join the tailnet with this auth key (non-ephemeral, single-use, tagged;
+                            or TS_AUTHKEY env). Without it an unconnected Pi stays in push mode.
+  --tailscale-tags LIST     Tags to advertise (default: tag:drone,tag:fleet-quiver; TS_TAGS env)
+  --tailscale-hostname H    Tailnet hostname (default: the drone id with _ -> -)
+  --tailscale-login-server URL   Headscale / custom coordination server
+  --install-tailscale       Allow installing Tailscale with its official install script if absent
+  --tailscale-rejoin        Re-run `tailscale up` with the tags even if already connected
+
 What to install:
-  --services LIST      Comma list of hub,telemetry,logs-ota,camera,hublink (default: hub,telemetry,logs-ota)
-                       hublink = pull-mode stream service (Hubs subscribe to this drone over the tailnet)
+  --services LIST      Comma list of hub,telemetry,logs-ota,camera,hublink (default: hub,telemetry,logs-ota;
+                       pull mode adds hublink automatically)
   --source hub|URL     Suite source: "hub" (default, from --hub-url) or a GitHub tree URL such as
                        https://github.com/Pan-Robotics/Arrow-Quiver-Hub/tree/<commit>/companion_scripts
   --disable-uavcan     Persist ENABLE_UAVCAN=false (FC-only telemetry) instead of aborting on a missing CAN bus
@@ -55,7 +82,8 @@ What to install:
   --dry-run            Fetch + verify the suite, print the plan, change nothing
   -h, --help           This help
 
-The script never configures network interfaces, DHCP, routes, or Tailscale.
+The script never configures network interfaces, DHCP or routes, and changes Tailscale state only
+when you pass --tailscale-authkey / --install-tailscale / --tailscale-rejoin.
 USAGE
 }
 
@@ -81,6 +109,15 @@ while [ "$#" -gt 0 ]; do
         --skip-hub-check) SKIP_HUB_CHECK=true ;;
         --skip-apt) SKIP_APT=true ;;
         --dry-run) DRY_RUN=true ;;
+        --pull) MODE=pull ;;
+        --push) MODE=push ;;
+        --stream-port) STREAM_PORT_OPT=${2:?--stream-port needs a value}; shift ;;
+        --tailscale-authkey) TS_AUTHKEY=${2:?--tailscale-authkey needs a value}; shift ;;
+        --tailscale-tags) TS_TAGS=${2:?--tailscale-tags needs a value}; shift ;;
+        --tailscale-hostname) TS_HOSTNAME=${2:?--tailscale-hostname needs a value}; shift ;;
+        --tailscale-login-server) TS_LOGIN_SERVER=${2:?--tailscale-login-server needs a value}; shift ;;
+        --install-tailscale) INSTALL_TAILSCALE=true ;;
+        --tailscale-rejoin) TS_REJOIN=true ;;
         -h|--help) usage; exit 0 ;;
         *) die "Unknown option: $1 (see --help)" 2 ;;
     esac
@@ -163,9 +200,9 @@ ALLOW_INSECURE=false
 if [ "$HUB_SCHEME" = http ]; then
     if python3 - "$HUB_HOST" <<'PY'
 import ipaddress, sys
-host = sys.argv[1]
-if host.lower() == "localhost":
-    sys.exit(0)
+host = sys.argv[1].lower().rstrip(".")
+if host == "localhost" or host.endswith(".ts.net"):
+    sys.exit(0)  # loopback, or a MagicDNS name (WireGuard-encrypted)
 try:
     a = ipaddress.ip_address(host)
 except ValueError:
@@ -175,13 +212,62 @@ sys.exit(0 if ok else 1)
 PY
     then
         ALLOW_INSECURE=true
-        say "Hub $HUB_URL is plain HTTP to a private-network address: ALLOW_INSECURE_HUB=true will be set (drone subnet / LAN / tailnet only)."
+        say "Hub $HUB_URL is plain HTTP to a private-network/tailnet address: ALLOW_INSECURE_HUB=true will be set."
     else
-        die "Plain HTTP to a public host ($HUB_HOST) is refused. Use https://, or the Hub's private drone-subnet/tailnet address."
+        die "Plain HTTP to a public host ($HUB_HOST) is refused. Use https://, or the Hub's tailnet (MagicDNS) or drone-subnet address."
     fi
 elif [ "$HUB_SCHEME" != https ]; then
     die "--hub-url must start with http:// or https://" 2
 fi
+
+# ---- Tailscale identity (join only when explicitly asked) ----------------------
+TS_DNS=""; TS_IPV4=""; TS_STATE="absent"
+tailscale_identity() {
+    TS_DNS=""; TS_IPV4=""
+    command -v tailscale >/dev/null 2>&1 || { TS_STATE="absent"; return 0; }
+    if tailscale status >/dev/null 2>&1; then
+        TS_STATE="connected"
+        TS_DNS=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null || true)
+        TS_IPV4=$(tailscale ip -4 2>/dev/null | head -1 || true)
+    else
+        TS_STATE="disconnected"
+    fi
+}
+tailscale_identity
+if [ "$DRY_RUN" = false ] && { [ -n "$TS_AUTHKEY" ] || [ "$TS_REJOIN" = true ]; }; then
+    if ! command -v tailscale >/dev/null 2>&1; then
+        if [ "$INSTALL_TAILSCALE" = true ]; then
+            say "Installing Tailscale with its official install script (--install-tailscale)…"
+            curl -fsSL https://tailscale.com/install.sh | sh
+        else
+            die "Tailscale is not installed. Install it from the official signed repository (https://tailscale.com/kb/1031/install-linux) or pass --install-tailscale."
+        fi
+    fi
+    if [ "$TS_STATE" = connected ] && [ "$TS_REJOIN" = false ]; then
+        say "Tailscale:     already connected as ${TS_DNS:-$TS_IPV4} (left untouched; --tailscale-rejoin to re-run tailscale up)."
+    else
+        [ -n "$TS_AUTHKEY" ] || die "--tailscale-rejoin needs --tailscale-authkey (or TS_AUTHKEY)."
+        TS_HOST=${TS_HOSTNAME:-$(printf '%s' "$DRONE_ID" | tr '_' '-' | tr -c 'A-Za-z0-9-\n' '-')}
+        say "Tailscale:     joining the tailnet as $TS_HOST with tags $TS_TAGS…"
+        TS_UP=(--hostname="$TS_HOST" --advertise-tags="$TS_TAGS" --auth-key="$TS_AUTHKEY" --accept-routes=false)
+        [ -n "$TS_LOGIN_SERVER" ] && TS_UP+=(--login-server="$TS_LOGIN_SERVER")
+        [ "$TS_REJOIN" = true ] && TS_UP+=(--reset)
+        tailscale up "${TS_UP[@]}"
+        for _ in $(seq 1 15); do tailscale_identity; [ -n "$TS_IPV4" ] && break; sleep 1; done
+        [ "$TS_STATE" = connected ] || die "tailscale up did not leave the Pi connected."
+        say "Tailscale:     connected as ${TS_DNS:-?} (${TS_IPV4:-no IPv4 yet})."
+    fi
+fi
+
+# ---- data-plane mode -------------------------------------------------------------
+case "$MODE" in
+    auto) if [ "$TS_STATE" = connected ]; then MODE=pull; else MODE=push; fi ;;
+esac
+if [ "$MODE" = pull ]; then
+    [ "$TS_STATE" = connected ] || [ "$DRY_RUN" = true ] || die "--pull needs a Tailscale identity on this Pi (connect it, or pass --tailscale-authkey). Use --push for a same-network bench setup."
+    case ",$SERVICES," in *,hublink,*) ;; *) SERVICES="$SERVICES,hublink" ;; esac
+fi
+[ -n "$STREAM_PORT_OPT" ] && EXTRA_SETTINGS+=("STREAM_PORT=$STREAM_PORT_OPT")
 
 # ---- read-only preflight report ---------------------------------------------
 say ""
@@ -190,19 +276,16 @@ say "Pi:            $(hostname) ($(uname -m)), $(. /etc/os-release 2>/dev/null &
 say "Service user:  $SERVICE_USER ($SERVICE_GROUP), home $SERVICE_HOME"
 say "Install dir:   $INSTALL_DIR $([ "$EXISTING_ENV" = true ] && printf '(existing installation)' || printf '(new)')"
 say "Hub:           $HUB_URL   drone: $DRONE_ID   services: $SERVICES"
+say "Data plane:    $MODE$([ "$MODE" = pull ] && printf ' (Hub dials into HubLink on this Pi at %s)' "${TS_DNS:-$TS_IPV4}" || printf ' (this Pi POSTs to the Hub)')"
 if command -v ip >/dev/null; then
     ADDRS=$(ip -4 -o addr show 2>/dev/null | awk '{print $2": "$4}' | tr '\n' ' ')
     say "Addresses:     ${ADDRS:-none}"
 fi
-if command -v tailscale >/dev/null 2>&1; then
-    if tailscale status >/dev/null 2>&1; then
-        say "Tailscale:     installed and connected (left untouched)."
-    else
-        say "Tailscale:     installed, not connected (left untouched; the camera installer needs it connected)."
-    fi
-else
-    say "Tailscale:     not installed (not required for hub/telemetry/logs-ota on the drone subnet)."
-fi
+case "$TS_STATE" in
+    connected) say "Tailscale:     connected as ${TS_DNS:-?} (${TS_IPV4:-no IPv4}); left untouched." ;;
+    disconnected) say "Tailscale:     installed, not connected (pass --tailscale-authkey to join; push mode otherwise)." ;;
+    *) say "Tailscale:     not installed (push mode on a shared network only; --tailscale-authkey --install-tailscale to join a tailnet)." ;;
+esac
 for unit in quiver-hub-client telemetry-forwarder logs-ota hublink go2rtc tailscale-funnel siyi-camera camera-stream; do
     if systemctl list-unit-files "$unit.service" 2>/dev/null | grep -q "^$unit.service"; then
         say "Service:       $unit is $(systemctl is-enabled "$unit.service" 2>/dev/null || true)/$(systemctl is-active "$unit.service" 2>/dev/null || true)"
@@ -434,6 +517,34 @@ case ",$SERVICES," in *,hublink,*)
     bash "$INSTALL_DIR/install_hublink.sh" "${HUBLINK_ARGS[@]}" ;;
 esac
 
+# ---- pull mode: register this Pi with the Hub (no typing into the Hub UI) ----------
+REGISTERED=""
+if [ "$MODE" = pull ]; then
+    STREAM_PORT_VALUE=$(python3 "$INSTALL_DIR/companion_config.py" get "$ENV_FILE" STREAM_PORT 2>/dev/null || true)
+    STREAM_PORT_VALUE=${STREAM_PORT_VALUE:-8765}
+    TAILNET_HOST=${TS_DNS:-$TS_IPV4}
+    REGISTERED=$(QUIVER_BOOTSTRAP_KEY="$API_KEY" python3 - "$HUB_URL" "$DRONE_ID" "$TAILNET_HOST" "$STREAM_PORT_VALUE" <<'PY' || true
+import json, os, sys, urllib.request
+hub, drone, host, port = sys.argv[1:]
+body = json.dumps({"api_key": os.environ.get("QUIVER_BOOTSTRAP_KEY", ""), "drone_id": drone, "ingest_mode": "pull", "tailnet_host": host, "stream_port": int(port)}).encode()
+req = urllib.request.Request(hub + "/api/rest/drone/connection", data=body, headers={"Content-Type": "application/json", "User-Agent": "Quiver-Companion-Bootstrap"})
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+try:
+    with opener.open(req, timeout=15) as r:
+        d = json.loads(r.read())
+        print("ok " + (d.get("hub", {}).get("base_url") or "") if d.get("success") else "rejected " + str(d.get("error")))
+except urllib.error.HTTPError as e:
+    print("rejected (HTTP %d) %s" % (e.code, e.read()[:200].decode(errors="replace")))
+except Exception as e:
+    print("error " + str(e)[:160])
+PY
+    )
+    case "$REGISTERED" in
+        ok*) say "Hub:           registered pull connection for $DRONE_ID -> $TAILNET_HOST:$STREAM_PORT_VALUE (Hub will dial in)." ;;
+        *) warn "Could not register the pull connection with the Hub ($REGISTERED). Set it in Drone Configuration -> Data Plane & Control: host $TAILNET_HOST, port $STREAM_PORT_VALUE." ;;
+    esac
+fi
+
 # ---- summary ---------------------------------------------------------------------
 say ""
 say "== Done =="
@@ -444,6 +555,18 @@ for unit in quiver-hub-client telemetry-forwarder logs-ota hublink go2rtc tailsc
         say "Service:       $unit is $(systemctl is-enabled "$unit.service" 2>/dev/null || true)/$(systemctl is-active "$unit.service" 2>/dev/null || true)"
     fi
 done
+if [ "$MODE" = pull ]; then
+    say ""
+    say "┌─ Connection card (what the Hub uses for this drone) ─────────────"
+    say "│ Drone ID:     $DRONE_ID"
+    say "│ Mode:         pull  (Hub dials in over the tailnet)"
+    say "│ Tailnet host: ${TS_DNS:-?}   (IPv4 ${TS_IPV4:-?})"
+    say "│ Stream port:  $STREAM_PORT_VALUE  (HubLink, quiver.stream.v1)"
+    say "│ API key:      ${API_KEY:0:6}…(${#API_KEY} chars)   same key the Hub presents to HubLink"
+    say "│ Hub:          $HUB_URL$( [ -n "${REGISTERED#ok }" ] && [ "${REGISTERED%% *}" = ok ] && printf ' (drone-facing %s)' "${REGISTERED#ok }")"
+    say "└──────────────────────────────────────────────────────────────────"
+    say "HubLink health: curl -s http://127.0.0.1:$STREAM_PORT_VALUE/api/rest/health"
+fi
 say ""
 say "Re-run the same command any time to update; .env values you do not pass are kept."
 say "Logs: sudo journalctl -u quiver-hub-client -u telemetry-forwarder -u logs-ota -f"

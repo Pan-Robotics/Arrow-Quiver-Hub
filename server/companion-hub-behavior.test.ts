@@ -233,6 +233,13 @@ assert client_module.validate_remote_url("http://localhost:8080", True, allow_qu
 assert client_module.validate_remote_url("http://192.168.144.200:3000", True, allow_query=False)
 assert client_module.validate_remote_url("http://10.42.0.5:3000", True, allow_query=False)
 assert client_module.validate_remote_url("http://100.101.102.103:3000", True, allow_query=False)
+assert client_module.validate_remote_url("http://quiver-hub-op1.tail1234.ts.net:3000", True, allow_query=False)
+try:
+    client_module.validate_remote_url("http://quiver-hub-op1.tail1234.ts.net:3000", False, allow_query=False)
+except ValueError:
+    pass
+else:
+    raise AssertionError("plain HTTP to a tailnet name accepted without the flag")
 for url in ("http://hub.example", "http://8.8.8.8:3000", "http://1.1.1.1"):
     try:
         client_module.validate_remote_url(url, True, allow_query=False)

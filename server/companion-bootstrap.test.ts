@@ -126,7 +126,7 @@ describe("bootstrap_companion.sh", () => {
       env: { QUIVER_NONINTERACTIVE: "1" },
     });
     expect(result.status, result.stderr + result.stdout).toBe(0);
-    expect(result.stdout).toContain("plain HTTP to a private-network address: ALLOW_INSECURE_HUB=true will be set");
+    expect(result.stdout).toContain("plain HTTP to a private-network/tailnet address: ALLOW_INSECURE_HUB=true will be set");
     expect(result.stdout).toContain("Hub health:    reachable.");
     expect(result.stdout).toMatch(/Fetched and verified \d+ files from http:\/\/127\.0\.0\.1:\d+\/companion/);
     expect(result.stdout).toContain("== Plan ==");

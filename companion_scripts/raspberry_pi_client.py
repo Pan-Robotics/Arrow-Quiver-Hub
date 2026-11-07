@@ -103,14 +103,16 @@ def _is_local_development_host(hostname: Optional[str]) -> bool:
     """Hosts that may be reached over plain HTTP when ALLOW_INSECURE_HUB=true.
 
     A locally run Hub has no TLS certificate, so plain HTTP is permitted to
-    loopback and to private-network IP literals only: RFC 1918 ranges (the
-    drone subnet, a bench LAN), link-local, and the Tailscale CGNAT range
-    100.64.0.0/10. Public hostnames and public addresses are still
-    refused even with the flag set.
+    loopback, to private-network IP literals (RFC 1918 ranges such as the
+    drone subnet or a bench LAN, link-local, and the Tailscale CGNAT range
+    100.64.0.0/10) and to Tailscale MagicDNS names (*.ts.net), whose traffic is
+    WireGuard-encrypted end to end. Public hostnames and public addresses are
+    still refused even with the flag set.
     """
     if not hostname:
         return False
-    if hostname.lower() == "localhost":
+    lowered = hostname.lower().rstrip(".")
+    if lowered == "localhost" or lowered.endswith(".ts.net"):
         return True
     try:
         address = ipaddress.ip_address(hostname)
@@ -143,7 +145,8 @@ def validate_remote_url(url: Any, allow_insecure_localhost: bool, *, allow_query
         if not (allow_insecure_localhost and _is_local_development_host(parsed.hostname)):
             raise ValueError(
                 "URL must use HTTPS (ALLOW_INSECURE_HUB=true permits plain HTTP only to "
-                "localhost or a private-network address such as the drone subnet)"
+                "localhost, a private-network address such as the drone subnet, or a "
+                "Tailscale MagicDNS name)"
             )
     return candidate
 
