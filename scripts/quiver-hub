@@ -53,7 +53,8 @@ NODE=$(find_node) || {
   command -v notify-send >/dev/null 2>&1 && notify-send -a "Quiver Hub" "Quiver Hub" "$msg" || true
   echo "$msg" >&2; exit 1
 }
-export PATH="$(dirname -- "$NODE"):$HERE/../node_modules/.bin:$PATH"
+NODE_BIN=$(dirname -- "$NODE")
+export PATH="$NODE_BIN:$HERE/../node_modules/.bin:$PATH"
 
 case "$ACTION" in
   start) exec "$NODE" "$HERE/launch.mjs" "$@" ;;

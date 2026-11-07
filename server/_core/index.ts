@@ -74,6 +74,9 @@ async function startServer() {
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
+  // Everything that tells a drone how to reach this Hub (install command,
+  // firmware/file job URLs, tailnet address) must use the port actually bound.
+  process.env.PORT = String(port);
 
   // Bind all interfaces (not just loopback) so companion computers can reach the
   // Hub's REST/tRPC/Socket.IO over the drone subnet, LAN or tailnet. Set

@@ -382,8 +382,9 @@ export default function DroneConfig() {
       (dpHost || "") !== (selectedDroneObj.tailnetHost ?? "") ||
       dpPort !== (selectedDroneObj.streamPort ?? 8765));
 
-  // Derive base URL from current window location
-  const baseUrl = useMemo(() => {
+  // The browser's own origin. Only a fallback: what a companion must be told is
+  // the drone-facing address (tailnet first), see installHubUrl below.
+  const browserOrigin = useMemo(() => {
     if (typeof window !== "undefined") {
       return window.location.origin;
     }
@@ -402,8 +403,11 @@ export default function DroneConfig() {
   // almost never on the operator's LAN, so the tailnet address is the default.
   const hubAddressesQuery = trpc.system.hubAddresses.useQuery(undefined, { refetchInterval: 30_000 });
   const hubCandidates = hubAddressesQuery.data?.candidates ?? [];
-  const preferredHubUrl = hubCandidates.find((c) => c.kind !== "loopback")?.url ?? baseUrl;
+  const preferredHubUrl = hubCandidates.find((c) => c.kind !== "loopback")?.url ?? browserOrigin;
   const installHubUrl = (hubAddressOverride.trim() || preferredHubUrl).replace(/\/+$/, "");
+  // Every address shown to the operator for the companion (install command,
+  // Connection Info endpoints, the .env snippet) is this one and only this one.
+  const baseUrl = installHubUrl;
   const installWarning = hubAddressWarning(installHubUrl)
     ?? (hubAddressesQuery.data && !hubAddressesQuery.data.tailnet.online && !hubAddressesQuery.data.candidates.some((c) => c.kind === "configured")
       ? "This Hub has no Tailscale identity. A drone on its own 4G/Wi-Fi uplink cannot reach a LAN address; join the Hub to the tailnet (infra/tailscale/setup-hub-tailscale.sh) or set PUBLIC_BASE_URL."
@@ -907,7 +911,7 @@ export default function DroneConfig() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="hub-address">Hub address as seen from the Pi</Label>
                   {hubCandidates.length > 0 && (
@@ -936,14 +940,14 @@ export default function DroneConfig() {
                     className="font-mono text-sm"
                   />
                 </div>
-                <label className="flex items-center gap-2 text-sm text-muted-foreground select-none pb-2">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
                   <input
                     type="checkbox"
                     checked={includeKeyInCommand}
                     onChange={(e) => setIncludeKeyInCommand(e.target.checked)}
                     disabled={!activeKey}
                   />
-                  Embed the API key (otherwise the Pi prompts for it)
+                  Embed the API key in the command (otherwise the Pi prompts for it; the key then appears in the Pi's shell history)
                 </label>
               </div>
               {installWarning && (
@@ -970,7 +974,7 @@ export default function DroneConfig() {
               </p>
               <p className="text-xs text-muted-foreground">
                 Installs the Hub client, telemetry forwarder and Logs &amp; OTA by default. Add
-                <span className="font-mono"> --services hub,telemetry,logs-ota,camera</span> for the camera stack (Tailscale must already be connected on the Pi),
+                <span className="font-mono"> --services hub,telemetry,logs-ota,camera</span> for the camera stack (registers at the Pi's tailnet name, else its drone-subnet address),
                 <span className="font-mono"> --disable-uavcan</span> for a companion without a CAN bus, or
                 <span className="font-mono"> --dry-run</span> to only verify the download and print the plan.
               </p>

@@ -720,7 +720,7 @@ export default function CameraFeedApp() {
             ) : drones && drones.length > 0 ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-zinc-400">Drone:</span>
-                <Select value={selectedDrone || undefined} onValueChange={setSelectedDrone}>
+                <Select value={selectedDrone ?? ""} onValueChange={setSelectedDrone}>
                   <SelectTrigger className="w-[200px] bg-zinc-700 border-zinc-600 text-white">
                     <SelectValue placeholder="Select drone" />
                   </SelectTrigger>

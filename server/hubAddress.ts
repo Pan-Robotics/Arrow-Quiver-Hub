@@ -35,7 +35,9 @@ let cached: { at: number; port: string; identity: TailnetIdentity } | null = nul
 
 function runTailscale(args: string[]): string | null {
   try {
-    const res = spawnSync("tailscale", args, { encoding: "utf8", timeout: 5_000 });
+    // Short timeout: this can sit in a request path (job creation). A hung CLI
+    // must degrade to "no tailnet identity", not stall the Hub.
+    const res = spawnSync("tailscale", args, { encoding: "utf8", timeout: 2_000 });
     return res.status === 0 ? res.stdout : null;
   } catch {
     return null;

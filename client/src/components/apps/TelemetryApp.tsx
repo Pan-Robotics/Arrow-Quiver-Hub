@@ -136,7 +136,7 @@ export default function TelemetryApp() {
             ) : drones && drones.length > 0 ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Drone:</span>
-                <Select value={selectedDrone || undefined} onValueChange={setSelectedDrone}>
+                <Select value={selectedDrone ?? ""} onValueChange={setSelectedDrone}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder="Select drone" />
                   </SelectTrigger>

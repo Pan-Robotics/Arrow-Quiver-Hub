@@ -27,7 +27,7 @@
 # =============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION=1
+BOOTSTRAP_VERSION=2
 DEFAULT_SERVICES="hub,telemetry,logs-ota"
 SUITE_REQUIRED="raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py firmware_puller.lua net_webserver_put.lua install_hub_client.sh install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh installer_common.sh companion_config.py companion-config.example quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service COMPANION_SERVICES.md OTA_Setup_Guide.md installer_support.py requirements-companion.txt diagnose_companion.sh repair_companion_services.sh update_companion_suite.sh bootstrap_companion.sh hublink_service.py install_hublink.sh"
 
@@ -182,9 +182,10 @@ if [ "$EXISTING_ENV" = true ]; then
 fi
 if [ "$API_KEY_PROMPT" = true ] || { [ -z "$API_KEY" ] && [ -r /dev/tty ] && [ "$DRY_RUN" = false ]; }; then
     if [ -r /dev/tty ]; then
-        printf 'API key for %s (input hidden): ' "${DRONE_ID:-this drone}" > /dev/tty
-        IFS= read -r -s API_KEY < /dev/tty || true
+        printf 'API key for %s (input hidden%s): ' "${DRONE_ID:-this drone}" "$([ -n "$API_KEY" ] && printf ', blank keeps the configured key')" > /dev/tty
+        IFS= read -r -s TYPED_KEY < /dev/tty || TYPED_KEY=""
         printf '\n' > /dev/tty
+        [ -n "$TYPED_KEY" ] && API_KEY=$TYPED_KEY
     fi
 fi
 HUB_URL=${HUB_URL%/}
@@ -271,7 +272,7 @@ fi
 
 # ---- read-only preflight report ---------------------------------------------
 say ""
-say "== Preflight (read-only) =="
+say "== Preflight (read-only) ==  (bootstrap v$BOOTSTRAP_VERSION)"
 say "Pi:            $(hostname) ($(uname -m)), $(. /etc/os-release 2>/dev/null && printf '%s' "$PRETTY_NAME" || printf 'unknown OS')"
 say "Service user:  $SERVICE_USER ($SERVICE_GROUP), home $SERVICE_HOME"
 say "Install dir:   $INSTALL_DIR $([ "$EXISTING_ENV" = true ] && printf '(existing installation)' || printf '(new)')"
@@ -519,7 +520,9 @@ esac
 
 # ---- pull mode: register this Pi with the Hub (no typing into the Hub UI) ----------
 REGISTERED=""
-if [ "$MODE" = pull ]; then
+if [ "$MODE" = pull ] && [ "$NO_START" = true ]; then
+    warn "--no-start: not registering pull mode with the Hub yet (HubLink is not running). Re-run without --no-start, or set it in Drone Configuration -> Data Plane & Control."
+elif [ "$MODE" = pull ]; then
     STREAM_PORT_VALUE=$(python3 "$INSTALL_DIR/companion_config.py" get "$ENV_FILE" STREAM_PORT 2>/dev/null || true)
     STREAM_PORT_VALUE=${STREAM_PORT_VALUE:-8765}
     TAILNET_HOST=${TS_DNS:-$TS_IPV4}
