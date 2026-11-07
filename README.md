@@ -400,6 +400,35 @@ pnpm start        # NODE_ENV=production node dist/index.js
 
 The server listens on **all interfaces** (`0.0.0.0:3000`) so companion computers on the drone subnet, the LAN or a tailnet can reach it. If the port is busy it moves to the next free one and says so in the log.
 
+### Run as a desktop app (one click)
+
+To launch the Hub like a desktop application — one click boots the local server and opens it in your browser — install the desktop launcher (Linux / freedesktop):
+
+```bash
+pnpm app:install     # builds once, then adds "Quiver Hub" (+ a Stop entry) to your app launcher
+```
+
+Open your app launcher, type **Quiver Hub**, click it: the server starts detached in production mode and your browser opens to it. Clicking it again while it runs just re-opens the browser. Equivalent commands on any platform (macOS/Windows have no `.desktop`):
+
+```bash
+pnpm app        # build-if-needed, start the server, open the browser
+pnpm app:stop   # stop the running instance, however it was started and on any port
+```
+
+Notes: uses a Chromium/Chrome app window when one is installed, else `xdg-open`; port via `QUIVER_PORT` (default `3000`, bake it into the launcher with `QUIVER_PORT=<n> pnpm app:install` to match the port the drone's `.env` points at); `QUIVER_NO_BROWSER=1` starts headless; logs in `data/hub.log`, pid in `data/hub.pid`. It runs the production build and shares `./data` with it — do not run it alongside `pnpm dev` on the same data directory.
+
+### Download & install a packaged release
+
+Packaged releases are published on the repository's [Releases](../../releases) page, built and attached automatically when a `v*` tag is pushed ([.github/workflows/release.yml](.github/workflows/release.yml)):
+
+```bash
+tar xzf quiver-hub-<version>.tar.gz && cd quiver-hub-<version>
+pnpm install --prod     # runtime deps only; compiles the native SQLite driver for this machine
+pnpm app:install        # Linux launcher — or `pnpm app` on any platform
+```
+
+A release is the prebuilt app (`dist/`), the DB migrations, the launcher scripts and `companion_scripts/` (the Hub serves the Pi installer from it), with a `release.json` recording the exact commit. Build one locally with `pnpm package` → `release/quiver-hub-<version>.tar.gz`. Prerequisites: Node.js 22+ and pnpm.
+
 ### Configuration
 
 Everything is optional and lives in a `.env` file next to `package.json` (see [`.env.example`](.env.example)):
@@ -454,6 +483,9 @@ It verifies the suite against a SHA-256 manifest served by the Hub, checks the A
 | REST API (Pi integration) | **Implemented** |
 | Drone Job Queue (Hub → Pi) | **Implemented** |
 | Mission Planner | **Planned** |
+| Single-command companion install (served by the Hub) | **Implemented** |
+| Tailscale pull data plane, control lease, capability manifest | **Implemented** |
+| Desktop launcher + packaged releases | **Implemented** |
 
 ---
 

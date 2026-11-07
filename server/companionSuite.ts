@@ -87,7 +87,13 @@ function readGitCommit(): string | null {
     if (/^[0-9a-f]{40}$/.test(head)) return head;
     const ref = head.replace(/^ref:\s*/, "");
     const sha = readFileSync(path.resolve(process.cwd(), ".git", ref), "utf8").trim();
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+    if (/^[0-9a-f]{40}$/.test(sha)) return sha;
+  } catch {
+    // not a git checkout: fall through to the packaged release record
+  }
+  try {
+    const info = JSON.parse(readFileSync(path.resolve(process.cwd(), "release.json"), "utf8"));
+    return typeof info.commit === "string" && /^[0-9a-f]{40}$/.test(info.commit) ? info.commit : null;
   } catch {
     return null;
   }

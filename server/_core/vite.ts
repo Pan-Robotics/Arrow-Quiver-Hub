@@ -3,8 +3,7 @@ import fs from "fs";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
-import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config";
+import { pathToFileURL } from "url";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -12,6 +11,15 @@ export async function setupVite(app: Express, server: Server) {
     hmr: { server },
     allowedHosts: true as const,
   };
+
+  // Development only. `vite`, `@vitejs/plugin-react` and `@tailwindcss/vite` are
+  // devDependencies: a packaged release installed with `pnpm install --prod` does
+  // not have them, so they must never become static imports of the server
+  // bundle. Both are resolved at runtime here (the config path is computed so the
+  // bundler cannot inline vite.config.ts and hoist its imports).
+  const { createServer: createViteServer } = await import("vite");
+  const configPath = path.resolve(import.meta.dirname, "../..", "vite.config.ts");
+  const viteConfig = (await import(pathToFileURL(configPath).href)).default;
 
   const vite = await createViteServer({
     ...viteConfig,

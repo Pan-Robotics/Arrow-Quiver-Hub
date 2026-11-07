@@ -1,0 +1,56 @@
+name: Release
+
+# Build a distributable Quiver Hub package and publish it as a GitHub Release.
+# Trigger by pushing a version tag, e.g.:
+#   git tag v1.0.0 && git push origin v1.0.0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from the "packageManager" field in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + tests
+        # The five companion-installer suites run real installers under sudo and
+        # target the Pi's ARM64 / Python 3.13 / systemd 257 environment; they are
+        # exercised on the companion target, not on the x86 release runner.
+        run: |
+          pnpm check
+          pnpm exec vitest run \
+            --exclude "server/companion-camera-install.test.ts" \
+            --exclude "server/companion-installers.test.ts" \
+            --exclude "server/companion-suite-update.test.ts" \
+            --exclude "server/companion-systemd-repair.test.ts" \
+            --exclude "server/companion-telemetry-install.test.ts"
+
+      - name: Build release package
+        run: pnpm package
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Target the exact tagged commit (e.g. on dev), never the default branch.
+          gh release create "${GITHUB_REF_NAME}" release/*.tar.gz \
+            --target "${GITHUB_SHA}" \
+            --title "Quiver Hub ${GITHUB_REF_NAME}" \
+            --generate-notes
