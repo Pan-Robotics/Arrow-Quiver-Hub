@@ -421,23 +421,14 @@ All state is under `./data/` (gitignored): `quiver.db` (+ `-wal`/`-shm` while ru
 
 ### Companion Computer Setup
 
-Each companion script has a dedicated install script. Run on the Raspberry Pi:
+One command on the Raspberry Pi installs the whole companion suite from this Hub — nothing is copied over SSH. In **Drone Configuration → Install on the companion computer**, enter the Hub's address as the Pi reaches it (its drone-subnet or Tailscale address, not `localhost`), copy the command and run it on the Pi:
 
 ```bash
-# Hub client (job queue poller)
-sudo ./install_hub_client.sh
-
-# Telemetry forwarder (MAVLink + UAVCAN relay)
-sudo ./install_telemetry_forwarder.sh
-
-# Camera services (go2rtc + Tailscale + gimbal controller)
-sudo ./install_camera_services.sh
-
-# Logs & OTA (FC logs, firmware flash, diagnostics, remote logs)
-sudo ./install_logs_ota.sh
+curl -fsSL http://192.168.144.200:3000/companion/install.sh | sudo bash -s -- \
+    --hub-url http://192.168.144.200:3000 --drone-id quiver_001 --api-key-prompt
 ```
 
-Each installer prompts for the Hub URL, drone ID, API key, and service-specific configuration (serial port, UDP address, etc.).
+It verifies the suite against a SHA-256 manifest served by the Hub, checks the API key with the Hub first, keeps an existing `.env` on a non-virgin Pi, never touches network interfaces or Tailscale, and runs the installers unattended. Add `--services hub,telemetry,logs-ota,camera` for the camera stack, `--disable-uavcan` for a companion without CAN, or `--dry-run` to only verify. Details and the manual per-service installers: [companion_scripts/README.md](companion_scripts/README.md).
 
 ---
 

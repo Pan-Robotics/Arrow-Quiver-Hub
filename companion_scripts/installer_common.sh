@@ -5,6 +5,35 @@ quiver_privileged() {
     if [ "${EUID}" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
+# Interactive prompts need a terminal on stdin. Under `curl ... | bash` (the
+# single-command bootstrap) or QUIVER_NONINTERACTIVE=1 every prompt takes its
+# default/existing value and says so; nothing is read from the piped script.
+quiver_interactive() {
+    [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]
+}
+
+# quiver_read VAR "label" "default": read one answer or take the default.
+quiver_read() {
+    local __target="$1" label="$2" default="${3:-}" answer=""
+    if quiver_interactive; then
+        read -r -p "$label [$default]: " answer
+    else
+        printf '%s [%s]: (non-interactive, keeping default)\n' "$label" "$default"
+    fi
+    printf -v "$__target" '%s' "${answer:-$default}"
+}
+
+# quiver_confirm "question" Y|N: yes/no with a default; returns 0 for yes.
+quiver_confirm() {
+    local label="$1" default="${2:-Y}" answer=""
+    if quiver_interactive; then
+        read -r -p "$label [$([ "$default" = Y ] && printf 'Y/n' || printf 'y/N')]: " answer
+    else
+        printf '%s: (non-interactive, default %s)\n' "$label" "$default"
+    fi
+    case "${answer:-$default}" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
 quiver_get() {
     quiver_privileged python3 "$SCRIPT_DIR/companion_config.py" get "$ENV_FILE" "$1"
 }
@@ -16,9 +45,16 @@ quiver_set() {
 }
 
 quiver_prompt() {
-    local key="$1" label="$2" mode="${3:-}" current answer
+    local key="$1" label="$2" mode="${3:-}" current answer=""
     current=$(quiver_get "$key")
-    if [ "$mode" = secret ]; then
+    if ! quiver_interactive; then
+        # Keep the configured value (seeded by the bootstrap or an earlier run).
+        if [ "$mode" = secret ]; then
+            printf '%s: (non-interactive, keeping configured value)\n' "$label"
+        else
+            printf '%s [%s]: (non-interactive, keeping configured value)\n' "$label" "$current"
+        fi
+    elif [ "$mode" = secret ]; then
         read -r -s -p "$label (blank keeps existing): " answer
         printf '\n'
     else
@@ -111,7 +147,9 @@ quiver_configure() {
         answer=$(quiver_privileged python3 "$SCRIPT_DIR/companion_config.py" get "$probe" SERVICE_USER)
         default_user=${answer:-$default_user}
     fi
-    read -r -p "Service user [$default_user]: " answer
+    # QUIVER_SERVICE_USER (bootstrap --user) wins over the probe/login default.
+    default_user=${QUIVER_SERVICE_USER:-$default_user}
+    quiver_read answer "Service user" "$default_user"
     SERVICE_USER=${answer:-$default_user}
     id "$SERVICE_USER" >/dev/null 2>&1 || { echo "Create service user '$SERVICE_USER' first." >&2; return 1; }
     SERVICE_GROUP=$(id -gn "$SERVICE_USER")
@@ -121,7 +159,7 @@ quiver_configure() {
         answer=$(quiver_privileged python3 "$SCRIPT_DIR/companion_config.py" get "$probe" INSTALL_DIR)
         default_dir=${QUIVER_INSTALL_DIR:-${answer:-$default_dir}}
     fi
-    read -r -p "Install directory [$default_dir]: " answer
+    quiver_read answer "Install directory" "$default_dir"
     INSTALL_DIR=${answer:-$default_dir}
     case "$INSTALL_DIR" in '~/'*) INSTALL_DIR="$SERVICE_HOME/${INSTALL_DIR:2}" ;; esac
     INSTALL_DIR=$(quiver_path "$INSTALL_DIR")

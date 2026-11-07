@@ -6,7 +6,28 @@ All installers use **one shared configuration file**: `INSTALL_DIR/.env`. The fi
 
 > The installers do **not** install DHCP, modify an interface, or change any host network configuration. Assign the documented reserved addresses through your normal network/image provisioning process before installing services.
 
-## Install sequence
+## Single-command install (recommended)
+
+The Hub serves the companion suite itself, so a Pi that can reach the Hub on the drone subnet needs nothing copied over SSH. Open **Drone Configuration → Install on the companion computer** on the Hub, enter the Hub's address *as the Pi sees it* (for example `http://192.168.144.200:3000`, not `localhost`), and paste the generated command on the Pi:
+
+```bash
+curl -fsSL http://192.168.144.200:3000/companion/install.sh | sudo bash -s -- \
+    --hub-url http://192.168.144.200:3000 --drone-id quiver_001 --api-key-prompt
+```
+
+`bootstrap_companion.sh` (the script behind `/companion/install.sh`) then:
+
+1. Runs a **read-only preflight**: OS, service user, existing installation, interface addresses (warns if `COMPANION_IP` is not assigned, never changes it), Tailscale state (never touched), existing `quiver-*` services, Hub health, and **checks the API key against the Hub** before anything is installed.
+2. Fetches the **complete suite from the Hub** (`/companion/manifest.json` + `/companion/files/*`) and verifies every file against its SHA-256; a mismatch aborts with nothing installed. `--source https://github.com/OWNER/REPO/tree/<commit>/companion_scripts` fetches a pinned GitHub commit instead.
+3. Seeds `INSTALL_DIR/.env` with `HUB_URL`/`WEB_SERVER_URL`, `DRONE_ID`, `API_KEY` and any `--set KEY=VALUE`. An existing `.env` is kept; only keys you pass change. Plain-HTTP Hubs are accepted only at loopback/private-network addresses (drone subnet, LAN, Tailscale CGNAT) and set `ALLOW_INSECURE_HUB=true`; a plain-HTTP public host is refused.
+4. Runs `install_hub_client.sh --local`, then the selected installers (`--services hub,telemetry,logs-ota` by default; add `camera`, which requires Tailscale to be connected already) **unattended**: every prompt takes its configured value and prints that it did.
+5. Enables and starts the installed services (skip with `--no-start`) and prints their state.
+
+Useful options: `--api-key KEY` (embed the key; it then appears in shell history), `--user USER`, `--install-dir DIR`, `--companion-ip IP`, `--disable-uavcan` (FC-only telemetry instead of aborting on a missing CAN bus), `--test-run 30` (bounded live telemetry bench test before start), `--skip-apt` (offline Pi), `--dry-run` (verify + plan only). `--help` lists everything. Re-run the same command to update an installation.
+
+The same installers still work interactively from a downloaded folder, as described next.
+
+## Manual install sequence
 
 ### 1. Install the Hub client
 

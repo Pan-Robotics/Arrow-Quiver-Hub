@@ -60,11 +60,11 @@ case "${CAN_ENABLED,,}" in
     true|1|yes|on)
         if [ ! -d "/sys/class/net/$CAN_DEVICE" ]; then
             echo "Configured CAN interface '$CAN_DEVICE' is missing. No CAN setup will be attempted."
-            read -r -p "Disable DroneCAN in .env and use FC-only telemetry? [y/N]: " ANSWER
-            case "$ANSWER" in
-                y|Y|yes|YES) quiver_set ENABLE_UAVCAN false ;;
-                *) echo "Aborted before packages/service changes. Configure CAN separately, or explicitly disable it." >&2; exit 2 ;;
-            esac
+            if quiver_confirm "Disable DroneCAN in .env and use FC-only telemetry?" N; then
+                quiver_set ENABLE_UAVCAN false
+            else
+                echo "Aborted before packages/service changes. Configure CAN separately, or explicitly disable it (--disable-uavcan)." >&2; exit 2
+            fi
         fi ;;
 esac
 printf '\nConfiguration: %s\nService user: %s\nInstall directory: %s\n' "$ENV_FILE" "$SERVICE_USER" "$INSTALL_DIR"
@@ -74,8 +74,7 @@ if [ "$TEST_RUN" = true ]; then
     echo "No arm/start-flight commands are sent. Enabled CAN is active participation with your configured node ID."
     echo "On any failure telemetry remains stopped; success is not inferred from systemd 'running'."
 fi
-read -r -p "Proceed with installation? [Y/n]: " CONFIRM
-case "${CONFIRM:-Y}" in y|Y|yes|YES) ;; *) echo "Aborted."; exit 0 ;; esac
+quiver_confirm "Proceed with installation?" Y || { echo "Aborted."; exit 0; }
 
 # Stop only telemetry before replacing its imported packages/source, and never
 # launch a foreground test alongside its UDP/CAN consumers.

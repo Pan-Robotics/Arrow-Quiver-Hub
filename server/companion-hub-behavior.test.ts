@@ -219,9 +219,10 @@ with tempfile.TemporaryDirectory() as temporary:
     finally:
         client_module.MAX_DOWNLOAD_BYTES = original_limit
 
-# Production requires HTTPS.  Insecure transport is allowed only by an explicit
-# local-development flag and only to a loopback host.
-for url in ("http://hub.example", "https://user:secret@hub.example"):
+# HTTPS is required by default.  Plain HTTP is allowed only by the explicit
+# ALLOW_INSECURE_HUB flag, and even then only to loopback or a private-network
+# address (a locally run Hub on the drone subnet / bench LAN / tailnet has no TLS).
+for url in ("http://hub.example", "https://user:secret@hub.example", "http://192.168.144.200:3000"):
     try:
         client_module.validate_remote_url(url, False, allow_query=False)
     except ValueError:
@@ -229,12 +230,16 @@ for url in ("http://hub.example", "https://user:secret@hub.example"):
     else:
         raise AssertionError("unsafe Hub URL accepted: " + url)
 assert client_module.validate_remote_url("http://localhost:8080", True, allow_query=False)
-try:
-    client_module.validate_remote_url("http://hub.example", True, allow_query=False)
-except ValueError:
-    pass
-else:
-    raise AssertionError("non-local insecure Hub URL accepted")
+assert client_module.validate_remote_url("http://192.168.144.200:3000", True, allow_query=False)
+assert client_module.validate_remote_url("http://10.42.0.5:3000", True, allow_query=False)
+assert client_module.validate_remote_url("http://100.101.102.103:3000", True, allow_query=False)
+for url in ("http://hub.example", "http://8.8.8.8:3000", "http://1.1.1.1"):
+    try:
+        client_module.validate_remote_url(url, True, allow_query=False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-local insecure Hub URL accepted: " + url)
 `);
   });
 });

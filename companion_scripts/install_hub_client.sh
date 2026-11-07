@@ -8,10 +8,15 @@ DEFAULT_SOURCE="https://github.com/Pan-Robotics/Arrow-Quiver-Hub/tree/main/compa
 ORIGINAL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 printf '\nQuiver Hub companion-suite installation\n\n'
 if [ "${1:-}" = --local ]; then
-    SOURCE_URL="$ORIGINAL_DIR"
+    # A bootstrap that staged the suite records where it really came from.
+    SOURCE_URL="${QUIVER_COMPANION_SOURCE:-$ORIGINAL_DIR}"
 else
-    read -r -p "Companion source folder [$DEFAULT_SOURCE]: " SOURCE_URL
-    SOURCE_URL=${SOURCE_URL:-$DEFAULT_SOURCE}
+    if [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+        read -r -p "Companion source folder [$DEFAULT_SOURCE]: " SOURCE_URL
+    else
+        SOURCE_URL=""
+    fi
+    SOURCE_URL=${SOURCE_URL:-${QUIVER_COMPANION_SOURCE:-$DEFAULT_SOURCE}}
 fi
 printf 'Source: %s\nDownload and review only code you trust.\n' "$SOURCE_URL"
 

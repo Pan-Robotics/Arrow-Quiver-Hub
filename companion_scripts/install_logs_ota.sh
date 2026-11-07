@@ -10,8 +10,8 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 if [ "${1:-}" = --uninstall ]; then
-    read -r -p "Stop and remove logs-ota (keep configuration and cached logs)? [y/N]: " CONFIRM
-    case "$CONFIRM" in y|Y|yes|YES) ;; *) echo "Aborted."; exit 0 ;; esac
+    source "$SCRIPT_DIR/installer_common.sh"
+    quiver_confirm "Stop and remove logs-ota (keep configuration and cached logs)?" N || { echo "Aborted."; exit 0; }
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
     rm -f "$SERVICE_FILE"
@@ -29,11 +29,11 @@ if [ -z "$(quiver_get API_KEY)" ]; then echo "API_KEY is required." >&2; exit 1;
 
 printf '\nFC connection (blank keeps the existing FC_CONNECTION):\n'
 printf '  1) Serial (TELEM)\n  2) Ethernet/TCP\n  3) Ethernet/UDP\n  4) No FC (diagnostics only)\n'
-read -r -p "Choose [keep existing]: " FC_CHOICE
+quiver_read FC_CHOICE "Choose" ""
 case "$FC_CHOICE" in
     1)
-        read -r -p "Serial device [/dev/ttyAMA1]: " SERIAL_DEV
-        read -r -p "Baud rate [921600]: " BAUD_RATE
+        quiver_read SERIAL_DEV "Serial device" "/dev/ttyAMA1"
+        quiver_read BAUD_RATE "Baud rate" "921600"
         quiver_set FC_CONNECTION "serial://${SERIAL_DEV:-/dev/ttyAMA1}:${BAUD_RATE:-921600}" NO_FC false
         ;;
     2)
@@ -61,15 +61,15 @@ fi
 quiver_prompt FIRMWARE_SERVER_PORT "Pi firmware HTTP port (match FC FWPULL_PORT)"
 quiver_prompt POLL_INTERVAL "Job poll interval (seconds)"
 quiver_prompt DIAGNOSTICS_INTERVAL "Diagnostics interval (seconds)"
-read -r -p "Run logs-ota as root for full diagnostics/journal access? [Y/n]: " ROOT_CHOICE
-case "${ROOT_CHOICE:-Y}" in y|Y|yes|YES) RUN_AS_ROOT=true; quiver_set ALLOW_NON_ROOT false ;;
-    *) RUN_AS_ROOT=false; quiver_set ALLOW_NON_ROOT true ;;
-esac
+if quiver_confirm "Run logs-ota as root for full diagnostics/journal access?" Y; then
+    RUN_AS_ROOT=true; quiver_set ALLOW_NON_ROOT false
+else
+    RUN_AS_ROOT=false; quiver_set ALLOW_NON_ROOT true
+fi
 printf '\nInstall directory: %s\nShared configuration: %s\n' "$INSTALL_DIR" "$ENV_FILE"
 printf 'FC endpoint: %s\n' "$(quiver_get FC_WEBSERVER_URL)"
 quiver_validate_config
-read -r -p "Proceed with installation? [Y/n]: " CONFIRM
-case "${CONFIRM:-Y}" in y|Y|yes|YES) ;; *) echo "Aborted."; exit 0 ;; esac
+quiver_confirm "Proceed with installation?" Y || { echo "Aborted."; exit 0; }
 
 apt-get update
 apt-get install -y python3 python3-pip

@@ -251,9 +251,15 @@ configure_tailscale() {
     fi
 
     if ! tailscale status >/dev/null 2>&1; then
-        echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
-        tailscale up
-        read -r -p "Press Enter after authenticating Tailscale..." _
+        if [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+            echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
+            tailscale up
+            read -r -p "Press Enter after authenticating Tailscale..." _
+        else
+            # Never start an interactive Tailscale login from a piped/unattended
+            # install, and never touch an existing tailnet configuration.
+            fail "Tailscale is installed but not connected. Authenticate it first (sudo tailscale up) and rerun the camera installer."
+        fi
     fi
 
     TAILSCALE_BIN=$(command -v tailscale)

@@ -11,6 +11,7 @@ import { initializeWebSocket } from "../websocket";
 import restApiRouter from "../rest-api";
 import { startJobReaper } from "../droneJobsDb";
 import { migrateDb } from "../db";
+import { registerCompanionSuiteRoutes } from "../companionSuite";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -47,6 +48,8 @@ async function startServer() {
   app.use(express.text({ type: ["application/sdp", "text/plain"], limit: "1mb" }));
   // Local file storage served under /files/*
   registerStorageProxy(app);
+  // Companion suite for the single-command Pi installer (/companion/*)
+  registerCompanionSuiteRoutes(app);
   // REST API for external integrations
   app.use("/api/rest", restApiRouter);
   // tRPC API

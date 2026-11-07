@@ -72,7 +72,7 @@ describe("Companion bootstrap downloads", () => {
   it("uses blank-to-default source prompt", () => {
     const text = readFileSync(join(suite, "install_hub_client.sh"), "utf8");
     expect(text).toContain(`DEFAULT_SOURCE="${source}"`);
-    expect(text).toContain("SOURCE_URL=${SOURCE_URL:-$DEFAULT_SOURCE}");
+    expect(text).toContain("SOURCE_URL=${SOURCE_URL:-${QUIVER_COMPANION_SOURCE:-$DEFAULT_SOURCE}}");
   });
   it("downloads all file types and nested files from a single pinned commit", () => {
     const { result, destination } = download(source);

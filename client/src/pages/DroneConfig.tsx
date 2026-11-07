@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { buildCompanionEnvironment, companionDefaults, defaultFcWebserverUrl, formatEnvironmentValue } from "@/lib/companionEnvironment";
+import { buildCompanionEnvironment, buildCompanionInstallCommand, companionDefaults, defaultFcWebserverUrl, formatEnvironmentValue, hubAddressWarning } from "@/lib/companionEnvironment";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -297,6 +297,23 @@ export default function DroneConfig() {
 
   // Get the first active API key for the .env snippet
   const activeKey = apiKeysList.find((k: any) => k.isActive);
+
+  // Single-command companion install. The Pi must reach the Hub by an address
+  // on the drone subnet (or tailnet), which is not necessarily the address this
+  // browser used, so the operator can override it.
+  const [hubAddressOverride, setHubAddressOverride] = useState<string>("");
+  const [includeKeyInCommand, setIncludeKeyInCommand] = useState<boolean>(false);
+  const installHubUrl = (hubAddressOverride.trim() || baseUrl).replace(/\/+$/, "");
+  const installWarning = hubAddressWarning(installHubUrl);
+  const installCommand = useMemo(
+    () =>
+      buildCompanionInstallCommand({
+        hubUrl: installHubUrl,
+        droneId: selectedDrone,
+        apiKey: includeKeyInCommand ? activeKey?.key : undefined,
+      }),
+    [installHubUrl, selectedDrone, includeKeyInCommand, activeKey?.key],
+  );
 
   // Build the .env snippet — comprehensive reference for all endpoints
   const envSnippet = useMemo(() => {
@@ -769,6 +786,68 @@ export default function DroneConfig() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Single-command companion install */}
+          <Card className="border-primary/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-primary" />
+                Install on the companion computer
+              </CardTitle>
+              <CardDescription>
+                One command on the Raspberry Pi fetches the complete companion suite from this Hub, verifies it,
+                configures <span className="font-mono text-foreground">{selectedDrone}</span> and installs the services.
+                Re-running it updates an existing installation and keeps its <span className="font-mono">.env</span>.
+                It never changes the Pi's network or Tailscale configuration.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="hub-address">Hub address as seen from the Pi</Label>
+                  <Input
+                    id="hub-address"
+                    value={hubAddressOverride}
+                    placeholder={baseUrl}
+                    onChange={(e) => setHubAddressOverride(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground select-none pb-2">
+                  <input
+                    type="checkbox"
+                    checked={includeKeyInCommand}
+                    onChange={(e) => setIncludeKeyInCommand(e.target.checked)}
+                    disabled={!activeKey}
+                  />
+                  Embed the API key (otherwise the Pi prompts for it)
+                </label>
+              </div>
+              {installWarning && (
+                <div className="flex items-start gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/5 p-2 text-sm">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 text-yellow-500 shrink-0" />
+                  <span>{installWarning}</span>
+                </div>
+              )}
+              <div className="relative">
+                <pre className="rounded-md bg-muted p-3 pr-12 text-xs font-mono whitespace-pre-wrap break-all">{installCommand}</pre>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 h-7 w-7"
+                  onClick={() => copyToClipboard(installCommand, "Install command")}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Installs the Hub client, telemetry forwarder and Logs &amp; OTA by default. Add
+                <span className="font-mono"> --services hub,telemetry,logs-ota,camera</span> for the camera stack (Tailscale must already be connected on the Pi),
+                <span className="font-mono"> --disable-uavcan</span> for a companion without a CAN bus, or
+                <span className="font-mono"> --dry-run</span> to only verify the download and print the plan.
+              </p>
             </CardContent>
           </Card>
 

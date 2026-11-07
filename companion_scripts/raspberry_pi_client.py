@@ -100,18 +100,31 @@ def positive_poll_interval(value: str) -> float:
 
 
 def _is_local_development_host(hostname: Optional[str]) -> bool:
+    """Hosts that may be reached over plain HTTP when ALLOW_INSECURE_HUB=true.
+
+    A locally run Hub has no TLS certificate, so plain HTTP is permitted to
+    loopback and to private-network IP literals only: RFC 1918 ranges (the
+    drone subnet, a bench LAN), link-local, and the Tailscale CGNAT range
+    100.64.0.0/10. Public hostnames and public addresses are still
+    refused even with the flag set.
+    """
     if not hostname:
         return False
     if hostname.lower() == "localhost":
         return True
     try:
-        return ipaddress.ip_address(hostname).is_loopback
+        address = ipaddress.ip_address(hostname)
     except ValueError:
         return False
+    if address.is_loopback or address.is_link_local:
+        return True
+    if address.version == 4:
+        return address.is_private or address in ipaddress.ip_network("100.64.0.0/10")
+    return address.is_private
 
 
 def validate_remote_url(url: Any, allow_insecure_localhost: bool, *, allow_query: bool) -> str:
-    """Validate an HTTPS endpoint, allowing HTTP only for explicit localhost development.
+    """Validate an HTTPS endpoint, allowing HTTP only to explicit local/private hosts.
 
     File download URLs can contain a presigned query string.  Hub base URLs may
     not, which prevents accidentally configuring credentials in the base URL.
@@ -129,7 +142,8 @@ def validate_remote_url(url: Any, allow_insecure_localhost: bool, *, allow_query
     if parsed.scheme != "https":
         if not (allow_insecure_localhost and _is_local_development_host(parsed.hostname)):
             raise ValueError(
-                "URL must use HTTPS (set ALLOW_INSECURE_HUB=true only for localhost development)"
+                "URL must use HTTPS (ALLOW_INSECURE_HUB=true permits plain HTTP only to "
+                "localhost or a private-network address such as the drone subnet)"
             )
     return candidate
 

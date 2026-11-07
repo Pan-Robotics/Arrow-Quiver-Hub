@@ -487,7 +487,7 @@ def validate_configuration(values: Mapping[str, str], require_identity: bool = T
         url = urlsplit(values.get("HUB_URL", ""))
         allowed_http = _bool_text(values.get("ALLOW_INSECURE_HUB", "false"))
         if not url.hostname or url.username or url.password or url.query or url.fragment or url.scheme not in ({"https", "http"} if allowed_http else {"https"}):
-            raise ValueError("HUB_URL must be an HTTPS Hub base URL (ALLOW_INSECURE_HUB=true is development-only)")
+            raise ValueError("HUB_URL must be an HTTPS Hub base URL (ALLOW_INSECURE_HUB=true permits plain HTTP only to a local/private-network Hub)")
         if not values.get("DRONE_ID", "").strip() or not values.get("API_KEY", "").strip():
             raise ValueError("DRONE_ID and API_KEY are required")
     for key in ("FC_WEBSERVER_PORT", "FC_MAVLINK_TCP_PORT", "MAVLINK_UDP_PORT", "SIYI_SDK_PORT", "SIYI_RTSP_PORT", "GO2RTC_API_PORT", "GO2RTC_WEBRTC_PORT", "FIRMWARE_SERVER_PORT"):
