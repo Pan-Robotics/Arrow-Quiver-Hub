@@ -75,7 +75,7 @@ Legend:
 
 **Flight Controller** (Pixhawk 6X/32v6, Cube Pilot+): Runs ArduPilot or PX4 autopilot firmware. Provides MAVLink telemetry (attitude, position, GPS, battery) to companion computer via CAN bus. Receives commands from Mission Planner via wireless RF telemetry link. Shares CAN bus with payloads for DroneCAN communication.
 
-**Quiver Hub**: Cloud-hosted web application providing operator interface, job queue management, telemetry visualization, file storage, and REST API for companion computer communication. Accessible from any web browser with internet connectivity.
+**Quiver Hub**: Locally run web application (operator laptop, SQLite + local file storage) providing operator interface, job queue management, telemetry visualization, file storage, and REST API for companion computer communication. Accessible from any web browser with internet connectivity.
 
 **Mission Planner**: Ground control software for flight planning and real-time monitoring. Connects to flight controller via wireless RF telemetry link (typically 915 MHz or 433 MHz radio). Communicates using MAVLink protocol for mission upload, parameter configuration, and live telemetry display.
 
@@ -128,7 +128,7 @@ The Quiver Hub Client implements a polling-based job execution system that enabl
 - **Extensible Architecture**: Developers can add custom job handlers for application-specific tasks
 
 **Built-in Job Types**:
-- `upload_file`: Downloads a file from Hub's S3 storage to specified path on companion computer
+- `upload_file`: Downloads a file from Hub storage to specified path on companion computer
 - `update_config`: Updates JSON configuration file with new settings from Hub
 - **Custom Job Types**: Developers can implement handlers for restart_service, run_script, collect_logs, etc.
 
@@ -240,25 +240,25 @@ An operator needs to update the companion computer's configuration file without 
 **Steps**:
 1. Operator opens Quiver Hub and navigates to "Drone Management" → "quiver_001" → "Files"
 2. Clicks "Upload File" button, selects `config.json` from local computer
-3. Hub uploads file to S3 storage, generates unique file ID
+3. Hub writes file to local storage, generates unique file ID
 4. Operator specifies target path: `/home/pi/config/config.json`
 5. Hub creates "upload_file" job in database with payload: `{fileId, targetPath, filename}`
 6. Job status: "pending"
 7. Companion computer's `raspberry_pi_client.py` polls Hub every 5 seconds
 8. Client finds pending job, calls `droneJobs.getPendingJobs` API
 9. Client acknowledges job (status: "in_progress"), calls `droneJobs.acknowledgeJob`
-10. Client downloads file from S3 using presigned URL from `droneJobs.getFile`
+10. Client downloads file from the Hub's `/files/...` URL (made absolute for the drone) from `droneJobs.getFile`
 11. Client saves file to `/home/pi/config/config.json`, creates directory if needed
 12. Client reports completion, calls `droneJobs.completeJob` with `success: true`
 13. Operator sees "Completed" status in Hub UI, with timestamp and execution duration
 
 **Data Flow**:
 ```
-Browser → Upload File → S3 Storage
+Browser → Upload File → Hub storage (data/storage)
                     ↓
                 Create Job → Database (status: pending)
                     ↓
-Companion Pi → Poll Jobs → Find pending → Acknowledge → Download from S3
+Companion Pi → Poll Jobs → Find pending → Acknowledge → Download from Hub
                                                       ↓
                                               Save to filesystem
                                                       ↓

@@ -71,7 +71,7 @@ The Mission Planner follows the same three-tier pattern as all Quiver Hub apps: 
 │  └──────────────────┘  └──────────────────┘  └─────────────────────┘   │
 │                               │                                          │
 │  ┌────────────────────────────┴─────────────────────────────────────┐   │
-│  │  MySQL: missions, missionWaypoints, geofences, rallyPoints,      │   │
+│  │  SQLite: missions, missionWaypoints, geofences, rallyPoints,      │   │
 │  │         missionTemplates                                          │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────▲──────────────────────────────────────────┘
@@ -144,7 +144,7 @@ The initial implementation supports the most commonly used ArduPilot Copter comm
 | Do Digicam Control | 203 | Trigger single photo | — |
 | Condition Yaw | 115 | Rotate to specific heading | angle, speed, direction |
 
-### 5.4 S3 Storage
+### 5.4 File Storage (local `data/storage`)
 
 | Storage Path Pattern | Content |
 |---|---|

@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { buildCompanionEnvironment, companionDefaults, defaultFcWebserverUrl, formatEnvironmentValue } from "@/lib/companionEnvironment";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -505,33 +504,6 @@ export default function DroneConfig() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Authentication Banner */}
-        {!isAuthenticated && !authLoading && (
-          <Card className="border-yellow-500/50 bg-yellow-500/5">
-            <CardContent className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full bg-yellow-500/20 p-2">
-                  <Settings className="h-5 w-5 text-yellow-500" />
-                </div>
-                <div>
-                  <p className="font-medium">Sign in required</p>
-                  <p className="text-sm text-muted-foreground">
-                    You need to sign in to manage API keys and drone configuration
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={() => {
-                  window.location.href = getLoginUrl();
-                }}
-                className="shrink-0"
-              >
-                Sign In
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

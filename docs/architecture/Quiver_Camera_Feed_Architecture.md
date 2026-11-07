@@ -12,7 +12,7 @@ This document describes how the Camera Feed application fits into the existing Q
 
 ### Network Topology
 
-![Camera Feed Network Topology](https://private-us-east-1.manuscdn.com/sessionFile/EubhX8eorZmpnfu4bIKC1W/sandbox/TY62bFD1Botdh7S4iMUMwK-images_1769331821181_na1fn_L2hvbWUvdWJ1bnR1L2NhbWVyYV9mZWVkX25ldHdvcmtfdG9wb2xvZ3k.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvRXViaFg4ZW9yWm1wbmZ1NGJJS0MxVy9zYW5kYm94L1RZNjJiRkQxQm90ZGg3UzRpTVVNd0staW1hZ2VzXzE3NjkzMzE4MjExODFfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwyTmhiV1Z5WVY5bVpXVmtYMjVsZEhkdmNtdGZkRzl3YjJ4dlozay5wbmciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3OTg3NjE2MDB9fX1dfQ__&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=M7kp6QVdntuDa1csDlszPM3VAdRdJ2rVUg21rjWxAHQIhJhjY2onLeWyXrLDyhRag9H~iUcurrw2~O19uqPsvDPLs1f1eTCOlolT4KSvhWa8W~Z1Egw89yv0bVUwht7mSlyXo38j1hHBK1dZtY96Cq4dLt8mTC26xV-AuEEpCCDHFxeESN6wEYzmvGtyTXOZRnOhiIEUmSJALLjU9dv8Qx9QFYqLdqlCGhgjDskTEjlvsHBRPZXtLguJxs1eJ5t2O6NUUAQdUV0DvUTBYjZvRl~r6LmAG-frTZ5Z4S407iEL2BYFAYaeIJKG3miOCPygDqiwbG~EkX52o9BV263anQ__)
+![Camera Feed Network Topology](../diagrams/camera_feed_network_topology.png)
 
 The A8 mini camera sits on the same `192.168.144.0/24` network as the companion computer. The companion acts as a bridge, receiving commands from Quiver Hub over the internet and forwarding them to the camera over the local Ethernet network.
 
@@ -42,7 +42,7 @@ A Python service running on the Raspberry Pi manages the TCP connection to the A
 
 **Data Flow (Control):**
 
-![Camera Control Data Flow](https://private-us-east-1.manuscdn.com/sessionFile/EubhX8eorZmpnfu4bIKC1W/sandbox/TY62bFD1Botdh7S4iMUMwK-images_1769331821182_na1fn_L2hvbWUvdWJ1bnR1L2NhbWVyYV9mZWVkX2RhdGFfZmxvdw.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvRXViaFg4ZW9yWm1wbmZ1NGJJS0MxVy9zYW5kYm94L1RZNjJiRkQxQm90ZGg3UzRpTVVNd0staW1hZ2VzXzE3NjkzMzE4MjExODJfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwyTmhiV1Z5WVY5bVpXVmtYMlJoZEdGZlpteHZkdy5wbmciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3OTg3NjE2MDB9fX1dfQ__&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=VRXYjFsd9ADLaJfWKO9E52Uk4JK~1SFoLXsSDgfU-QXxSCYmjfKZ16cu2F6uSb8GRi3fubCtjul6WaxwvXHHgzT-TQnC4yjDsHITCGKltoJ~FHWVFDeE3TaZOZablPNGFk7fI3a3pZv2FQteT713tUotpFL4FE1KfFTZzhDXbUKggabEQoYHpmXIFHXATSVE3iCB79j1tvX4fkuGyPf2RNRfK~1chtKxlJJbZItKJzzdKMxFU5gpTi6b88kiSRob32GDfmQE8P97Rt7S9VPyiBP-hAPX3In873xFJ3JSijyPw2AigZuDDDq5wCW7sdPI3LGG7lUY5~56oEPQfTsIvg__)
+![Camera Control Data Flow](../diagrams/camera_feed_data_flow.png)
 
 ### 2. Companion Computer: RTSP Proxy
 
@@ -79,7 +79,7 @@ The Camera Feed app in Quiver Hub provides the user interface for viewing video 
 The Camera Feed app follows the same patterns as other Quiver Hub applications:
 - Registered in the app catalog with icon and description
 - Uses WebSocket for real-time communication (like point cloud viewer)
-- Stores captured photos/videos in S3 (like file management)
+- Stores captured photos/videos in Hub storage (like file management)
 - Logs events to telemetry database (like flight telemetry)
 
 ---
@@ -242,7 +242,7 @@ function VideoPlayer({ streamUrl }: { streamUrl: string }) {
 
 ### Camera Feed App Layout
 
-![Camera Feed UI Mockup](https://private-us-east-1.manuscdn.com/sessionFile/EubhX8eorZmpnfu4bIKC1W/sandbox/TY62bFD1Botdh7S4iMUMwK-images_1769331821183_na1fn_L2hvbWUvdWJ1bnR1L2NhbWVyYV9mZWVkX3VpX21vY2t1cA.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvRXViaFg4ZW9yWm1wbmZ1NGJJS0MxVy9zYW5kYm94L1RZNjJiRkQxQm90ZGg3UzRpTVVNd0staW1hZ2VzXzE3NjkzMzE4MjExODNfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwyTmhiV1Z5WVY5bVpXVmtYM1ZwWDIxdlkydDFjQS5wbmciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3OTg3NjE2MDB9fX1dfQ__&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=W4CXEEBdow9gs8wCWczzXgKXXKnFdDS6FZ4ZmxybkW76ZwVOeM6rsGF66OQbHrGSGC0PqUn8slparUVWPUIrpoF-qoysUwcJ8fRoEU5zR5DQFtfwFkpkGY2XCRHKdRuMAJDlFz6QrL9exxUGD5rBWeNLgwu7yOk0xzeM9QeeVXWgfomlYGKOarYbxg2CX4T6sFHVzELDeFUpRDf3uvRJxWQSv4ZOMqbcEbXmjD1opM4DXYOkWlCs4Zsh3zRlzADATQS8APv8aAwpAHDaB3HcSvfWHRLacJPMP1cZbTwSUx~Akz~QWYNeWKz0iPhQM4QKwXN8ecW~IRwN1GBN9C6d~A__)
+![Camera Feed UI Mockup](../diagrams/camera_feed_ui_mockup.png)
 
 ### Control Interactions
 
@@ -300,7 +300,7 @@ function VideoPlayer({ streamUrl }: { streamUrl: string }) {
 
 ### Phase 3: Full Features (Week 3)
 
-- Photo capture with S3 storage and gallery view
+- Photo capture with Hub storage and gallery view
 - Video recording status and file management
 - Gimbal angle telemetry logging
 - Click-to-point camera control

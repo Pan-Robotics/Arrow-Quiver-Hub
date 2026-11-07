@@ -6,7 +6,7 @@
 
 ## 1. System Overview
 
-Quiver Hub is a cloud-hosted web application that provides real-time visualization, remote management, and data logging for UAV operations. The companion computer (Raspberry Pi) runs Python services that bridge the flight controller, payload devices, and Hub over HTTPS and WebSocket. Operators interact through the Hub web UI; the companion computer handles all local hardware communication and data forwarding autonomously.
+Quiver Hub is a self-contained web application run locally on the operator's laptop (SQLite database, local file storage) that provides real-time visualization, remote management, and data logging for UAV operations. The companion computer (Raspberry Pi) runs Python services that bridge the flight controller, payload devices, and Hub over HTTPS and WebSocket. Operators interact through the Hub web UI; the companion computer handles all local hardware communication and data forwarding autonomously.
 
 The system supports five concurrent data pipelines: telemetry (MAVLink + UAVCAN), point cloud (LiDAR), camera (WebRTC via go2rtc), FC logs and OTA firmware, and custom payload apps. Each pipeline has a dedicated companion service, REST endpoint, and WebSocket broadcast channel.
 
@@ -17,7 +17,7 @@ The system supports five concurrent data pipelines: telemetry (MAVLink + UAVCAN)
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        QUIVER HUB (Cloud)                       │
-│  React UI · tRPC · REST API · Socket.IO · S3 · TiDB            │
+│  React UI · tRPC · REST API · Socket.IO · SQLite · local files │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTPS / WSS (cellular or WiFi)
 ┌──────────────────────────┴──────────────────────────────────────┐
@@ -95,7 +95,7 @@ All services run as systemd units, auto-restart on failure, and log to journald.
 
 Polls Hub for pending jobs every 5 seconds, executes them locally, reports completion. Uses mutex locking (`lockedBy` companion ID) to prevent double-execution across multiple companions.
 
-**Job types:** `upload_file` (S3 → local path), `update_config` (JSON write), `restart_service` (systemd restart).
+**Job types:** `upload_file` (Hub storage → local path), `update_config` (JSON write), `restart_service` (systemd restart).
 
 ```
 CLI: python3 raspberry_pi_client.py --debug
@@ -316,9 +316,9 @@ Open Quiver Hub in a browser. You should see:
 From Drone Configuration → Job History → create a job:
 
 - **Scan FC Logs:** Triggers the companion to discover all FC log files and report them to Hub
-- **Download FC Log:** Downloads a specific log from FC → uploads to Hub S3 → available for browser download
+- **Download FC Log:** Downloads a specific log from FC → uploads to Hub storage → available for browser download
 - **Flash Firmware:** Serves firmware via HTTP for FC pull (Approach C), verifies via `AUTOPILOT_VERSION` git hash comparison
-- **Deliver File:** Downloads a file from Hub S3 to a target path on the Pi
+- **Deliver File:** Downloads a file from Hub storage to a target path on the Pi
 
 ---
 
@@ -596,11 +596,11 @@ sudo journalctl -u quiver-hub-client -f
 
 | Job Type | Handler | Service | What It Does |
 |---|---|---|---|
-| `upload_file` | `handle_upload_file_job` | `raspberry_pi_client.py` | Download file from Hub S3 → save to target path on Pi |
+| `upload_file` | `handle_upload_file_job` | `raspberry_pi_client.py` | Download file from Hub storage → save to target path on Pi |
 | `update_config` | `handle_update_config_job` | `raspberry_pi_client.py` | Write JSON config to a file on Pi |
 | `scan_fc_logs` | `handle_scan_fc_logs` | `logs_ota_service.py` | List cached FC logs from manifest → report to Hub |
-| `download_fc_log` | `handle_download_fc_log` | `logs_ota_service.py` | Serve cached log → upload to Hub S3 (multipart preferred) |
-| `flash_firmware` | `handle_flash_firmware` | `logs_ota_service.py` | Download firmware from S3 → serve via HTTP for FC pull (Approach C) → MAVLink reboot → verify via `AUTOPILOT_VERSION` |
+| `download_fc_log` | `handle_download_fc_log` | `logs_ota_service.py` | Serve cached log → upload to Hub storage (multipart preferred) |
+| `flash_firmware` | `handle_flash_firmware` | `logs_ota_service.py` | Download firmware from the Hub → serve via HTTP for FC pull (Approach C) → MAVLink reboot → verify via `AUTOPILOT_VERSION` |
 
 ---
 
@@ -674,13 +674,13 @@ This walks through discovering, downloading, and saving FC logs to your local PC
 
 | Log Status | Action | What Happens |
 |---|---|---|
-| `discovered` | Click download icon | Dispatches `download_fc_log` job → companion serves cached file → uploads to Hub S3 → auto-triggers browser download when done |
+| `discovered` | Click download icon | Dispatches `download_fc_log` job → companion serves cached file → uploads to Hub storage → auto-triggers browser download when done |
 | `completed` | Click blue save icon | Immediately triggers browser download via proxy (`GET /api/rest/logs/fc-download/{logId}`) — no companion needed |
 | `failed` | Click retry icon | Re-dispatches the download job |
 
 **Step 5 — Monitor progress.** During download, a progress bar shows the upload percentage. Toast notifications track the lifecycle: "Downloading from FC..." → "Uploading to Hub..." → "Ready for download".
 
-**Step 6 — Save to PC.** For completed logs, the blue save icon triggers a browser download via the server-side proxy. The proxy streams the file from S3 with `Content-Disposition: attachment; filename="00000042.BIN"`, so the browser opens a native Save dialog.
+**Step 6 — Save to PC.** For completed logs, the blue save icon triggers a browser download via the server-side proxy. The Hub streams the file from local storage with `Content-Disposition: attachment; filename="00000042.BIN"`, so the browser opens a native Save dialog.
 
 ---
 
@@ -692,7 +692,7 @@ This walks through uploading new firmware to the flight controller over the air.
 
 **Step 1 — Open the Logs & OTA app** → OTA Updates tab.
 
-**Step 2 — Upload firmware.** Click "Upload Firmware". Select an `.abin` file (ArduPilot binary). The file uploads to Hub S3 with a SHA-256 hash computed automatically for integrity verification.
+**Step 2 — Upload firmware.** Click "Upload Firmware". Select an `.abin` file (ArduPilot binary). The file uploads to Hub storage with a SHA-256 hash computed automatically for integrity verification.
 
 **Step 3 — Flash firmware.** Click "Flash" on the uploaded firmware entry. This dispatches a `flash_firmware` job to the companion.
 
@@ -700,7 +700,7 @@ This walks through uploading new firmware to the flight controller over the air.
 
 | Stage | What Happens |
 |---|---|
-| **Step 1: Download** | Companion downloads `.abin` from Hub S3, verifies SHA-256 hash, extracts git hash from file header |
+| **Step 1: Download** | Companion downloads `.abin` from Hub storage, verifies SHA-256 hash, extracts git hash from file header |
 | **Step 2: Cleanup** | HTTP check for existing `ardupilot*.abin` on FC (via `net_webserver.lua`) |
 | **Step 3: Serve** | Companion starts `aiohttp` server on port 8080, FC pulls firmware via `firmware_puller.lua` |
 | **Step 4: Reboot** | Companion sends MAVLink reboot command to FC |

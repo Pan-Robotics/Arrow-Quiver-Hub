@@ -49,8 +49,8 @@ export async function upsertFcLog(log: InsertFcLog) {
     }
     return existing[0].id;
   } else {
-    const result = await db.insert(fcLogs).values(log);
-    return result[0].insertId;
+    const inserted = await db.insert(fcLogs).values(log).returning({ id: fcLogs.id });
+    return inserted[0].id;
   }
 }
 
@@ -120,8 +120,8 @@ export async function createFirmwareUpdate(update: InsertFirmwareUpdate) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(firmwareUpdates).values(update);
-  return result[0].insertId;
+  const inserted = await db.insert(firmwareUpdates).values(update).returning({ id: firmwareUpdates.id });
+  return inserted[0].id;
 }
 
 /**
@@ -180,8 +180,8 @@ export async function insertDiagnostics(diag: InsertSystemDiagnostic) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(systemDiagnostics).values(diag);
-  return result[0].insertId;
+  const inserted = await db.insert(systemDiagnostics).values(diag).returning({ id: systemDiagnostics.id });
+  return inserted[0].id;
 }
 
 /**
@@ -253,7 +253,7 @@ export async function deleteFirmwareUpdate(id: number): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
   const result = await db.delete(firmwareUpdates).where(eq(firmwareUpdates.id, id));
-  return (result[0] as any).affectedRows > 0;
+  return result.changes > 0;
 }
 
 /**
@@ -272,5 +272,5 @@ export async function clearFailedFirmwareUpdates(droneId: string): Promise<numbe
         sql`${firmwareUpdates.status} IN ('failed', 'uploaded', 'transferring', 'flashing', 'verifying')`
       )
     );
-  return (result[0] as any).affectedRows;
+  return result.changes;
 }

@@ -25,6 +25,7 @@ import {
   type TimeFilter,
 } from "@/lib/flight-charts";
 import { MapView } from "@/components/Map";
+import L from "leaflet";
 import {
   LineChart,
   Line,
@@ -165,7 +166,7 @@ interface CompareSlot {
 
 // ─── Module-level cache ──────────────────────────────────────
 // Survives component unmount/remount (app switching) but not full page refresh.
-// On page refresh, we fall back to localStorage logId and re-parse from S3.
+// On page refresh, we fall back to localStorage logId and re-parse from Hub storage.
 interface AnalyticsCache {
   selectedLogId: number;
   droneId: string;
@@ -1457,12 +1458,12 @@ function GpsGroundTrack({
   }, [track]);
 
   // Draw or redraw polylines when color mode changes
-  const drawPolylines = useCallback((map: any, mode: TrackColorMode) => {
-    if (!window.google?.maps || !map) return;
+  const drawPolylines = useCallback((map: L.Map, mode: TrackColorMode) => {
+    if (!map) return;
 
     // Clear existing polylines
     for (const pl of polylinesRef.current) {
-      pl.setMap(null);
+      pl.remove();
     }
     polylinesRef.current = [];
 
@@ -1470,31 +1471,28 @@ function GpsGroundTrack({
 
     if (mode === "plain") {
       // Single blue polyline for plain mode
-      const path = track.map((p) => ({ lat: p.lat, lng: p.lng }));
-      const polyline = new window.google.maps.Polyline({
-        path,
-        geodesic: true,
-        strokeColor: "#3b82f6",
-        strokeOpacity: 0.9,
-        strokeWeight: 3,
-        map,
-      });
+      const path: L.LatLngExpression[] = track.map((p) => [p.lat, p.lng]);
+      const polyline = L.polyline(path, {
+        color: "#3b82f6",
+        opacity: 0.9,
+        weight: 3,
+      }).addTo(map);
       polylinesRef.current.push(polyline);
     } else {
       // Segmented gradient polylines — one per pair of consecutive points
       for (let i = 0; i < track.length - 1; i++) {
         const color = getTrackSegmentColor(track, i, mode, minAlt, maxAlt, maxSpeed);
-        const segment = new window.google.maps.Polyline({
-          path: [
-            { lat: track[i].lat, lng: track[i].lng },
-            { lat: track[i + 1].lat, lng: track[i + 1].lng },
+        const segment = L.polyline(
+          [
+            [track[i].lat, track[i].lng],
+            [track[i + 1].lat, track[i + 1].lng],
           ],
-          geodesic: true,
-          strokeColor: color,
-          strokeOpacity: 0.9,
-          strokeWeight: 3.5,
-          map,
-        });
+          {
+            color,
+            opacity: 0.9,
+            weight: 3.5,
+          }
+        ).addTo(map);
         polylinesRef.current.push(segment);
       }
     }
@@ -1507,53 +1505,40 @@ function GpsGroundTrack({
     }
   }, [colorMode, drawPolylines]);
 
-  const handleMapReady = useCallback((map: any) => {
+  const handleMapReady = useCallback((map: L.Map) => {
     mapRef.current = map;
-
-    if (!window.google?.maps) return;
 
     // Draw initial polylines
     drawPolylines(map, colorMode);
 
     // Add start marker (green)
-    const startMarker = new window.google.maps.Marker({
-      position: { lat: track[0].lat, lng: track[0].lng },
-      map,
-      title: "Start",
-      icon: {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: "#22c55e",
-        fillOpacity: 1,
-        strokeColor: "#fff",
-        strokeWeight: 2,
-      },
-    });
+    const startMarker = L.circleMarker([track[0].lat, track[0].lng], {
+      radius: 7,
+      fillColor: "#22c55e",
+      fillOpacity: 1,
+      color: "#fff",
+      weight: 2,
+    })
+      .bindTooltip("Start")
+      .addTo(map);
     markersRef.current.push(startMarker);
 
     // Add end marker (red)
     const lastPt = track[track.length - 1];
-    const endMarker = new window.google.maps.Marker({
-      position: { lat: lastPt.lat, lng: lastPt.lng },
-      map,
-      title: "End",
-      icon: {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: "#ef4444",
-        fillOpacity: 1,
-        strokeColor: "#fff",
-        strokeWeight: 2,
-      },
-    });
+    const endMarker = L.circleMarker([lastPt.lat, lastPt.lng], {
+      radius: 7,
+      fillColor: "#ef4444",
+      fillOpacity: 1,
+      color: "#fff",
+      weight: 2,
+    })
+      .bindTooltip("End")
+      .addTo(map);
     markersRef.current.push(endMarker);
 
     // Fit bounds to show entire track
-    const bounds = new window.google.maps.LatLngBounds();
-    for (const p of track) {
-      bounds.extend({ lat: p.lat, lng: p.lng });
-    }
-    map.fitBounds(bounds, 50);
+    const bounds = L.latLngBounds(track.map((p) => [p.lat, p.lng] as L.LatLngTuple));
+    map.fitBounds(bounds, { padding: [40, 40] });
 
     // Add mode change markers if available
     if (flightModes && flightModes.length > 1) {
@@ -1570,20 +1555,15 @@ function GpsGroundTrack({
           }
         }
         const point = track[closestIdx];
-        const marker = new window.google.maps.Marker({
-          position: { lat: point.lat, lng: point.lng },
-          map,
-          title: `Mode: ${flightModes[i].mode} at ${formatTime(modeTime)}`,
-          icon: {
-            path: window.google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
-            scale: 5,
-            fillColor: getModeColor(flightModes[i].mode),
-            fillOpacity: 1,
-            strokeColor: "#fff",
-            strokeWeight: 1,
-            rotation: 0,
-          },
-        });
+        const marker = L.circleMarker([point.lat, point.lng], {
+          radius: 5,
+          fillColor: getModeColor(flightModes[i].mode),
+          fillOpacity: 1,
+          color: "#fff",
+          weight: 1,
+        })
+          .bindTooltip(`Mode: ${flightModes[i].mode} at ${formatTime(modeTime)}`)
+          .addTo(map);
         markersRef.current.push(marker);
       }
     }

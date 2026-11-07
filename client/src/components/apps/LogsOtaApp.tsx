@@ -316,7 +316,7 @@ function FcLogsTab({
 
   /**
    * Trigger a browser file download via the server-side proxy.
-   * The proxy streams the file from S3 with Content-Disposition: attachment,
+   * The proxy streams the file from the Hub's local storage with Content-Disposition: attachment,
    * so the browser shows a native "Save As" dialog.
    */
   const triggerBrowserDownload = useCallback((logId: number, filename: string) => {

@@ -1,6 +1,8 @@
 # Large Reference Files (CDN Links)
 
-These files were uploaded to CDN to keep the project deployment lightweight. Original files are preserved in `/home/ubuntu/webdev-static-assets/`.
+These reference files are not vendored into the repository because of their size (about 19 MB in total). They currently sit on the CDN of the former hosting platform, which is outside the project's control; re-host them (e.g. a GitHub release asset) before relying on these links.
+
+The two camera-feed diagrams that used to be listed here now live in `docs/diagrams/`.
 
 | File | CDN URL |
 |------|---------|
@@ -8,5 +10,3 @@ These files were uploaded to CDN to keep the project deployment lightweight. Ori
 | siyi_a8_manual.pdf | https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/siyi_a8_manual_630a1041.pdf |
 | 00000072.log (sample flight log) | https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/00000072_37735f87.log |
 | 00000092.BIN (sample flight log) | https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/00000092_5cdc49f4.BIN |
-| camera_feed_network_topology.png | https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/camera_feed_network_topology_c9ce2568.png |
-| camera_feed_ui_mockup.png | https://d2xsxph8kpxj0f.cloudfront.net/104102086/cJLhozXEame73NuZqMLXuR/camera_feed_ui_mockup_2ecebad1.png |

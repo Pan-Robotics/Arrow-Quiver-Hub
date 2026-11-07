@@ -34,7 +34,7 @@ from datetime import datetime
 # ============================================================================
 
 # Your Quiver Hub endpoint (replace with your actual hub URL)
-QUIVER_HUB_URL = os.getenv("QUIVER_HUB_URL", "https://your-quiver-hub.manus.space")
+QUIVER_HUB_URL = os.getenv("QUIVER_HUB_URL", "http://192.168.144.200:3000")
 APP_ID = os.getenv("APP_ID", "your-app-id")  # Your custom app ID from Quiver Hub
 
 # Parser metadata
@@ -201,7 +201,7 @@ if __name__ == "__main__":
 3. Implement your custom `parse_payload()` function
 4. Set environment variables:
    ```bash
-   export QUIVER_HUB_URL="https://your-hub.manus.space"
+   export QUIVER_HUB_URL="http://192.168.144.200:3000"   # the Hub laptop on the drone subnet
    export APP_ID="your-app-id"
    export PORT=5000
    ```
@@ -238,7 +238,7 @@ After=network.target
 Type=simple
 User=quiver
 WorkingDirectory=/home/quiver/parser
-Environment="QUIVER_HUB_URL=https://your-hub.manus.space"
+Environment="QUIVER_HUB_URL=http://192.168.144.200:3000"
 Environment="APP_ID=your-app-id"
 Environment="PORT=5000"
 ExecStart=/usr/bin/python3 /home/quiver/parser/parser_service.py
@@ -285,7 +285,7 @@ http://<quiver-device-ip>:5000/ingest
          ▼
 ┌─────────────────┐
 │   Quiver Hub    │
-│  (Manus Cloud)  │
+│ (operator laptop)│
 │  WebSocket ───► │ Real-time UI
 └─────────────────┘
 ```

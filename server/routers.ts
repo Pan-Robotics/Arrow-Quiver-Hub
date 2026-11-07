@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import {
@@ -46,7 +44,7 @@ import {
   getLatestDiagnostics,
   getDiagnosticsHistory,
 } from "./logsOtaDb";
-import { storagePut } from "./storage";
+import { storagePut, storageRead, toPublicUrl } from "./storage";
 import { nanoid } from "nanoid";
 import { gzipSync } from "zlib";
 import { createHash } from "crypto";
@@ -54,14 +52,8 @@ import { createHash } from "crypto";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
+    // Local single-user mode: always the local admin operator (no sessions).
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
-    }),
   }),
 
   // Point cloud data ingestion
@@ -1144,7 +1136,7 @@ export const appRouter = router({
         // Generate unique file ID
         const fileId = nanoid();
         
-        // For compressed files, add .gz extension for S3 storage
+        // For compressed files, add .gz extension for storage
         // The original filename is preserved in metadata and used when downloading to Pi
         let storageFilename = input.filename;
         if (isCompressed) {
@@ -1154,7 +1146,7 @@ export const appRouter = router({
         
         const storageKey = `drone-files/${input.droneId}/${fileId}-${storageFilename}`;
 
-        // Upload to S3
+        // Write to local storage
         const { url } = await storagePut(
           storageKey,
           buffer,
@@ -1180,7 +1172,8 @@ export const appRouter = router({
           type: "upload_file",
           payload: {
             fileId,
-            fileUrl: url,
+            // Absolute URL so the companion computer can fetch over the network
+            fileUrl: toPublicUrl(url, ctx.req),
             targetPath: input.targetPath,
             filename: input.filename,
             isCompressed, // Pi needs to decompress if true
@@ -1268,7 +1261,7 @@ export const appRouter = router({
         const ext = input.filename.toLowerCase().split(".").pop();
         const format = ext === "log" ? "log" as const : "bin" as const;
 
-        // Upload to S3
+        // Write to local storage
         const fileKey = `flight-logs/${input.droneId}/${nanoid()}-${input.filename}`;
         const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
 
@@ -1340,12 +1333,21 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const log = await getFlightLogById(input.id);
         if (!log) throw new Error("Flight log not found");
-        if (!log.url) throw new Error("Flight log has no file URL");
+        if (!log.storageKey) throw new Error("Flight log has no stored file");
 
-        // Fetch the file from S3
-        const response = await fetch(log.url);
-        if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
-        const buffer = Buffer.from(await response.arrayBuffer());
+        // Read the file from local storage. (log.url is a relative "/files/..."
+        // path, which the server cannot fetch() from itself.)
+        let buffer: Buffer;
+        try {
+          buffer = await storageRead(log.storageKey);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException)?.code;
+          throw new Error(
+            code === "ENOENT"
+              ? "Flight log file not found in local storage"
+              : `Failed to read flight log file: ${code ?? "unknown error"}`
+          );
+        }
 
         // Return as base64 to avoid proxy compression mangling the binary data
         return {
@@ -1460,7 +1462,7 @@ export const appRouter = router({
         const ext = fcLog.filename.toLowerCase().split(".").pop();
         const format = ext === "log" ? "log" as const : "bin" as const;
 
-        // Create a flight log record reusing the same S3 URL (no re-upload)
+        // Create a flight log record reusing the same stored file (no re-upload)
         await createFlightLog({
           droneId: fcLog.droneId,
           filename: fcLog.filename,
@@ -1546,7 +1548,8 @@ export const appRouter = router({
           type: "flash_firmware",
           payload: {
             updateId: input.updateId,
-            firmwareUrl: update.url,
+            // Absolute URL so the companion computer can fetch over the network
+            firmwareUrl: toPublicUrl(update.url, ctx.req),
             filename: update.filename,
             sha256Hash: update.sha256Hash || null,
           },

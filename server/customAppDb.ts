@@ -11,8 +11,8 @@ export async function createCustomApp(app: InsertCustomApp): Promise<CustomApp> 
     throw new Error("Database not available");
   }
 
-  const result = await db.insert(customApps).values(app);
-  const insertedId = Number(result[0].insertId);
+  const inserted = await db.insert(customApps).values(app).returning({ id: customApps.id });
+  const insertedId = inserted[0].id;
 
   // Fetch and return the created app
   const created = await db

@@ -11,14 +11,15 @@ import {
   insertScan,
   insertTelemetry,
   createFlightLog,
+  getLocalUser,
 } from "./db";
-import { storagePut } from "./storage";
+import { storagePut, storageResolvePath } from "./storage";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { nanoid } from "nanoid";
 import { broadcastPointCloud, broadcastTelemetry, broadcastCameraStatus, broadcastCameraStream, broadcastAppData } from "./websocket";
 import type { PointCloudMessage } from "./websocket";
 import { handlePayloadIngest } from "./payloadIngest";
 import { createHash } from "crypto";
-import { sdk } from "./_core/sdk";
 
 // Multer for multipart file uploads (FC logs, firmware, etc.)
 const upload = multer({ storage: multer.memoryStorage() });
@@ -500,7 +501,7 @@ router.post("/test-connection", async (req: Request, res: Response) => {
 /**
  * POST /api/rest/flightlog/upload
  * Upload a flight log file (.BIN or .log) from the companion computer.
- * Authenticated via API key. Stores file in S3 and metadata in DB.
+ * Authenticated via API key. Stores file in local storage and metadata in DB.
  *
  * Request: multipart/form-data or JSON with base64 content
  * {
@@ -556,7 +557,7 @@ router.post("/flightlog/upload", async (req: Request, res: Response) => {
 
     const format = ext === "log" ? "log" as const : "bin" as const;
 
-    // Upload to S3
+    // Write to local storage
     const fileKey = `flight-logs/${drone_id}/${nanoid()}-${filename}`;
     const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
 
@@ -956,7 +957,7 @@ router.post("/logs/fc-progress", async (req: Request, res: Response) => {
 
 /**
  * POST /api/rest/logs/fc-upload
- * Pi uploads a downloaded FC log file to S3 via the Hub.
+ * Pi uploads a downloaded FC log file to the Hub's local storage.
  *
  * Request body:
  * {
@@ -992,7 +993,7 @@ router.post("/logs/fc-upload", async (req: Request, res: Response) => {
     // Compute SHA-256 hash for artefact integrity
     const sha256Hash = createHash("sha256").update(buffer).digest("hex");
 
-    // Upload to S3
+    // Write to local storage
     const fileKey = `fc-logs/${drone_id}/${nanoid()}-${filename}`;
     const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
 
@@ -1078,7 +1079,7 @@ router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Requ
     // Compute SHA-256 hash for artefact integrity
     const sha256Hash = createHash("sha256").update(buffer).digest("hex");
 
-    // Upload to S3
+    // Write to local storage
     const fileKey = `fc-logs/${drone_id}/${nanoid()}-${filename}`;
     const { url } = await storagePut(fileKey, buffer, "application/octet-stream");
 
@@ -1134,12 +1135,12 @@ router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Requ
   }
 });
 
-// ─── FC Log Download Proxy (Browser → S3) ────────────────────────────────
+// ─── FC Log Download (Browser ← local storage) ────────────────────────────────
 
 /**
  * GET /api/rest/logs/fc-download/:logId
  * Authenticated download proxy for FC log files.
- * Fetches the file from S3 and streams it to the browser with
+ * Reads the file from local storage and streams it to the browser with
  * Content-Disposition: attachment so the browser triggers a "Save As" dialog.
  *
  * Authentication: session cookie (same as tRPC protectedProcedure).
@@ -1147,11 +1148,10 @@ router.post("/logs/fc-upload-multipart", upload.single("file"), async (req: Requ
  */
 router.get("/logs/fc-download/:logId", async (req: Request, res: Response) => {
   try {
-    // Authenticate via session cookie (same mechanism as tRPC protectedProcedure)
-    let user;
-    try {
-      user = await sdk.authenticateRequest(req);
-    } catch {
+    // Local single-user mode: the local admin operator is always available.
+    // (Companion computers use per-drone API keys for their own endpoints.)
+    const user = await getLocalUser();
+    if (!user) {
       return res.status(401).json({ success: false, error: "Authentication required" });
     }
 
@@ -1173,17 +1173,19 @@ router.get("/logs/fc-download/:logId", async (req: Request, res: Response) => {
       });
     }
 
-    // Fetch the file from S3
-    const upstream = await fetch(fcLog.url, {
-      signal: AbortSignal.timeout(120_000), // 2 min timeout for large files
-    });
-
-    if (!upstream.ok) {
-      console.error(`[FC Download] S3 returned ${upstream.status} for log ${logId}`);
-      return res.status(502).json({
-        success: false,
-        error: `Storage returned ${upstream.status}`,
-      });
+    // Resolve the file on local disk by its storage key
+    if (!fcLog.storageKey) {
+      return res.status(404).json({ success: false, error: "FC log file is not available" });
+    }
+    let filePath: string;
+    try {
+      filePath = storageResolvePath(fcLog.storageKey);
+    } catch {
+      return res.status(400).json({ success: false, error: "Invalid storage key" });
+    }
+    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+      console.error(`[FC Download] File missing on disk for log ${logId}: ${fcLog.storageKey}`);
+      return res.status(404).json({ success: false, error: "FC log file not found on disk" });
     }
 
     // Sanitize filename for Content-Disposition
@@ -1191,38 +1193,19 @@ router.get("/logs/fc-download/:logId", async (req: Request, res: Response) => {
 
     res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
     res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", statSync(filePath).size);
 
-    // Forward Content-Length if available
-    const contentLength = upstream.headers.get("content-length");
-    if (contentLength) {
-      res.setHeader("Content-Length", contentLength);
-    }
-
-    // Stream the body to the browser
-    if (upstream.body) {
-      const reader = upstream.body.getReader();
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
-        }
+    // Stream the file from local storage to the browser
+    const fileStream = createReadStream(filePath);
+    fileStream.on("error", (err) => {
+      console.error(`[FC Download] Stream error for log ${logId}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: "Stream interrupted" });
+      } else {
         res.end();
-      };
-      pump().catch((err) => {
-        console.error(`[FC Download] Stream error for log ${logId}:`, err);
-        if (!res.headersSent) {
-          res.status(500).json({ success: false, error: "Stream interrupted" });
-        } else {
-          res.end();
-        }
-      });
-    } else {
-      // Fallback: buffer the whole response (shouldn't happen with fetch)
-      const buffer = Buffer.from(await upstream.arrayBuffer());
-      res.setHeader("Content-Length", buffer.length);
-      res.end(buffer);
-    }
+      }
+    });
+    fileStream.pipe(res);
   } catch (error) {
     console.error("Error in /api/rest/logs/fc-download:", error);
     if (!res.headersSent) {

@@ -1276,16 +1276,16 @@ describe("frontend wiring safety (source-only; no DOM or login initialization)",
     expect(source).toMatch(/<GatewayNotice\s+retryQueries=\{retryQueries\}/);
   });
 
-  it("does not redirect an unavailable auth lookup as though the user had logged out", () => {
-    const source = readFileSync(
-      new URL("../client/src/_core/hooks/useAuth.ts", import.meta.url),
-      "utf8"
-    );
-    const effect = source.slice(source.indexOf("useEffect(() =>"));
-    const errorGuard = effect.search(/if\s*\(meQuery\.error\)\s*return/);
-    const redirect = effect.indexOf("window.location.href = redirectPath");
-    expect(errorGuard).toBeGreaterThanOrEqual(0);
-    expect(redirect).toBeGreaterThan(errorGuard);
-    expect(effect.slice(redirect)).toMatch(/meQuery\.error/);
+  it("has no login redirect, so an unavailable auth lookup can never bounce the operator out of the Hub", () => {
+    // Local single-user mode: there is no OAuth portal to redirect to. Neither the
+    // auth hook nor the query-cache error handlers may navigate away on failure.
+    for (const file of ["_core/hooks/useAuth.ts", "main.tsx", "const.ts"]) {
+      const source = readFileSync(
+        new URL(`../client/src/${file}`, import.meta.url),
+        "utf8"
+      );
+      expect(source).not.toMatch(/window\.location\.href\s*=/);
+      expect(source).not.toMatch(/getLoginUrl|VITE_OAUTH_PORTAL_URL/);
+    }
   });
 });

@@ -1,89 +1,12 @@
 {
   "version": "7",
-  "dialect": "mysql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "5",
-      "when": 1762348556604,
-      "tag": "0000_slim_meltdown",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1762348621510,
-      "tag": "0001_short_clea",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1764937777644,
-      "tag": "0002_giant_jane_foster",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1766316616989,
-      "tag": "0003_bright_shadowcat",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1766323655157,
-      "tag": "0004_futuristic_outlaw_kid",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1766334880964,
-      "tag": "0005_spicy_falcon",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1767534070398,
-      "tag": "0006_lyrical_captain_midlands",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "5",
-      "when": 1771527141544,
-      "tag": "0007_illegal_thunderbolt",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "5",
-      "when": 1771636031637,
-      "tag": "0008_unusual_bastion",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "5",
-      "when": 1775415163502,
-      "tag": "0009_flimsy_cassandra_nova",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "5",
-      "when": 1776232187286,
-      "tag": "0010_tired_nehzno",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "5",
-      "when": 1776872744961,
-      "tag": "0011_tiresome_dust",
+      "version": "6",
+      "when": 1793971567340,
+      "tag": "0000_remarkable_richard_fisk",
       "breakpoints": true
     }
   ]

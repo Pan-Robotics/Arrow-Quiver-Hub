@@ -2,7 +2,7 @@
 
 **Modular UAV Ground Station & Data Pipeline Platform**
 
-Quiver Hub is a web-based ground station for managing unmanned aerial vehicle data pipelines. It aggregates real-time sensor streams, post-flight analytics, drone configuration, over-the-air firmware updates, and a developer-extensible app framework into a single-page application. The platform follows a **hub-and-spoke model**: a persistent sidebar provides instant access to any installed application, while a pluggable App Builder allows developers to create new data pipeline apps without modifying the core codebase.
+Quiver Hub is a self-contained, locally run web ground station for managing unmanned aerial vehicle data pipelines. It runs on the operator's laptop (one command, browser at `http://localhost:3000`) with an embedded SQLite database and local file storage, and needs no cloud account or external service. It aggregates real-time sensor streams, post-flight analytics, drone configuration, over-the-air firmware updates, and a developer-extensible app framework into a single-page application. The platform follows a **hub-and-spoke model**: a persistent sidebar provides instant access to any installed application, while a pluggable App Builder allows developers to create new data pipeline apps without modifying the core codebase.
 
 ---
 
@@ -29,7 +29,7 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 │  └───────────┘  └───────────┘  └───────────┘  └─────────────────┘   │
 │                         │                                            │
 │  ┌──────────────────────┴───────────────────────────────────────┐    │
-│  │  Drizzle ORM → MySQL / TiDB       S3 Object Storage         │    │
+│  │  Drizzle ORM → SQLite (data/quiver.db)   Files (data/storage)│    │
 │  └──────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────▲────────────────────────────────────────┘
                               │  REST + Socket.IO
@@ -42,7 +42,7 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 │  siyi_camera_controller.py → Socket.IO (gimbal commands/status)      │
 │  logs_ota_service.py → REST + Socket.IO (logs, OTA, diagnostics)     │
 │    ├─ FCLogSyncer: HTTP GET from FC net_webserver (primary)          │
-│    ├─ Multipart upload to Hub S3 (preferred, base64 fallback)        │
+│    ├─ Multipart upload to Hub storage (preferred, base64 fallback)   │
 │    └─ MAVFTP fallback if FC webserver unreachable                    │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │  HTTP (port 8080)
@@ -64,9 +64,9 @@ The system consists of three tiers: the browser-based frontend, the Node.js serv
 |---|---|
 | Frontend | React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Recharts, Three.js, Leaflet, Socket.IO client |
 | Backend | Express 4, tRPC 11, Socket.IO server, Drizzle ORM |
-| Database | MySQL / TiDB (cloud-hosted, SSL) |
-| File Storage | S3-compatible object storage |
-| Authentication | Manus OAuth + JWT (users); per-drone API keys (companion computers) |
+| Database | SQLite (embedded, `./data/quiver.db`, auto-migrated on boot) |
+| File Storage | Local filesystem (`./data/storage`, served at `/files/*`) |
+| Authentication | None for the operator UI (single local operator); per-drone API keys for companion computers |
 | Parser Runtime | Python 3.11 subprocess sandbox (custom app parsers) |
 | Companion Scripts | Python 3.11 with MAVSDK, aiohttp, python-socketio, psutil |
 | FC Web Server | ArduPilot [net_webserver.lua](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) (Lua scripting applet, port 8080) |
@@ -109,7 +109,7 @@ server/
   db.ts                          ← Core database query helpers
   logsOtaDb.ts                   ← Database helpers for FC logs, firmware, diagnostics
   droneJobsDb.ts                 ← Database helpers for drone job queue
-  storage.ts                     ← S3 file storage helpers
+  storage.ts                     ← Local file storage helpers (data/storage)
 drizzle/
   schema.ts                      ← Database schema (15 tables)
 companion_scripts/
@@ -157,7 +157,7 @@ Post-flight log analysis with a full ArduPilot DataFlash binary parser running i
 
 Four-tab interface for remote flight controller management and companion computer monitoring, powered by the `logs_ota_service.py` companion script:
 
-**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files. The primary data path uses HTTP via the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet running on the FC (port 8080): the `FCLogSyncer` class in `logs_ota_service.py` parses the HTML directory listing at `/mnt/APM/LOGS/`, downloads files to a local cache on the Pi, and uploads them to Hub S3. MAVFTP is retained as a fallback when the FC web server is unreachable. Completed logs can be saved directly to the user's PC via a server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) that streams from S3 with `Content-Disposition: attachment`. For logs still on the FC, the download button dispatches the companion job and auto-triggers the browser download once the upload completes. Completed logs can also be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). The companion script supports both multipart file upload (preferred, no base64 overhead) and base64 JSON upload (backward-compatible fallback). Real-time download progress via WebSocket.
+**FC Logs** — Scan the flight controller's SD card for `.BIN` and `.log` files. The primary data path uses HTTP via the ArduPilot [`net_webserver.lua`](https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Scripting/applets/net_webserver.lua) applet running on the FC (port 8080): the `FCLogSyncer` class in `logs_ota_service.py` parses the HTML directory listing at `/mnt/APM/LOGS/`, downloads files to a local cache on the Pi, and uploads them to Hub storage. MAVFTP is retained as a fallback when the FC web server is unreachable. Completed logs can be saved directly to the user's PC via a server-side download proxy (`GET /api/rest/logs/fc-download/:logId`) that streams the stored file from disk with `Content-Disposition: attachment`. For logs still on the FC, the download button dispatches the companion job and auto-triggers the browser download once the upload completes. Completed logs can also be sent directly to the Flight Analytics app for parsing (checks if the app is installed first). The companion script supports both multipart file upload (preferred, no base64 overhead) and base64 JSON upload (backward-compatible fallback). Real-time download progress via WebSocket.
 
 **OTA Updates** — Upload firmware files (`.abin`/`.apj`, max 50 MB) and flash them to the flight controller via MAVFTP. Monitors the ArduPilot firmware rename sequence (`ardupilot.abin` → `ardupilot-verify.abin` → `ardupilot-flash.abin` → `ardupilot-flashed.abin`) with real-time progress. Includes a safety warning dialog before flashing.
 
@@ -230,11 +230,11 @@ A polling-based job queue pushes tasks to the companion computer. Jobs follow a 
 
 | Job Type | Description | Handler |
 |---|---|---|
-| `upload_file` | Download a file from S3 to a target path on the Pi | `raspberry_pi_client.py` |
+| `upload_file` | Download a file from the Hub to a target path on the Pi | `raspberry_pi_client.py` |
 | `update_config` | Update configuration files | `raspberry_pi_client.py` |
 | `restart_service` | Restart a systemd service | `raspberry_pi_client.py` |
 | `scan_fc_logs` | List FC log files — reads from local cache (instant) or on-demand HTTP listing from FC `net_webserver.lua`, MAVFTP fallback | `logs_ota_service.py` |
-| `download_fc_log` | Download FC log — serves from local cache, or on-demand HTTP download from FC `net_webserver.lua`, MAVFTP fallback; uploads to Hub S3 via multipart (preferred) or base64 | `logs_ota_service.py` |
+| `download_fc_log` | Download FC log — serves from local cache, or on-demand HTTP download from FC `net_webserver.lua`, MAVFTP fallback; uploads to Hub storage via multipart (preferred) or base64 | `logs_ota_service.py` |
 | `flash_firmware` | Flash firmware to FC via MAVFTP with stage monitoring | `logs_ota_service.py` |
 
 ### Relay Configuration
@@ -242,7 +242,7 @@ A polling-based job queue pushes tasks to the companion computer. Jobs follow a 
 The Drone Configuration page generates Python snippets. Example environment:
 
 ```bash
-WEB_SERVER_URL=https://your-hub.manus.space/api/rest
+WEB_SERVER_URL=http://192.168.144.200:3000/api/rest   # the Hub laptop's address on the drone subnet
 API_KEY=your_api_key
 DRONE_ID=quiver_001
 ```
@@ -268,9 +268,9 @@ All ingest endpoints require `api_key` and `drone_id` in the request body.
 | `/api/rest/flightlog/upload` | POST | Upload flight log from Pi |
 | `/api/rest/logs/fc-list` | POST | Report discovered FC log files |
 | `/api/rest/logs/fc-progress` | POST | Update FC log download progress |
-| `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log to S3 (base64) |
-| `/api/rest/logs/fc-upload-multipart` | POST | Upload downloaded FC log to S3 (multipart, preferred) |
-| `/api/rest/logs/fc-download/:logId` | GET | Download proxy — streams FC log from S3 to browser (session auth) |
+| `/api/rest/logs/fc-upload` | POST | Upload downloaded FC log to Hub storage (base64) |
+| `/api/rest/logs/fc-upload-multipart` | POST | Upload downloaded FC log to Hub storage (multipart, preferred) |
+| `/api/rest/logs/fc-download/:logId` | GET | Streams a stored FC log from disk to the browser |
 | `/api/rest/firmware/progress` | POST | Update firmware flash progress |
 | `/api/rest/diagnostics/report` | POST | Submit system diagnostics snapshot |
 | `/api/rest/payload/:appId/ingest` | POST | Receive custom app payload |
@@ -350,7 +350,7 @@ Fifteen tables organized across five domains.
 | Table | Purpose |
 |---|---|
 | **Auth & Users** | |
-| `users` | OAuth user accounts (openId, name, email, role) |
+| `users` | Operator accounts; holds the single seeded local admin (`local-admin`) |
 | **Drone Fleet** | |
 | `drones` | Registered drone inventory (droneId, name, lastSeen) |
 | `apiKeys` | Per-drone authentication keys |
@@ -360,7 +360,7 @@ Fifteen tables organized across five domains.
 | `scans` | Point cloud scan metadata |
 | `telemetry` | Flight telemetry snapshots (JSON) |
 | **Flight Logs & OTA** | |
-| `flightLogs` | Uploaded flight log metadata and S3 references |
+| `flightLogs` | Uploaded flight log metadata and storage keys |
 | `fcLogs` | FC SD card log files (discovered, downloading, completed) |
 | `firmwareUpdates` | Firmware uploads and flash status tracking |
 | `systemDiagnostics` | Periodic companion computer health snapshots |
@@ -377,28 +377,47 @@ Fifteen tables organized across five domains.
 ### Prerequisites
 
 - Node.js 22+
-- MySQL or TiDB database
-- pnpm package manager
+- pnpm (`corepack enable` is enough; the exact version is pinned in `package.json`)
+- Python 3 on the PATH (only for custom-app parsers, which run in a Python subprocess)
 
-### Installation
+No database server, object store or cloud account is needed. On first boot the Hub creates `./data/quiver.db` (SQLite) and `./data/storage/` and applies all migrations itself.
+
+### Run locally (development)
 
 ```bash
 pnpm install
-pnpm db:push
-pnpm dev
+pnpm dev          # http://localhost:3000, hot reload
 ```
 
-### Environment Variables
+### Run locally (production build)
 
-Environment variables are managed through the Manus platform. Key variables include `DATABASE_URL`, `JWT_SECRET`, `VITE_APP_TITLE`, and `VITE_APP_LOGO`. Update `VITE_APP_TITLE` via Management Dashboard > Settings > General.
+```bash
+pnpm install
+pnpm build        # client → dist/public, server → dist/index.js
+pnpm start        # NODE_ENV=production node dist/index.js
+```
 
-### Deployment
+The server listens on **all interfaces** (`0.0.0.0:3000`) so companion computers on the drone subnet, the LAN or a tailnet can reach it. If the port is busy it moves to the next free one and says so in the log.
 
-1. Create a checkpoint via the Management UI
-2. Click **Publish** in the dashboard header
-3. The site is live at `https://your-project.manus.space`
+### Configuration
 
-Custom domain binding is available through Management Dashboard > Settings > Domains.
+Everything is optional and lives in a `.env` file next to `package.json` (see [`.env.example`](.env.example)):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | Listen port |
+| `HOST` | `0.0.0.0` | Bind address. Set `127.0.0.1` to keep the Hub reachable from this machine only |
+| `DATABASE_URL` | `./data/quiver.db` | SQLite file (bare path or `file:` URL) |
+| `STORAGE_DIR` | `./data/storage` | Where uploaded files (FC logs, firmware, media) are written |
+| `PUBLIC_BASE_URL` | request host | Absolute base URL embedded in companion jobs (firmware flash, file delivery). Set it to the Hub's address as seen **from the drone**, e.g. `http://192.168.144.200:3000`, when that differs from the browser's address |
+
+### Access control
+
+The operator UI has no login: whoever can reach the Hub's port is the single local admin operator. Companion computers authenticate to the REST API with per-drone API keys (Drone Configuration page). Keep the Hub on a trusted network (the drone subnet, a tailnet) or set `HOST=127.0.0.1` and reach it through an authenticated tunnel; anyone who can open the UI can queue a firmware flash.
+
+### Data and backups
+
+All state is under `./data/` (gitignored): `quiver.db` (+ `-wal`/`-shm` while running) and `storage/`. Copy that directory to back up or move an installation.
 
 ### Companion Computer Setup
 
@@ -454,4 +473,4 @@ MIT License
 - **SIYI** A8 Mini gimbal camera SDK
 - **shadcn/ui** for UI components
 - **tRPC** for type-safe APIs
-- **Manus Platform** for hosting and deployment
+- **Leaflet** and **OpenStreetMap** for the flight-track map

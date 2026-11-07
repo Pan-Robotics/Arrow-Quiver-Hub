@@ -1,18 +1,29 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json } from "drizzle-orm/mysql-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+/**
+ * SQLite schema for the local Quiver Hub app.
+ * Timestamps use mode "timestamp" (epoch seconds <-> JS Date). Defaults and
+ * onUpdate are applied at the application layer via Drizzle ($defaultFn / $onUpdate)
+ * so they hold regardless of how rows are written (all writes go through Drizzle).
+ * JSON columns use mode "json" (object <-> TEXT). Booleans use mode "boolean" (0/1).
+ */
 
 /**
  * Core user table backing auth flow.
  */
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  openId: text("openId").notNull().unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  email: text("email"),
+  loginMethod: text("loginMethod"),
+  role: text("role", { enum: ["user", "admin"] }).default("user").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdate(() => new Date()),
+  lastSignedIn: integer("lastSignedIn", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type User = typeof users.$inferSelect;
@@ -22,18 +33,18 @@ export type InsertUser = typeof users.$inferInsert;
  * Custom apps created by developers via the app builder.
  * Stores payload parser code and app metadata.
  */
-export const customApps = mysqlTable("customApps", {
-  id: int("id").autoincrement().primaryKey(),
+export const customApps = sqliteTable("customApps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Unique app identifier (slug) */
-  appId: varchar("appId", { length: 64 }).notNull().unique(),
+  appId: text("appId").notNull().unique(),
   /** Display name */
-  name: varchar("name", { length: 255 }).notNull(),
+  name: text("name").notNull(),
   /** App description */
   description: text("description"),
   /** App icon URL */
-  icon: varchar("icon", { length: 512 }),
+  icon: text("icon"),
   /** Data source type: how this app receives data */
-  dataSource: mysqlEnum("dataSource", ["custom_endpoint", "stream_subscription", "passthrough"]).default("custom_endpoint").notNull(),
+  dataSource: text("dataSource", { enum: ["custom_endpoint", "stream_subscription", "passthrough"] }).default("custom_endpoint").notNull(),
   /** Data source configuration (JSON) - stream name, field mappings, etc. */
   dataSourceConfig: text("dataSourceConfig"),
   /** Python payload parser code (optional for stream_subscription and passthrough) */
@@ -43,13 +54,16 @@ export const customApps = mysqlTable("customApps", {
   /** UI layout configuration (JSON) */
   uiSchema: text("uiSchema"),
   /** App version */
-  version: varchar("version", { length: 32 }).default("1.0.0").notNull(),
+  version: text("version").default("1.0.0").notNull(),
   /** Published to app store */
-  published: mysqlEnum("published", ["draft", "published"]).default("draft").notNull(),
+  published: text("published", { enum: ["draft", "published"] }).default("draft").notNull(),
   /** Creator user ID */
-  creatorId: int("creatorId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  creatorId: integer("creatorId").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdate(() => new Date()),
 });
 
 export type CustomApp = typeof customApps.$inferSelect;
@@ -58,14 +72,14 @@ export type InsertCustomApp = typeof customApps.$inferInsert;
 /**
  * User-installed apps - tracks which apps each user has installed
  */
-export const userApps = mysqlTable("userApps", {
-  id: int("id").autoincrement().primaryKey(),
+export const userApps = sqliteTable("userApps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** User ID who installed the app */
-  userId: int("userId").notNull(),
+  userId: integer("userId").notNull(),
   /** App ID that was installed */
-  appId: varchar("appId", { length: 64 }).notNull(),
+  appId: text("appId").notNull(),
   /** Installation timestamp */
-  installedAt: timestamp("installedAt").defaultNow().notNull(),
+  installedAt: integer("installedAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type UserApp = typeof userApps.$inferSelect;
@@ -74,12 +88,12 @@ export type InsertUserApp = typeof userApps.$inferInsert;
 /**
  * App version history - tracks all versions of custom apps for rollback capability
  */
-export const appVersions = mysqlTable("appVersions", {
-  id: int("id").autoincrement().primaryKey(),
+export const appVersions = sqliteTable("appVersions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** App ID this version belongs to */
-  appId: varchar("appId", { length: 64 }).notNull(),
+  appId: text("appId").notNull(),
   /** Version number (e.g., 1.0.0, 1.0.1, 2.0.0) */
-  version: varchar("version", { length: 32 }).notNull(),
+  version: text("version").notNull(),
   /** Python payload parser code for this version */
   parserCode: text("parserCode").notNull(),
   /** JSON schema defining data structure for this version */
@@ -87,13 +101,13 @@ export const appVersions = mysqlTable("appVersions", {
   /** UI layout configuration (JSON) for this version */
   uiSchema: text("uiSchema"),
   /** App name at this version */
-  name: varchar("name", { length: 255 }).notNull(),
+  name: text("name").notNull(),
   /** App description at this version */
   description: text("description"),
   /** User ID who created this version */
-  creatorId: int("creatorId").notNull(),
+  creatorId: integer("creatorId").notNull(),
   /** When this version was created */
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type AppVersion = typeof appVersions.$inferSelect;
@@ -102,16 +116,16 @@ export type InsertAppVersion = typeof appVersions.$inferInsert;
 /**
  * App data storage - stores parsed payload data for custom apps
  */
-export const appData = mysqlTable("appData", {
-  id: int("id").autoincrement().primaryKey(),
+export const appData = sqliteTable("appData", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** App ID that received the data */
-  appId: varchar("appId", { length: 64 }).notNull(),
+  appId: text("appId").notNull(),
   /** Parsed data (JSON) */
-  data: json("data").notNull(),
+  data: text("data", { mode: "json" }).notNull(),
   /** Original raw payload (JSON) */
-  rawPayload: json("rawPayload"),
+  rawPayload: text("rawPayload", { mode: "json" }),
   /** Timestamp when data was received */
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  timestamp: integer("timestamp", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type AppData = typeof appData.$inferSelect;
@@ -120,13 +134,13 @@ export type InsertAppData = typeof appData.$inferInsert;
 /**
  * Drones table - stores information about connected drones
  */
-export const drones = mysqlTable("drones", {
-  id: int("id").autoincrement().primaryKey(),
-  droneId: varchar("droneId", { length: 64 }).notNull().unique(),
+export const drones = sqliteTable("drones", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  droneId: text("droneId").notNull().unique(),
   name: text("name"),
-  lastSeen: timestamp("lastSeen").defaultNow().notNull(),
-  isActive: boolean("isActive").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastSeen: integer("lastSeen", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  isActive: integer("isActive", { mode: "boolean" }).default(true).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type Drone = typeof drones.$inferSelect;
@@ -135,15 +149,15 @@ export type InsertDrone = typeof drones.$inferInsert;
 /**
  * Point cloud scans table - stores metadata about each scan
  */
-export const scans = mysqlTable("scans", {
-  id: int("id").autoincrement().primaryKey(),
-  droneId: varchar("droneId", { length: 64 }).notNull(),
-  timestamp: timestamp("timestamp").notNull(),
-  pointCount: int("pointCount").notNull(),
-  minDistance: int("minDistance"),
-  maxDistance: int("maxDistance"),
-  avgQuality: int("avgQuality"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+export const scans = sqliteTable("scans", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  droneId: text("droneId").notNull(),
+  timestamp: integer("timestamp", { mode: "timestamp" }).notNull(),
+  pointCount: integer("pointCount").notNull(),
+  minDistance: integer("minDistance"),
+  maxDistance: integer("maxDistance"),
+  avgQuality: integer("avgQuality"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type Scan = typeof scans.$inferSelect;
@@ -152,13 +166,13 @@ export type InsertScan = typeof scans.$inferInsert;
 /**
  * API keys table - for authenticating incoming point cloud data
  */
-export const apiKeys = mysqlTable("apiKeys", {
-  id: int("id").autoincrement().primaryKey(),
-  key: varchar("key", { length: 64 }).notNull().unique(),
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+export const apiKeys = sqliteTable("apiKeys", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  key: text("key").notNull().unique(),
+  droneId: text("droneId").notNull(),
   description: text("description"),
-  isActive: boolean("isActive").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  isActive: integer("isActive", { mode: "boolean" }).default(true).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type ApiKey = typeof apiKeys.$inferSelect;
@@ -167,12 +181,12 @@ export type InsertApiKey = typeof apiKeys.$inferInsert;
 /**
  * Telemetry table - stores flight controller and battery telemetry
  */
-export const telemetry = mysqlTable("telemetry", {
-  id: int("id").autoincrement().primaryKey(),
-  droneId: varchar("droneId", { length: 64 }).notNull(),
-  timestamp: timestamp("timestamp").notNull(),
-  telemetryData: json("telemetryData").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+export const telemetry = sqliteTable("telemetry", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  droneId: text("droneId").notNull(),
+  timestamp: integer("timestamp", { mode: "timestamp" }).notNull(),
+  telemetryData: text("telemetryData", { mode: "json" }).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type Telemetry = typeof telemetry.$inferSelect;
@@ -182,38 +196,38 @@ export type InsertTelemetry = typeof telemetry.$inferInsert;
  * Drone jobs table - stores pending tasks for drones to execute
  * Used for two-way communication: Hub → Pi
  */
-export const droneJobs = mysqlTable("droneJobs", {
-  id: int("id").autoincrement().primaryKey(),
+export const droneJobs = sqliteTable("droneJobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Drone ID this job is for */
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+  droneId: text("droneId").notNull(),
   /** Job type: upload_file, update_config, restart_service, etc. */
-  type: varchar("type", { length: 64 }).notNull(),
+  type: text("type").notNull(),
   /** Job payload (JSON) - contains type-specific data */
-  payload: json("payload").notNull(),
+  payload: text("payload", { mode: "json" }).notNull(),
   /** Job status: pending, in_progress, completed, failed, expired */
-  status: mysqlEnum("status", ["pending", "in_progress", "completed", "failed", "expired"]).default("pending").notNull(),
+  status: text("status", { enum: ["pending", "in_progress", "completed", "failed", "expired"] }).default("pending").notNull(),
   /** Error message if job failed */
   errorMessage: text("errorMessage"),
   /** When job was created */
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   /** When job was acknowledged by drone */
-  acknowledgedAt: timestamp("acknowledgedAt"),
+  acknowledgedAt: integer("acknowledgedAt", { mode: "timestamp" }),
   /** When job was completed */
-  completedAt: timestamp("completedAt"),
+  completedAt: integer("completedAt", { mode: "timestamp" }),
   /** User ID who created this job */
-  createdBy: int("createdBy").notNull(),
+  createdBy: integer("createdBy").notNull(),
 
   // ─── Job Reliability Fields ───────────────────────────────────────────
   /** Number of times this job has been retried after timeout/failure */
-  retryCount: int("retryCount").default(0).notNull(),
+  retryCount: integer("retryCount").default(0).notNull(),
   /** Maximum number of retries before marking as permanently failed */
-  maxRetries: int("maxRetries").default(3).notNull(),
+  maxRetries: integer("maxRetries").default(3).notNull(),
   /** Timeout in seconds — if acknowledged but not completed within this window, reaper resets it */
-  timeoutSeconds: int("timeoutSeconds").default(300).notNull(),
+  timeoutSeconds: integer("timeoutSeconds").default(300).notNull(),
   /** When this job expires and should no longer be executed (stale guard) */
-  expiresAt: timestamp("expiresAt"),
+  expiresAt: integer("expiresAt", { mode: "timestamp" }),
   /** Companion identifier that locked this job (mutex — prevents double-execution) */
-  lockedBy: varchar("lockedBy", { length: 128 }),
+  lockedBy: text("lockedBy"),
 });
 
 export type DroneJob = typeof droneJobs.$inferSelect;
@@ -222,28 +236,28 @@ export type InsertDroneJob = typeof droneJobs.$inferInsert;
 /**
  * Drone files table - stores uploaded files for drones to download
  */
-export const droneFiles = mysqlTable("droneFiles", {
-  id: int("id").autoincrement().primaryKey(),
+export const droneFiles = sqliteTable("droneFiles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Unique file identifier */
-  fileId: varchar("fileId", { length: 64 }).notNull().unique(),
+  fileId: text("fileId").notNull().unique(),
   /** Original filename */
-  filename: varchar("filename", { length: 255 }).notNull(),
+  filename: text("filename").notNull(),
   /** File MIME type */
-  mimeType: varchar("mimeType", { length: 128 }),
+  mimeType: text("mimeType"),
   /** File size in bytes */
-  fileSize: int("fileSize").notNull(),
-  /** S3 storage key */
-  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  fileSize: integer("fileSize").notNull(),
+  /** Local/object storage key */
+  storageKey: text("storageKey").notNull(),
   /** Public URL for download */
-  url: varchar("url", { length: 1024 }).notNull(),
+  url: text("url").notNull(),
   /** Drone ID this file is for (null = available to all) */
-  droneId: varchar("droneId", { length: 64 }),
+  droneId: text("droneId"),
   /** File description */
   description: text("description"),
   /** User ID who uploaded this file */
-  uploadedBy: int("uploadedBy").notNull(),
+  uploadedBy: integer("uploadedBy").notNull(),
   /** When file was uploaded */
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type DroneFile = typeof droneFiles.$inferSelect;
@@ -251,34 +265,34 @@ export type InsertDroneFile = typeof droneFiles.$inferInsert;
 
 /**
  * Flight logs table - stores ArduPilot .BIN/.log file metadata for the Flight Analytics app.
- * Actual file bytes live in S3; this table holds only references and summary info.
+ * Actual file bytes live in object/local storage; this table holds only references and summary info.
  */
-export const flightLogs = mysqlTable("flightLogs", {
-  id: int("id").autoincrement().primaryKey(),
+export const flightLogs = sqliteTable("flightLogs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Drone this log belongs to */
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+  droneId: text("droneId").notNull(),
   /** Original filename as uploaded */
-  filename: varchar("filename", { length: 255 }).notNull(),
+  filename: text("filename").notNull(),
   /** File size in bytes */
-  fileSize: int("fileSize").notNull(),
-  /** S3 storage key */
-  storageKey: varchar("storageKey", { length: 512 }).notNull(),
-  /** Public S3 URL for download / client-side parsing */
-  url: varchar("url", { length: 1024 }).notNull(),
+  fileSize: integer("fileSize").notNull(),
+  /** Storage key */
+  storageKey: text("storageKey").notNull(),
+  /** Public URL for download / client-side parsing */
+  url: text("url").notNull(),
   /** File format: bin or log */
-  format: mysqlEnum("format", ["bin", "log"]).notNull(),
+  format: text("format", { enum: ["bin", "log"] }).notNull(),
   /** Optional user-provided description or notes */
   description: text("description"),
-  /** Optional associated markdown notes file URL (S3) */
-  notesUrl: varchar("notesUrl", { length: 1024 }),
-  /** Optional associated media URLs (JSON array of S3 URLs) */
-  mediaUrls: json("mediaUrls"),
+  /** Optional associated markdown notes file URL */
+  notesUrl: text("notesUrl"),
+  /** Optional associated media URLs (JSON array of URLs) */
+  mediaUrls: text("mediaUrls", { mode: "json" }),
   /** Upload source: manual (UI) or api (REST endpoint from Pi) */
-  uploadSource: mysqlEnum("uploadSource", ["manual", "api"]).default("manual").notNull(),
+  uploadSource: text("uploadSource", { enum: ["manual", "api"] }).default("manual").notNull(),
   /** User ID who uploaded (null if uploaded via API) */
-  uploadedBy: int("uploadedBy"),
+  uploadedBy: integer("uploadedBy"),
   /** When the log was uploaded */
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type FlightLog = typeof flightLogs.$inferSelect;
@@ -286,34 +300,34 @@ export type InsertFlightLog = typeof flightLogs.$inferInsert;
 
 /**
  * FC logs table - tracks flight controller log files discovered and downloaded via MAVFTP.
- * The companion script lists logs on the FC SD card, downloads them, and uploads to S3.
+ * The companion script lists logs on the FC SD card, downloads them, and uploads to storage.
  */
-export const fcLogs = mysqlTable("fcLogs", {
-  id: int("id").autoincrement().primaryKey(),
+export const fcLogs = sqliteTable("fcLogs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Drone this log belongs to */
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+  droneId: text("droneId").notNull(),
   /** Remote file path on FC SD card (e.g. /APM/LOGS/00000042.BIN) */
-  remotePath: varchar("remotePath", { length: 512 }).notNull(),
+  remotePath: text("remotePath").notNull(),
   /** Original filename */
-  filename: varchar("filename", { length: 255 }).notNull(),
+  filename: text("filename").notNull(),
   /** File size in bytes on the FC */
-  fileSize: int("fileSize"),
+  fileSize: integer("fileSize"),
   /** Download status */
-  status: mysqlEnum("status", ["discovered", "downloading", "uploading", "completed", "failed"]).default("discovered").notNull(),
+  status: text("status", { enum: ["discovered", "downloading", "uploading", "completed", "failed"] }).default("discovered").notNull(),
   /** Download progress percentage (0-100) */
-  progress: int("progress").default(0),
-  /** S3 storage key once uploaded */
-  storageKey: varchar("storageKey", { length: 512 }),
-  /** Public S3 URL once uploaded */
-  url: varchar("url", { length: 1024 }),
+  progress: integer("progress").default(0),
+  /** Storage key once uploaded */
+  storageKey: text("storageKey"),
+  /** Public URL once uploaded */
+  url: text("url"),
   /** Error message if download failed */
   errorMessage: text("errorMessage"),
   /** When the log was discovered on the FC */
-  discoveredAt: timestamp("discoveredAt").defaultNow().notNull(),
+  discoveredAt: integer("discoveredAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   /** When download completed */
-  downloadedAt: timestamp("downloadedAt"),
-  /** SHA-256 hash of the downloaded file (computed after upload to S3) */
-  sha256Hash: varchar("sha256Hash", { length: 64 }),
+  downloadedAt: integer("downloadedAt", { mode: "timestamp" }),
+  /** SHA-256 hash of the downloaded file (computed after upload to storage) */
+  sha256Hash: text("sha256Hash"),
 });
 
 export type FcLog = typeof fcLogs.$inferSelect;
@@ -321,40 +335,40 @@ export type InsertFcLog = typeof fcLogs.$inferInsert;
 
 /**
  * Firmware updates table - tracks OTA firmware upload and flash operations.
- * Firmware .abin files are uploaded to S3, then pushed to the FC via MAVFTP.
+ * Firmware .abin files are uploaded to storage, then pushed to the FC via MAVFTP.
  */
-export const firmwareUpdates = mysqlTable("firmwareUpdates", {
-  id: int("id").autoincrement().primaryKey(),
+export const firmwareUpdates = sqliteTable("firmwareUpdates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Drone this update targets */
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+  droneId: text("droneId").notNull(),
   /** Firmware filename (e.g. arducopter.abin) */
-  filename: varchar("filename", { length: 255 }).notNull(),
+  filename: text("filename").notNull(),
   /** File size in bytes */
-  fileSize: int("fileSize").notNull(),
-  /** S3 storage key */
-  storageKey: varchar("storageKey", { length: 512 }).notNull(),
-  /** Public S3 URL for download */
-  url: varchar("url", { length: 1024 }).notNull(),
+  fileSize: integer("fileSize").notNull(),
+  /** Storage key */
+  storageKey: text("storageKey").notNull(),
+  /** Public URL for download */
+  url: text("url").notNull(),
   /** Overall status */
-  status: mysqlEnum("status", ["uploaded", "queued", "transferring", "flashing", "verifying", "completed", "failed"]).default("uploaded").notNull(),
+  status: text("status", { enum: ["uploaded", "queued", "transferring", "flashing", "verifying", "completed", "failed"] }).default("uploaded").notNull(),
   /** ArduPilot flash stage based on file rename (ardupilot.abin → ardupilot-verify.abin → etc.) */
-  flashStage: varchar("flashStage", { length: 64 }),
+  flashStage: text("flashStage"),
   /** Transfer/flash progress percentage (0-100) */
-  progress: int("progress").default(0),
+  progress: integer("progress").default(0),
   /** Error message if update failed */
   errorMessage: text("errorMessage"),
   /** User who initiated the update */
-  initiatedBy: int("initiatedBy"),
+  initiatedBy: integer("initiatedBy"),
   /** When the firmware was uploaded */
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   /** When the flash started */
-  startedAt: timestamp("startedAt"),
+  startedAt: integer("startedAt", { mode: "timestamp" }),
   /** When the flash completed */
-  completedAt: timestamp("completedAt"),
+  completedAt: integer("completedAt", { mode: "timestamp" }),
   /** SHA-256 hash of the firmware binary (computed at upload, verified before flash) */
-  sha256Hash: varchar("sha256Hash", { length: 64 }),
+  sha256Hash: text("sha256Hash"),
   /** Confirmed firmware version after flash (e.g. "4.5.7 (d940850a)") — set by post-reboot AUTOPILOT_VERSION readback */
-  firmwareVersion: varchar("firmwareVersion", { length: 128 }),
+  firmwareVersion: text("firmwareVersion"),
 });
 
 export type FirmwareUpdate = typeof firmwareUpdates.$inferSelect;
@@ -364,26 +378,26 @@ export type InsertFirmwareUpdate = typeof firmwareUpdates.$inferInsert;
  * System diagnostics table - stores periodic health snapshots from companion computers.
  * Pi reports CPU, memory, disk, temperature, and service status.
  */
-export const systemDiagnostics = mysqlTable("systemDiagnostics", {
-  id: int("id").autoincrement().primaryKey(),
+export const systemDiagnostics = sqliteTable("systemDiagnostics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   /** Drone/companion this diagnostic belongs to */
-  droneId: varchar("droneId", { length: 64 }).notNull(),
+  droneId: text("droneId").notNull(),
   /** CPU usage percentage */
-  cpuPercent: int("cpuPercent"),
+  cpuPercent: integer("cpuPercent"),
   /** Memory usage percentage */
-  memoryPercent: int("memoryPercent"),
+  memoryPercent: integer("memoryPercent"),
   /** Disk usage percentage */
-  diskPercent: int("diskPercent"),
+  diskPercent: integer("diskPercent"),
   /** CPU temperature in Celsius */
-  cpuTempC: int("cpuTempC"),
+  cpuTempC: integer("cpuTempC"),
   /** Uptime in seconds */
-  uptimeSeconds: int("uptimeSeconds"),
+  uptimeSeconds: integer("uptimeSeconds"),
   /** Service statuses (JSON: {serviceName: "active"|"inactive"|"failed"}) */
-  services: json("services"),
+  services: text("services", { mode: "json" }),
   /** Network info (JSON: {interface: {ip, rx_bytes, tx_bytes}}) */
-  network: json("network"),
+  network: text("network", { mode: "json" }),
   /** When this snapshot was taken */
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  timestamp: integer("timestamp", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type SystemDiagnostic = typeof systemDiagnostics.$inferSelect;

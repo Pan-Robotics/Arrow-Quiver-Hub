@@ -193,7 +193,7 @@ describe("Logs & OTA Updates - Database Schema", () => {
   const source = fs.readFileSync("./drizzle/schema.ts", "utf-8");
 
   it("defines fcLogs table with required columns", () => {
-    expect(source).toContain('fcLogs = mysqlTable("fcLogs"');
+    expect(source).toContain('fcLogs = sqliteTable("fcLogs"');
     expect(source).toContain("droneId");
     expect(source).toContain("remotePath");
     expect(source).toContain("filename");
@@ -204,21 +204,21 @@ describe("Logs & OTA Updates - Database Schema", () => {
   });
 
   it("defines fcLogs status enum with correct values", () => {
-    expect(source).toMatch(/mysqlEnum.*"discovered".*"downloading".*"uploading".*"completed".*"failed"/);
+    expect(source).toMatch(/enum.*"discovered".*"downloading".*"uploading".*"completed".*"failed"/);
   });
 
   it("defines firmwareUpdates table with required columns", () => {
-    expect(source).toContain('firmwareUpdates = mysqlTable("firmwareUpdates"');
+    expect(source).toContain('firmwareUpdates = sqliteTable("firmwareUpdates"');
     expect(source).toContain("flashStage");
     expect(source).toContain("initiatedBy");
   });
 
   it("defines firmwareUpdates status enum with correct values", () => {
-    expect(source).toMatch(/mysqlEnum.*"uploaded".*"queued".*"transferring".*"flashing".*"verifying".*"completed".*"failed"/);
+    expect(source).toMatch(/enum.*"uploaded".*"queued".*"transferring".*"flashing".*"verifying".*"completed".*"failed"/);
   });
 
   it("defines systemDiagnostics table with required columns", () => {
-    expect(source).toContain('systemDiagnostics = mysqlTable("systemDiagnostics"');
+    expect(source).toContain('systemDiagnostics = sqliteTable("systemDiagnostics"');
     expect(source).toContain("cpuPercent");
     expect(source).toContain("memoryPercent");
     expect(source).toContain("diskPercent");
@@ -526,8 +526,8 @@ describe("FC Log Download Proxy - REST API", () => {
     expect(source).toContain("router.get");
   });
 
-  it("authenticates via session cookie using sdk.authenticateRequest", () => {
-    expect(source).toContain("sdk.authenticateRequest(req)");
+  it("gates the download on the local user (single-user local mode)", () => {
+    expect(source).toContain("getLocalUser()");
     expect(source).toContain("Authentication required");
   });
 
@@ -557,16 +557,14 @@ describe("FC Log Download Proxy - REST API", () => {
     expect(source).toContain('"application/octet-stream"');
   });
 
-  it("forwards Content-Length from upstream", () => {
-    expect(source).toContain('upstream.headers.get("content-length")');
+  it("sets Content-Length from the file size on disk", () => {
+    expect(source).toContain("statSync(filePath).size");
     expect(source).toContain('"Content-Length"');
   });
 
-  it("streams the S3 response body to the browser", () => {
-    expect(source).toContain("upstream.body");
-    expect(source).toContain("reader.read()");
-    expect(source).toContain("res.write(value)");
-    expect(source).toContain("res.end()");
+  it("streams the file from local storage to the browser", () => {
+    expect(source).toContain("createReadStream(filePath)");
+    expect(source).toContain(".pipe(res)");
   });
 
   it("sanitizes filename to prevent header injection", () => {
@@ -574,17 +572,18 @@ describe("FC Log Download Proxy - REST API", () => {
     expect(source).toContain(".replace(/[^a-zA-Z0-9._-]/g");
   });
 
-  it("has a 2 minute timeout for large file downloads", () => {
-    expect(source).toContain("AbortSignal.timeout(120_000)");
+  it("resolves the file on disk via the storage key", () => {
+    expect(source).toContain("storageResolvePath(fcLog.storageKey)");
   });
 
-  it("handles upstream S3 errors gracefully", () => {
-    expect(source).toContain("upstream.ok");
-    expect(source).toContain("Storage returned");
+  it("returns 404 when the file is missing on disk", () => {
+    expect(source).toContain("existsSync(filePath)");
+    expect(source).toContain("not found on disk");
   });
 
-  it("imports sdk from _core/sdk", () => {
-    expect(source).toContain('import { sdk } from "./_core/sdk"');
+  it("imports getLocalUser from ./db for local-mode auth", () => {
+    expect(source).toContain("getLocalUser");
+    expect(source).toContain('from "./db"');
   });
 });
 
@@ -2622,11 +2621,11 @@ describe("firmwareUpdates schema - firmwareVersion column", () => {
 
   it("has firmwareVersion column in firmwareUpdates table", () => {
     expect(schema).toContain("firmwareVersion");
-    expect(schema).toContain('varchar("firmwareVersion"');
+    expect(schema).toContain('text("firmwareVersion"');
   });
 
   it("firmwareVersion column allows null (optional)", () => {
-    // varchar without .notNull() is nullable by default
+    // text without .notNull() is nullable by default
     const fwVersionLine = schema.split("\n").find(l => l.includes('firmwareVersion'));
     expect(fwVersionLine).toBeDefined();
     expect(fwVersionLine).not.toContain(".notNull()");

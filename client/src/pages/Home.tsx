@@ -2,7 +2,7 @@ import { useState } from "react";
 // Quiver Hub branding
 const HUB_TITLE = "Quiver Hub";
 const HUB_SUBTITLE = "UAV Data Pipeline Platform";
-const QUIVER_LOGO = "https://files.manuscdn.com/user_upload_by_module/session_file/104102086/pvNNZkXlGeFWOKMU.png";
+const QUIVER_LOGO = "/quiver-logo.png";
 import { Radio, Gauge, Package, Sparkles, Settings, Camera, ScrollText, Map, BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import AppSidebar, { App } from "@/components/AppSidebar";

@@ -23,16 +23,16 @@ FC Log Pipeline (new — avoids blocking MAVLink/TCP):
   3. Downloads new .BIN files via HTTP to local store (/var/lib/quiver/fc_logs/)
   4. Maintains a JSON manifest for incremental sync (If-Modified-Since)
   5. scan_fc_logs job → reads from local manifest (instant, no FC access)
-  6. download_fc_log job → reads from local store → uploads to Hub S3
+  6. download_fc_log job → reads from local store → uploads to Hub storage
 
 Job types handled (polled from Hub droneJobs queue):
   - scan_fc_logs     → list locally-cached logs from manifest
-  - download_fc_log  → serve a cached .BIN file from local store → Hub S3
+  - download_fc_log  → serve a cached .BIN file from local store → Hub storage
   - flash_firmware   → upload .abin to FC and monitor flash stages
 
 Usage:
     python3 logs_ota_service.py \\
-        --hub-url https://your-hub.manus.space \\
+        --hub-url http://<hub-host>:3000 \\
         --drone-id quiver_001 \\
         --api-key YOUR_API_KEY \\
         --fc-connection serial:///dev/ttyAMA1:921600
@@ -2971,21 +2971,21 @@ def main():
 Examples:
   # Serial connection (TELEM port at 921600 baud)
   python3 logs_ota_service.py \\
-      --hub-url https://your-hub.manus.space \\
+      --hub-url http://<hub-host>:3000 \\
       --drone-id quiver_001 \\
       --api-key YOUR_KEY \\
       --fc-connection serial:///dev/ttyAMA1:921600
 
   # Ethernet connection (preferred — faster MAVFTP)
   python3 logs_ota_service.py \\
-      --hub-url https://your-hub.manus.space \\
+      --hub-url http://<hub-host>:3000 \\
       --drone-id quiver_001 \\
       --api-key YOUR_KEY \\
       --fc-connection udp://:14540
 
   # Diagnostics only (no FC connection)
   python3 logs_ota_service.py \\
-      --hub-url https://your-hub.manus.space \\
+      --hub-url http://<hub-host>:3000 \\
       --drone-id quiver_001 \\
       --api-key YOUR_KEY \\
       --no-fc

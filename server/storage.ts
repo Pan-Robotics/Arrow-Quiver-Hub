@@ -1,202 +1,96 @@
-// Preconfigured storage helpers for Manus WebDev templates
-// Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
+// Local filesystem storage for the Quiver Hub local app.
+//
+// Files are written under a local storage root (default: <cwd>/data/storage,
+// override with STORAGE_DIR) and served back by the /files/* route registered in
+// server/_core/storageProxy.ts.
 
-import { ENV } from './_core/env';
-import FormData from 'form-data';
-import axios from 'axios';
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
-// Add request interceptor for debugging
-axios.interceptors.request.use(
-  (config) => {
-    if (config.url?.includes('/storage/')) {
-      console.log('[Storage Request]', {
-        method: config.method,
-        url: config.url,
-        hasAuth: !!config.headers?.Authorization,
-        authPrefix: config.headers?.Authorization?.toString().substring(0, 20) + '...',
-        contentType: config.headers?.['Content-Type'],
-      });
-    }
-    return config;
-  },
-  (error) => {
-    console.error('[Storage Request Error]', error);
-    return Promise.reject(error);
-  }
-);
-
-// Add response interceptor for debugging
-axios.interceptors.response.use(
-  (response) => {
-    if (response.config.url?.includes('/storage/')) {
-      console.log('[Storage Response]', {
-        status: response.status,
-        statusText: response.statusText,
-        url: response.config.url,
-      });
-    }
-    return response;
-  },
-  (error) => {
-    if (error.config?.url?.includes('/storage/')) {
-      console.error('[Storage Response Error]', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        url: error.config?.url,
-        data: error.response?.data,
-      });
-    }
-    return Promise.reject(error);
-  }
-);
-
-type StorageConfig = { baseUrl: string; apiKey: string };
-
-function getStorageConfig(): StorageConfig {
-  const baseUrl = ENV.forgeApiUrl;
-  const apiKey = ENV.forgeApiKey;
-
-  if (!baseUrl || !apiKey) {
-    throw new Error(
-      "Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
-    );
-  }
-
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
+/** Absolute path of the local storage root. */
+export function storageRoot(): string {
+  const override = process.env.STORAGE_DIR?.trim();
+  return override
+    ? path.resolve(override)
+    : path.resolve(process.cwd(), "data", "storage");
 }
 
-function buildUploadUrl(baseUrl: string, relKey: string): URL {
-  const url = new URL("v1/storage/upload", ensureTrailingSlash(baseUrl));
-  url.searchParams.set("path", normalizeKey(relKey));
-  return url;
-}
-
-async function buildDownloadUrl(
-  baseUrl: string,
-  relKey: string,
-  apiKey: string
-): Promise<string> {
-  const downloadApiUrl = new URL(
-    "v1/storage/downloadUrl",
-    ensureTrailingSlash(baseUrl)
-  );
-  downloadApiUrl.searchParams.set("path", normalizeKey(relKey));
-  const response = await fetch(downloadApiUrl, {
-    method: "GET",
-    headers: buildAuthHeaders(apiKey),
-  });
-  return (await response.json()).url;
-}
-
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
+/** Strip leading slashes so keys are always relative to the storage root. */
 function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "");
 }
 
-function toFormData(
-  data: Buffer | Uint8Array | string,
-  contentType: string,
-  fileName: string
-): FormData {
-  const form = new FormData();
-  const buffer = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
-  form.append("file", buffer, {
-    filename: fileName || "file",
-    contentType: contentType,
-  });
-  return form;
+/**
+ * Resolve a storage key to an absolute on-disk path, guarding against path
+ * traversal (keys must stay inside the storage root).
+ */
+export function storageResolvePath(relKey: string): string {
+  const key = normalizeKey(relKey);
+  const root = storageRoot();
+  const full = path.resolve(root, key);
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    throw new Error(`Invalid storage key: ${relKey}`);
+  }
+  return full;
 }
 
-function buildAuthHeaders(apiKey: string): HeadersInit {
-  return { Authorization: `Bearer ${apiKey}` };
+/** Public URL (relative to the hub origin) that serves a stored object. */
+export function storagePublicPath(relKey: string): string {
+  return `/files/${normalizeKey(relKey)}`;
 }
 
+/**
+ * Turn a relative storage path (e.g. "/files/...") into an absolute URL that a
+ * companion computer can fetch over the network. Already-absolute URLs are
+ * returned unchanged. Resolution order: PUBLIC_BASE_URL env → the incoming
+ * request host → http://localhost:<PORT>.
+ */
+export function toPublicUrl(
+  relOrAbsUrl: string,
+  req?: { protocol?: string; get?: (header: string) => string | undefined }
+): string {
+  if (/^https?:\/\//i.test(relOrAbsUrl)) return relOrAbsUrl;
+
+  const fromReq =
+    req?.get?.("host") ? `${req.protocol || "http"}://${req.get("host")}` : "";
+  const base =
+    process.env.PUBLIC_BASE_URL?.trim() ||
+    fromReq ||
+    `http://localhost:${process.env.PORT || "3000"}`;
+
+  const sep = relOrAbsUrl.startsWith("/") ? "" : "/";
+  return `${base.replace(/\/+$/, "")}${sep}${relOrAbsUrl}`;
+}
+
+/**
+ * Write an object to local storage and return its key and public (relative) URL.
+ * `contentType` is accepted for signature compatibility; the served Content-Type
+ * is inferred from the file extension at serve time.
+ */
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
-  contentType = "application/octet-stream",
-  maxRetries = 3
+  _contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
-  const uploadUrl = buildUploadUrl(baseUrl, key);
-  const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
-
-  console.log('[Storage] Upload attempt:', {
-    url: uploadUrl.toString(),
-    key,
-    contentType,
-    dataSize: Buffer.byteLength(typeof data === 'string' ? data : Buffer.from(data)),
-    hasApiKey: !!apiKey,
-    apiKeyPrefix: apiKey.substring(0, 10) + '...',
-  });
-
-  let lastError: any;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await axios.post(uploadUrl.toString(), formData, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...formData.getHeaders(),
-        },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        timeout: 30000, // 30 second timeout
-      });
-
-      const url = response.data.url;
-      console.log('[Storage] Upload successful:', { key, url, attempt });
-      return { key, url };
-    } catch (error: any) {
-      lastError = error;
-      const status = error.response?.status || 500;
-      const statusText = error.response?.statusText || 'Unknown Error';
-      const message = error.response?.data ? 
-        (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data)) :
-        error.message;
-      
-      console.error(`[Storage] Upload failed (attempt ${attempt}/${maxRetries}):`, {
-        status,
-        statusText,
-        url: uploadUrl.toString(),
-        message: message.substring(0, 500),
-      });
-      
-      // Don't retry on client errors (4xx) except 408 (timeout) and 429 (rate limit)
-      if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
-        break;
-      }
-      
-      // Wait before retrying (exponential backoff)
-      if (attempt < maxRetries) {
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-        console.log(`[Storage] Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  
-  // All retries failed
-  const status = lastError.response?.status || 500;
-  const statusText = lastError.response?.statusText || 'Unknown Error';
-  const message = lastError.response?.data ? 
-    (typeof lastError.response.data === 'string' ? lastError.response.data : JSON.stringify(lastError.response.data)) :
-    lastError.message;
-  
-  throw new Error(
-    `Storage upload failed after ${maxRetries} attempts (${status} ${statusText}): ${message}`
-  );
+  const full = storageResolvePath(key);
+  await mkdir(path.dirname(full), { recursive: true });
+  const buffer = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
+  await writeFile(full, buffer);
+  return { key, url: storagePublicPath(key) };
 }
 
-export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
-  const { baseUrl, apiKey } = getStorageConfig();
+/** Return the key and public (relative) URL for an existing object. */
+export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
   const key = normalizeKey(relKey);
-  return {
-    key,
-    url: await buildDownloadUrl(baseUrl, key, apiKey),
-  };
+  return { key, url: storagePublicPath(key) };
+}
+
+/**
+ * Read a stored object straight from disk. Server-side code must use this rather
+ * than fetch()ing the object's URL: stored URLs are relative ("/files/...") and
+ * are only resolvable by a browser or, once made absolute, a companion computer.
+ */
+export async function storageRead(relKey: string): Promise<Buffer> {
+  return readFile(storageResolvePath(relKey));
 }

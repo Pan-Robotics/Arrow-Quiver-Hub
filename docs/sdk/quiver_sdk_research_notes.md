@@ -44,7 +44,7 @@ Web server with API endpoints from every Quiver unit and "App Store" interface
 1. Flight Controller → Battery (UAVCAN) → Companion Computer (4G HTTP POST) → Quiver Hub → Display
 2. RPLidar → Raspberry Pi → Attachment Interface (Ethernet TCP/UDP) → Companion Computer (HTTP POST) → Web Portal → Live Visualization
 
-**Current Implementation:** https://rplidar-viz-cjlhozxe.manus.space/
+**Current Implementation:** the RPLidar app inside Quiver Hub (run locally; the original hosted prototype is gone)
 
 #### 4. Companion Computer Command Center
 - Triggers programs using MAVSDK communication
@@ -189,7 +189,7 @@ Web server with API endpoints from every Quiver unit and "App Store" interface
 - project-quiver-contract_Alex
 - Quiver Payload Integration Guide.pptx
 - Quiver Companion Computer
-- Mock Quiver Product Brochure: https://quiverbroch-hgorkv9y.manus.space/
+- Mock Quiver Product Brochure: (hosted prototype, no longer online)
 - Plugin Setup Repo: https://github.com/ArduPilot/MissionPlanner/tree/master/Plugins
 - Template Repo: https://github.com/Pan-Robotics/quiver-mission-planner-plugin
 - Plugin Repo: https://github.com/Pan-Robotics/quiver-payload-template (empty)

@@ -103,8 +103,12 @@ temp/
 
 # Database
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
+# Local Hub data directory (SQLite database + uploaded files, created at runtime)
+data/
 .project-config.json
 
 # Companion runtime artifacts (generated on the target computer)

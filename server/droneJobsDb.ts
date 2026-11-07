@@ -1,4 +1,4 @@
-import { eq, and, desc, lt, isNull, or, sql } from "drizzle-orm";
+import { eq, and, desc, lt, gt, isNull, or } from "drizzle-orm";
 import { droneJobs, droneFiles, InsertDroneJob, InsertDroneFile } from "../drizzle/schema";
 import { getDb } from "./db";
 
@@ -30,7 +30,7 @@ export async function getPendingJobsForDrone(droneId: string) {
         eq(droneJobs.droneId, droneId),
         eq(droneJobs.status, "pending"),
         // Only return non-expired jobs (expiresAt is null OR expiresAt > now)
-        or(isNull(droneJobs.expiresAt), sql`${droneJobs.expiresAt} > ${now}`)
+        or(isNull(droneJobs.expiresAt), gt(droneJobs.expiresAt, now))
       )
     )
     .orderBy(droneJobs.createdAt);
@@ -62,9 +62,10 @@ export async function acknowledgeJob(jobId: number, lockedBy?: string) {
       )
     );
 
-  // Check if the update actually affected a row (MySQL affectedRows)
-  const affectedRows = (result as any)?.[0]?.affectedRows ?? (result as any)?.rowCount ?? 1;
-  return affectedRows > 0;
+  // Check if the update actually affected a row. better-sqlite3 returns { changes }.
+  // (Atomic CAS: changes === 0 means another companion already locked this job.)
+  const changes = (result as any)?.changes ?? 0;
+  return changes > 0;
 }
 
 /**

@@ -19,12 +19,12 @@ The core finding is that all three models are useful and should be implemented, 
 
 ### 2.1 Job Lifecycle
 
-The job pipeline follows a five-stage lifecycle: **created → pending → acknowledged → completed/failed**. The web UI creates jobs via tRPC mutations, which insert rows into the `droneJobs` MySQL table. Companion scripts poll the Hub's REST endpoint (`GET /api/rest/jobs/pending`) every few seconds, acknowledge jobs they intend to process, execute them, and report completion or failure back to the Hub.
+The job pipeline follows a five-stage lifecycle: **created → pending → acknowledged → completed/failed**. The web UI creates jobs via tRPC mutations, which insert rows into the `droneJobs` SQLite table. Companion scripts poll the Hub's REST endpoint (`GET /api/rest/jobs/pending`) every few seconds, acknowledge jobs they intend to process, execute them, and report completion or failure back to the Hub.
 
 | Stage | Actor | Mechanism |
 |-------|-------|-----------|
 | Creation | Web UI (admin user) | tRPC mutation → `createDroneJob()` |
-| Queuing | Hub server | MySQL `droneJobs` table, status = `pending` |
+| Queuing | Hub server | SQLite `droneJobs` table, status = `pending` |
 | Polling | Companion script | REST `GET /api/rest/jobs/pending` with API key |
 | Acknowledgment | Companion script | REST `POST /api/rest/jobs/{id}/acknowledge` |
 | Execution | Companion script | Local handler (MAVFTP, file download, config write) |
@@ -48,7 +48,7 @@ The system already implements several security measures. Every REST endpoint val
 
 However, several gaps exist. The `createJob` tRPC mutation accepts `type: z.string()` and `payload: z.any()` — meaning any authenticated user can create a job with an arbitrary type string and an unconstrained payload object. There is no per-user permission model distinguishing who can flash firmware versus who can only scan logs. There is no retry mechanism for failed jobs, and no timeout for jobs that get stuck in the `acknowledged` state.
 
-**Note (April 2026 update):** SHA-256 hash verification for firmware files has since been implemented. The Hub computes a SHA-256 hash at upload time and stores it in the `firmwareUpdates` table. The companion script verifies the hash after downloading from S3 and before uploading to the FC. Additionally, the FC log upload pipeline now supports multipart form-data uploads (preferred) with base64 JSON fallback, and a session-authenticated download proxy (`GET /api/rest/logs/fc-download/:logId`) enables browser-based file download.
+**Note (April 2026 update):** SHA-256 hash verification for firmware files has since been implemented. The Hub computes a SHA-256 hash at upload time and stores it in the `firmwareUpdates` table. The companion script verifies the hash after downloading from the Hub and before uploading to the FC. Additionally, the FC log upload pipeline now supports multipart form-data uploads (preferred) with base64 JSON fallback, and a session-authenticated download proxy (`GET /api/rest/logs/fc-download/:logId`) enables browser-based file download.
 
 ---
 
@@ -56,9 +56,9 @@ However, several gaps exist. The `createJob` tRPC mutation accepts `type: z.stri
 
 ### 3.1 Is It Useful Here?
 
-**Yes — this is the highest-priority improvement.** The `flash_firmware` job downloads a `.abin` file from S3 and uploads it to the flight controller's SD card. If the file is corrupted during transfer, truncated, or tampered with, the consequences range from a failed flash (recoverable) to a bricked autopilot (potentially unrecoverable without physical access). The OWASP Drone Security Cheat Sheet identifies firmware integrity as a critical control, recommending that "firmware and configuration updates are signed with cryptographic signatures" and verified before application [1]. ArduPilot itself supports tamperproof firmware via signed bootloaders and ECDSA key pairs [2], but this operates at the FC bootloader level — it does not protect against corrupted files being written to the SD card in the first place.
+**Yes — this is the highest-priority improvement.** The `flash_firmware` job downloads a `.abin` file from the Hub and uploads it to the flight controller's SD card. If the file is corrupted during transfer, truncated, or tampered with, the consequences range from a failed flash (recoverable) to a bricked autopilot (potentially unrecoverable without physical access). The OWASP Drone Security Cheat Sheet identifies firmware integrity as a critical control, recommending that "firmware and configuration updates are signed with cryptographic signatures" and verified before application [1]. ArduPilot itself supports tamperproof firmware via signed bootloaders and ECDSA key pairs [2], but this operates at the FC bootloader level — it does not protect against corrupted files being written to the SD card in the first place.
 
-The defence-in-depth principle applies here: the Hub should verify the artefact before dispatching the job, the companion script should verify it after downloading, and the FC's own bootloader provides the final check (if secure boot is enabled). Even without FC-level secure boot, the first two layers catch the most common failure modes: S3 transfer corruption and man-in-the-middle tampering.
+The defence-in-depth principle applies here: the Hub should verify the artefact before dispatching the job, the companion script should verify it after downloading, and the FC's own bootloader provides the final check (if secure boot is enabled). Even without FC-level secure boot, the first two layers catch the most common failure modes: transfer corruption and man-in-the-middle tampering.
 
 ### 3.2 Proposed Implementation
 
@@ -86,7 +86,7 @@ await createDroneJob({
 });
 ```
 
-**Step 3: Verify on the companion.** In `logs_ota_service.py`, after downloading the firmware file from S3, compute the SHA-256 hash and compare it to the expected hash from the job payload. If they do not match, fail the job immediately without uploading to the FC.
+**Step 3: Verify on the companion.** In `logs_ota_service.py`, after downloading the firmware file from the Hub, compute the SHA-256 hash and compare it to the expected hash from the job payload. If they do not match, fail the job immediately without uploading to the FC.
 
 ```python
 import hashlib
@@ -100,7 +100,7 @@ def verify_hash(data: bytes, expected_hash: str) -> bool:
 
 ### 3.3 What About Digital Signatures?
 
-Full ECDSA/RSA signing (where the Hub signs the firmware with a private key and the companion verifies with a public key) provides stronger guarantees than hash-only verification — it proves the file was produced by the Hub, not just that it was not corrupted. However, for the Quiver system, the threat model is primarily about accidental corruption rather than active adversaries injecting malicious firmware. The companion scripts communicate with the Hub over HTTPS (TLS), which already provides transport-level integrity and authentication. Adding SHA-256 hash verification catches the remaining edge cases (S3 storage corruption, partial downloads, CDN caching errors) without the operational complexity of key management.
+Full ECDSA/RSA signing (where the Hub signs the firmware with a private key and the companion verifies with a public key) provides stronger guarantees than hash-only verification — it proves the file was produced by the Hub, not just that it was not corrupted. However, for the Quiver system, the threat model is primarily about accidental corruption rather than active adversaries injecting malicious firmware. The companion scripts communicate with the Hub over HTTPS (TLS), which already provides transport-level integrity and authentication. Adding SHA-256 hash verification catches the remaining edge cases (Hub storage corruption, partial downloads, CDN caching errors) without the operational complexity of key management.
 
 If the fleet scales to production deployments where physical security of the companion computer cannot be guaranteed, or if firmware is distributed through untrusted channels, upgrading to ECDSA signatures would be warranted. The hash column provides a natural migration path — replace the SHA-256 hash with an ECDSA signature over the hash, and add the public key to the companion script's configuration.
 
@@ -173,7 +173,7 @@ const JOB_PAYLOAD_SCHEMAS = {
 } as const;
 ```
 
-**Step 4: Update the database schema (optional).** Change the `type` column from `varchar` to a MySQL enum to enforce the allow-list at the database level as well. This provides a final safety net even if the application layer is bypassed:
+**Step 4: Update the database schema (optional).** Change the `type` column from free text to a constrained enum to enforce the allow-list at the database level as well. This provides a final safety net even if the application layer is bypassed:
 
 ```sql
 ALTER TABLE droneJobs MODIFY COLUMN type ENUM(
@@ -279,7 +279,7 @@ The following table tracks the implementation status of each security model:
 | Priority | Model | Status | Implementation Details |
 |----------|-------|--------|------------------------|
 | **1** | Job allow-listing (Zod enum + typed payloads) | **Planned** | Not yet implemented. The `createJob` mutation still accepts `z.string()` for the type field. |
-| **2** | Artefact integrity (SHA-256 hash on firmware) | **Implemented** | SHA-256 computed at upload time (`routers.ts`), stored in `firmwareUpdates.sha256Hash`, included in `flash_firmware` job payload. Companion script verifies hash after S3 download, aborts with `hash_verification_failed` if mismatch. `fcLogs` table also has `sha256Hash` column. |
+| **2** | Artefact integrity (SHA-256 hash on firmware) | **Implemented** | SHA-256 computed at upload time (`routers.ts`), stored in `firmwareUpdates.sha256Hash`, included in `flash_firmware` job payload. Companion script verifies hash after downloading from the Hub, aborts with `hash_verification_failed` if mismatch. `fcLogs` table also has `sha256Hash` column. |
 | **3** | Job reliability (timeout reaper, retry, expiry, mutex) | **Implemented** | Schema columns added (`retryCount`, `maxRetries`, `expiresAt`, `lockedBy`, `lockedAt`, `timeoutSeconds`). Server-side reaper runs every 60s (`droneJobsDb.ts`). Mutex lock via atomic compare-and-swap on acknowledge. Both `logs_ota_service.py` and `raspberry_pi_client.py` send `lockedBy` companion identifier. Artefact cleanup in `finally` block. Superuser check at startup. |
 | **4** | Job permissions (role-based job creation) | **Planned** | Not yet implemented. The existing `role` field on `users` table supports the two-tier model described in Section 5.4. |
 

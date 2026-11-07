@@ -7,5 +7,5 @@ Results:
 - Date: 09/03/2025, 19:47:36
 - Charts visible: Attitude: Roll & Pitch, Attitude: Yaw, Rate: Roll & Pitch, Rate: Yaw (and more below)
 
-The root cause was the Manus preview proxy compressing the S3 binary response.
+The root cause was the former hosting platform's preview proxy compressing the binary storage response.
 The fix was to download the file via a server-side tRPC endpoint that returns base64-encoded data.

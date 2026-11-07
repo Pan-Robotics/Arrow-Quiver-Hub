@@ -1,80 +1,110 @@
 import { eq, desc, and } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, drones, InsertDrone, scans, InsertScan, apiKeys, InsertApiKey, telemetry, InsertTelemetry, flightLogs, InsertFlightLog } from "../drizzle/schema";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { User, users, drones, InsertDrone, scans, InsertScan, apiKeys, InsertApiKey, telemetry, InsertTelemetry, flightLogs, InsertFlightLog } from "../drizzle/schema";
 import { nanoid } from "nanoid";
-import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+/**
+ * Local single-user mode. The Hub has no login; every request is treated as this fixed admin "operator" account.
+ */
+export const LOCAL_USER_OPEN_ID = "local-admin";
+let _localUser: User | null = null;
+
+/**
+ * Resolve the local SQLite database file path.
+ * Defaults to <project>/data/quiver.db so the local app works with zero config.
+ * Override with DATABASE_URL (a plain filesystem path, or a "file:" / "sqlite:" URL).
+ */
+export function getDbPath(): string {
+  const raw = process.env.DATABASE_URL?.trim();
+  if (raw) {
+    // Accept file:./data/quiver.db, sqlite:quiver.db, or a bare path.
+    return raw.replace(/^file:/, "").replace(/^sqlite:(\/\/)?/, "");
+  }
+  return path.resolve(process.cwd(), "data", "quiver.db");
+}
+
+/**
+ * Lazily open the local SQLite database. Unlike the previous cloud setup, the
+ * database is always available locally — there is no "degraded, no DB" mode in
+ * normal operation, but callers still tolerate a null return for safety.
+ *
+ * Under Vitest we keep the legacy "no DB unless explicitly configured" behavior
+ * so pure-logic unit tests never touch the filesystem.
+ */
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (!_db) {
+    if (process.env.VITEST && !process.env.DATABASE_URL) {
+      return null;
+    }
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const dbPath = getDbPath();
+      mkdirSync(path.dirname(dbPath), { recursive: true });
+      const sqlite = new Database(dbPath);
+      sqlite.pragma("journal_mode = WAL");
+      sqlite.pragma("foreign_keys = ON");
+      _db = drizzle(sqlite);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.warn("[Database] Failed to open local SQLite database:", error);
       _db = null;
     }
   }
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
+/**
+ * Open the local database and apply any pending migrations. Idempotent — safe to
+ * call once at server startup. Creates the DB file and all tables on first run,
+ * making the local app work with zero manual setup.
+ */
+export async function migrateDb(): Promise<void> {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
+    console.warn("[Database] Skipping migrations: database not available");
     return;
   }
+  const migrationsFolder = path.resolve(process.cwd(), "drizzle");
+  migrate(db, { migrationsFolder });
+  await ensureLocalUser();
+  console.log(`[Database] SQLite ready at ${getDbPath()} (migrations applied)`);
+}
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
+/**
+ * Ensure the single local admin operator exists, returning it. Idempotent.
+ * Called at startup (after migrations) and lazily by getLocalUser().
+ */
+export async function ensureLocalUser(): Promise<User | null> {
+  const db = await getDb();
+  if (!db) return null;
 
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
+  await db
+    .insert(users)
+    .values({
+      openId: LOCAL_USER_OPEN_ID,
+      name: "Local Operator",
+      role: "admin",
+      lastSignedIn: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: users.openId,
+      set: { role: "admin", lastSignedIn: new Date() },
     });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+
+  _localUser = (await getUserByOpenId(LOCAL_USER_OPEN_ID)) ?? null;
+  return _localUser;
+}
+
+/**
+ * Return the single local admin operator (cached after first lookup).
+ */
+export async function getLocalUser(): Promise<User | null> {
+  if (_localUser) return _localUser;
+  return ensureLocalUser();
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -94,7 +124,8 @@ export async function upsertDrone(drone: InsertDrone) {
   const db = await getDb();
   if (!db) return null;
 
-  await db.insert(drones).values(drone).onDuplicateKeyUpdate({
+  await db.insert(drones).values(drone).onConflictDoUpdate({
+    target: drones.droneId,
     set: {
       lastSeen: drone.lastSeen || new Date(),
       isActive: true,

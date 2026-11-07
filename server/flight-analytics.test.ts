@@ -50,7 +50,7 @@ describe("Flight Analytics - Schema", () => {
   const schemaSrc = fs.readFileSync(schemaPath, "utf-8");
 
   it("defines flightLogs table", () => {
-    expect(schemaSrc).toContain("export const flightLogs = mysqlTable");
+    expect(schemaSrc).toContain("export const flightLogs = sqliteTable");
   });
 
   it("flightLogs has droneId column", () => {
@@ -103,7 +103,7 @@ describe("Flight Analytics - tRPC Procedures", () => {
     expect(routersSrc).toContain("content: z.string()");
   });
 
-  it("upload procedure stores to S3 via storagePut", () => {
+  it("upload procedure stores to local storage via storagePut", () => {
     expect(routersSrc).toContain("storagePut(fileKey, buffer");
   });
 
@@ -129,7 +129,7 @@ describe("Flight Analytics - REST API Endpoint", () => {
     expect(restSrc).toContain("validateApiKey");
   });
 
-  it("REST endpoint stores to S3", () => {
+  it("REST endpoint stores to local storage", () => {
     expect(restSrc).toContain("storagePut");
   });
 
