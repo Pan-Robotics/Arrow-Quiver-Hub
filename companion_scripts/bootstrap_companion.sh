@@ -19,7 +19,7 @@ set -euo pipefail
 
 BOOTSTRAP_VERSION=1
 DEFAULT_SERVICES="hub,telemetry,logs-ota"
-SUITE_REQUIRED="raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py firmware_puller.lua net_webserver_put.lua install_hub_client.sh install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh installer_common.sh companion_config.py companion-config.example quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service COMPANION_SERVICES.md OTA_Setup_Guide.md installer_support.py requirements-companion.txt diagnose_companion.sh repair_companion_services.sh update_companion_suite.sh bootstrap_companion.sh"
+SUITE_REQUIRED="raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py firmware_puller.lua net_webserver_put.lua install_hub_client.sh install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh installer_common.sh companion_config.py companion-config.example quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service COMPANION_SERVICES.md OTA_Setup_Guide.md installer_support.py requirements-companion.txt diagnose_companion.sh repair_companion_services.sh update_companion_suite.sh bootstrap_companion.sh hublink_service.py install_hublink.sh"
 
 HUB_URL=""; DRONE_ID=""; API_KEY="${API_KEY:-}"; API_KEY_PROMPT=false
 SERVICE_USER=""; INSTALL_DIR=""; SERVICES="$DEFAULT_SERVICES"; SOURCE="hub"
@@ -43,7 +43,8 @@ Placement:
   --set KEY=VALUE      Any other .env setting (repeatable), e.g. --set FC_CONNECTION=tcp
 
 What to install:
-  --services LIST      Comma list of hub,telemetry,logs-ota,camera (default: hub,telemetry,logs-ota)
+  --services LIST      Comma list of hub,telemetry,logs-ota,camera,hublink (default: hub,telemetry,logs-ota)
+                       hublink = pull-mode stream service (Hubs subscribe to this drone over the tailnet)
   --source hub|URL     Suite source: "hub" (default, from --hub-url) or a GitHub tree URL such as
                        https://github.com/Pan-Robotics/Arrow-Quiver-Hub/tree/<commit>/companion_scripts
   --disable-uavcan     Persist ENABLE_UAVCAN=false (FC-only telemetry) instead of aborting on a missing CAN bus
@@ -95,7 +96,7 @@ if [ "$DRY_RUN" = false ] && [ "$EUID" -ne 0 ]; then
 fi
 
 for service in ${SERVICES//,/ }; do
-    case "$service" in hub|telemetry|logs-ota|camera) ;; *) die "Unknown service '$service' in --services (hub,telemetry,logs-ota,camera)" 2 ;; esac
+    case "$service" in hub|telemetry|logs-ota|camera|hublink) ;; *) die "Unknown service '$service' in --services (hub,telemetry,logs-ota,camera,hublink)" 2 ;; esac
 done
 case ",$SERVICES," in *,hub,*) ;; *) SERVICES="hub,$SERVICES"; say "The Hub client suite is always installed first; services: $SERVICES" ;; esac
 [ "$TEST_SECONDS" -ge 1 ] && [ "$TEST_SECONDS" -le 300 ] 2>/dev/null || die "--test-run seconds must be 1..300" 2
@@ -202,7 +203,7 @@ if command -v tailscale >/dev/null 2>&1; then
 else
     say "Tailscale:     not installed (not required for hub/telemetry/logs-ota on the drone subnet)."
 fi
-for unit in quiver-hub-client telemetry-forwarder logs-ota go2rtc tailscale-funnel siyi-camera camera-stream; do
+for unit in quiver-hub-client telemetry-forwarder logs-ota hublink go2rtc tailscale-funnel siyi-camera camera-stream; do
     if systemctl list-unit-files "$unit.service" 2>/dev/null | grep -q "^$unit.service"; then
         say "Service:       $unit is $(systemctl is-enabled "$unit.service" 2>/dev/null || true)/$(systemctl is-active "$unit.service" 2>/dev/null || true)"
     fi
@@ -363,7 +364,8 @@ say "1. Seed $ENV_FILE (HUB_URL, WEB_SERVER_URL, DRONE_ID, API_KEY$([ "$ALLOW_IN
 say "2. install_hub_client.sh --local   (packages, suite -> $INSTALL_DIR, quiver-hub-client unit)"
 case ",$SERVICES," in *,telemetry,*) say "3. install_telemetry_forwarder.sh$([ "$DISABLE_UAVCAN" = true ] && printf ' --disable-uavcan')$([ "$TEST_RUN" = true ] && printf ' --test-run --test-seconds %s' "$TEST_SECONDS")$([ "$NO_START" = true ] && printf ' --no-start')" ;; esac
 case ",$SERVICES," in *,logs-ota,*) say "4. install_logs_ota.sh" ;; esac
-case ",$SERVICES," in *,camera,*) say "5. install_camera_services.sh   (requires Tailscale already connected)" ;; esac
+case ",$SERVICES," in *,camera,*) say "5. install_camera_services.sh   (CAMERA_REGISTRATION=auto: tailnet name if Tailscale is connected, else COMPANION_IP)" ;; esac
+case ",$SERVICES," in *,hublink,*) say "6. install_hublink.sh   (pull mode: HubLink on STREAM_PORT; telemetry re-pointed at the local bridge)" ;; esac
 [ "$NO_START" = true ] && say "   --no-start: quiver-hub-client will not be enabled/started by this bootstrap."
 if [ "$DRY_RUN" = true ]; then
     say ""
@@ -425,13 +427,19 @@ case ",$SERVICES," in *,camera,*)
     step=$((step+1)); say ""; say "== [$step] Camera services =="
     bash "$INSTALL_DIR/install_camera_services.sh" ;;
 esac
+case ",$SERVICES," in *,hublink,*)
+    step=$((step+1)); say ""; say "== [$step] HubLink stream service (pull mode) =="
+    HUBLINK_ARGS=()
+    [ "$NO_START" = true ] && HUBLINK_ARGS+=(--no-start)
+    bash "$INSTALL_DIR/install_hublink.sh" "${HUBLINK_ARGS[@]}" ;;
+esac
 
 # ---- summary ---------------------------------------------------------------------
 say ""
 say "== Done =="
 say "Suite:         $INSTALL_DIR  (source $SOURCE_URL)"
 say "Configuration: $ENV_FILE"
-for unit in quiver-hub-client telemetry-forwarder logs-ota go2rtc tailscale-funnel siyi-camera camera-stream; do
+for unit in quiver-hub-client telemetry-forwarder logs-ota hublink go2rtc tailscale-funnel siyi-camera camera-stream; do
     if systemctl list-unit-files "$unit.service" 2>/dev/null | grep -q "^$unit.service"; then
         say "Service:       $unit is $(systemctl is-enabled "$unit.service" 2>/dev/null || true)/$(systemctl is-active "$unit.service" 2>/dev/null || true)"
     fi

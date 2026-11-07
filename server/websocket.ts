@@ -158,6 +158,28 @@ export function initializeWebSocket(httpServer: HTTPServer) {
       }
     });
 
+    // Subscribe to a drone's control-lease status (Phase B2)
+    socket.on('subscribe_control', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to control: ${droneId}`);
+      socket.join(`control:${droneId}`);
+    });
+
+    socket.on('unsubscribe_control', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from control: ${droneId}`);
+      socket.leave(`control:${droneId}`);
+    });
+
+    // Subscribe to a drone's capability manifest (B-next)
+    socket.on('subscribe_capabilities', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} subscribed to capabilities: ${droneId}`);
+      socket.join(`capabilities:${droneId}`);
+    });
+
+    socket.on('unsubscribe_capabilities', (droneId: string) => {
+      console.log(`[WebSocket] Client ${socket.id} unsubscribed from capabilities: ${droneId}`);
+      socket.leave(`capabilities:${droneId}`);
+    });
+
     // Subscribe to logs & OTA events
     socket.on('subscribe_logs', (droneId: string) => {
       console.log(`[WebSocket] Client ${socket.id} subscribed to logs: ${droneId}`);
@@ -371,6 +393,38 @@ export function broadcastDiagnostics(droneId: string, data: {
 export function broadcastLogStream(droneId: string, lines: string[], service: string) {
   if (!io) return;
   io.to(`logs:${droneId}`).emit('log_stream', { drone_id: droneId, service, lines, timestamp: Date.now() });
+}
+
+/**
+ * Control-lease status for a drone, as seen by this Hub (Phase B2). Shape mirrors
+ * the subscriber's ControlStatus so it can be broadcast verbatim.
+ */
+export interface ControlStatusBroadcast {
+  droneId: string;
+  state: 'none' | 'requesting' | 'held' | 'denied';
+  haveControl: boolean;
+  heldBy: string | null;
+  leaseId: string | null;
+  leaseExpiresAt: number | null;
+  connected: boolean;
+}
+
+/**
+ * Broadcast a drone's control-lease status to subscribed browser clients.
+ * Called by the drone subscriber whenever the lease state changes.
+ */
+export function broadcastControlStatus(status: ControlStatusBroadcast) {
+  if (!io) return;
+  io.to(`control:${status.droneId}`).emit('control_status', status);
+}
+
+/**
+ * Broadcast a drone's capability manifest to subscribed browser clients (B-next).
+ * `manifest` is the normalized CapabilityManifest from droneStreamProtocol.
+ */
+export function broadcastCapabilities(droneId: string, manifest: unknown) {
+  if (!io) return;
+  io.to(`capabilities:${droneId}`).emit('capabilities', { droneId, manifest });
 }
 
 export function getWebSocketServer() {

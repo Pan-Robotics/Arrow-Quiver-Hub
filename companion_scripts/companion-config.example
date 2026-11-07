@@ -56,6 +56,23 @@ SKIP_FUNNEL_SETUP=false
 # parameter file; firmware_puller.lua does not read this file directly.
 FIRMWARE_SERVER_PORT=8070
 
+# HubLink stream service (pull mode). Hubs connect to STREAM_HOST:STREAM_PORT on
+# the drone's tailnet/drone-subnet address and pull telemetry; the telemetry
+# forwarder posts to the local bridge when TELEMETRY_HUB_URL is set.
+STREAM_HOST=0.0.0.0
+STREAM_PORT=8765
+LEASE_TTL_MS=30000
+# TELEMETRY_HUB_URL=http://127.0.0.1:8765
+# HUBLINK_MANIFEST=/absolute/path/to/capability-manifest.json
+
+# Camera stream registration (how the Hub reaches go2rtc for WHEP):
+#   tailnet  - this Pi's Tailscale MagicDNS name (default when Tailscale is connected)
+#   lan      - COMPANION_IP on the drone subnet (Hub on the same network)
+#   funnel   - public Tailscale Funnel HTTPS (legacy; Hub outside the tailnet)
+#   url      - CAMERA_PUBLIC_URL exactly as given
+CAMERA_REGISTRATION=auto
+# CAMERA_PUBLIC_URL=http://192.168.144.49:1984
+
 # Service operation
 CAN_INTERFACE=can0
 # DroneCAN is active bus participation, not passive capture. Enable explicitly

@@ -14,7 +14,8 @@ For first-time setup and the network reservation table, start with [README.md](R
 | Camera Stream | `camera_stream_service.py` | `camera-stream.service` | `install_camera_services.sh` | Stream registration and health monitoring |
 | SIYI Controller | `siyi_camera_controller.py` | `siyi-camera.service` | `install_camera_services.sh` | SIYI gimbal command bridge |
 | go2rtc | `bin/go2rtc` | `go2rtc.service` | `install_camera_services.sh` | RTSP ingest and WebRTC signaling/media |
-| Tailscale Funnel | `tailscale` | `tailscale-funnel.service` | `install_camera_services.sh` | Public HTTPS signaling path for go2rtc |
+| Tailscale Funnel | `tailscale` | `tailscale-funnel.service` | `install_camera_services.sh` | Public HTTPS signaling path for go2rtc (only with `CAMERA_REGISTRATION=funnel`) |
+| HubLink | `hublink_service.py` | `hublink.service` | `install_hublink.sh` | Pull-mode stream service: Hubs subscribe to this drone over the tailnet / drone subnet |
 
 All units log to journald and are configured to restart after a failure. The template units are rendered by the installers: they visibly contain `INSTALL_DIR_PLACEHOLDER`, `SERVICE_USER_PLACEHOLDER`, `SERVICE_GROUP_PLACEHOLDER`, and `ENV_FILE_PLACEHOLDER` before rendering. Do not copy a template straight into `/etc/systemd/system`.
 
@@ -99,9 +100,25 @@ sudo systemctl restart go2rtc tailscale-funnel camera-stream
 
 The installer sets `GO2RTC_EXTERNAL=true` and `SKIP_FUNNEL_SETUP=true`; the camera manager monitors the separately managed go2rtc instance without creating a duplicate listener or changing the persistent Funnel.
 
-### Tailscale
+### Tailscale and the registration mode
 
-The camera installer keeps the existing behavior: if Tailscale is absent it invokes the vendor installer; if the device is not authenticated it guides an operator through `tailscale up`. This action is performed only on the actual companion host, never as part of a test or documentation example. The Funnel unit persists the configured publishing action over reboots.
+`CAMERA_REGISTRATION` selects how the Hub reaches go2rtc for WHEP signalling: `auto` (default: the Pi's Tailscale MagicDNS name when Tailscale is connected, otherwise `COMPANION_IP` on the drone subnet), `tailnet`, `lan`, `funnel` (public Funnel HTTPS, the legacy path; the only mode that installs `tailscale-funnel.service`) or `url` (`CAMERA_PUBLIC_URL`). For every mode except `funnel` the installer sets `GO2RTC_API_HOST=0.0.0.0` so go2rtc is reachable from the Hub; the WHEP API is unauthenticated, so reachability must be bounded by Tailscale ACLs or the isolated drone subnet.
+
+The installer never installs Tailscale and never changes an existing Tailscale configuration. `tailnet`/`funnel` require Tailscale to be installed (official signed repository) and connected; in interactive use an unauthenticated device is guided through `tailscale up`, in unattended (bootstrap) use the installer stops with a message instead. `auto` falls back to the LAN address when Tailscale is absent or disconnected.
+
+## HubLink (pull mode)
+
+In push mode (default) every companion service POSTs to one Hub. In pull mode the Pi runs `hublink.service`, a WebSocket stream service on `STREAM_HOST:STREAM_PORT` (default `0.0.0.0:8765`), and any number of authorised Hubs connect in over the tailnet (or the drone subnet) and pull the same telemetry, camera-status and point-cloud stream. The drone arbitrates a single-writer **control lease**: the Hub holding it may send typed commands from the drone's capability manifest; everyone else only monitors. Protocol: `docs/architecture/Quiver_Drone_Stream_Protocol.md`; design: `docs/architecture/Tailscale_Network_Architecture.md`.
+
+The telemetry source is unchanged: `install_hublink.sh` sets `TELEMETRY_HUB_URL=http://127.0.0.1:<STREAM_PORT>` so `telemetry_forwarder.py` posts to HubLink's loopback ingest bridge (the same REST bodies the Hub accepts), and HubLink fans each sample out to every subscribed Hub. `--keep-telemetry-push` leaves the forwarder pushing to the Hub instead. Hubs authenticate with the drone's `API_KEY` in the WebSocket subprotocol (`bearer.<key>`); an empty `API_KEY` is refused by the installer. The Hub client and Logs & OTA keep talking to the Hub directly, so the Hub must stay reachable from the Pi (its `tailscale serve` address on the tailnet).
+
+```bash
+sudo bash /chosen/folder/install_hublink.sh            # or: bootstrap ... --services hub,telemetry,logs-ota,hublink
+curl -s http://127.0.0.1:8765/api/rest/health          # subscribers, lease holder, sample age
+sudo journalctl -u hublink -f
+```
+
+Then switch the drone to **pull** on the Hub (Drone Configuration → Data Plane & Control) with the Pi's MagicDNS name or drone-subnet address and the stream port. Set `HUBLINK_MANIFEST=/path/to/manifest.json` to advertise the real payload loadout instead of the built-in SIYI camera manifest; wire `execute_command` in `hublink_service.py` to the payload handlers.
 
 ## Telemetry and Hub client
 

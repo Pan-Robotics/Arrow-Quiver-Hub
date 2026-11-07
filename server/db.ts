@@ -151,6 +151,73 @@ export async function getAllDrones() {
   return await db.select().from(drones).orderBy(desc(drones.lastSeen));
 }
 
+/**
+ * Update a drone's data-plane connection settings (Tailscale Phase B).
+ * Used to flip a drone between "push" (companion → Hub REST) and "pull"
+ * (Hub → drone tailnet stream), and to record how the Hub reaches it.
+ * The drone row is created if it does not yet exist.
+ */
+export async function updateDroneConnection(
+  droneId: string,
+  updates: { ingestMode?: "push" | "pull"; tailnetHost?: string | null; streamPort?: number }
+) {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Ensure the row exists first (mirrors how register/generateApiKey upsert).
+  await db
+    .insert(drones)
+    .values({ droneId })
+    .onConflictDoNothing({ target: drones.droneId });
+
+  const set: Partial<typeof drones.$inferInsert> = {};
+  if (updates.ingestMode !== undefined) set.ingestMode = updates.ingestMode;
+  if (updates.tailnetHost !== undefined) set.tailnetHost = updates.tailnetHost;
+  if (updates.streamPort !== undefined) set.streamPort = updates.streamPort;
+
+  if (Object.keys(set).length > 0) {
+    await db.update(drones).set(set).where(eq(drones.droneId, droneId));
+  }
+
+  const result = await db.select().from(drones).where(eq(drones.droneId, droneId)).limit(1);
+  return result[0] ?? null;
+}
+
+/**
+ * All drones the Hub should actively pull from: ingestMode = "pull" and a
+ * tailnet host configured. Drives the outbound subscriber manager.
+ */
+export async function getPullDrones() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(drones)
+    .where(and(eq(drones.ingestMode, "pull"), eq(drones.isActive, true)));
+}
+
+/**
+ * The credential the Hub presents to a drone's stream service. We reuse the
+ * drone's existing per-drone API key (most-recently-created active one), so a
+ * pull-mode drone authenticates the Hub with the same secret it would have
+ * used the other direction in push mode. Returns null if the drone has no
+ * active key (caller should skip / surface a config warning).
+ */
+export async function getActiveApiKeyForDrone(droneId: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(apiKeys)
+    .where(and(eq(apiKeys.droneId, droneId), eq(apiKeys.isActive, true)))
+    .orderBy(desc(apiKeys.createdAt))
+    .limit(1);
+
+  return result.length > 0 ? result[0].key : null;
+}
+
 // Scan management
 export async function insertScan(scan: InsertScan) {
   const db = await getDb();

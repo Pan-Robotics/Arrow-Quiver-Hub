@@ -2,6 +2,14 @@ import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import {
+  reconcileDroneSubscribers,
+  acquireDroneControl,
+  releaseDroneControl,
+  sendDroneCommand,
+  droneControlStatus,
+  droneCapabilities,
+} from "./droneSubscriber";
+import {
   upsertDrone,
   getDroneByDroneId,
   getAllDrones,
@@ -17,6 +25,7 @@ import {
   deleteApiKey,
   reactivateApiKey,
   updateDroneByDroneId,
+  updateDroneConnection,
   updateApiKeyDescription,
   deleteDrone,
   createFlightLog,
@@ -757,6 +766,76 @@ export const appRouter = router({
           throw new Error("Failed to update drone");
         }
         return { drone };
+      }),
+
+    // Set a drone's data-plane connection (Tailscale Phase B). Flips between
+    // "push" (companion → Hub REST) and "pull" (Hub → drone tailnet stream) and
+    // records how the Hub reaches the drone, then reconciles the live subscriber.
+    setConnection: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        ingestMode: z.enum(["push", "pull"]).optional(),
+        tailnetHost: z.string().nullable().optional(),
+        streamPort: z.number().int().min(1).max(65535).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const drone = await updateDroneConnection(input.droneId, {
+          ingestMode: input.ingestMode,
+          tailnetHost: input.tailnetHost,
+          streamPort: input.streamPort,
+        });
+        if (!drone) {
+          throw new Error("Failed to update drone connection settings");
+        }
+        // Bring the live outbound subscriber in line with the new settings.
+        await reconcileDroneSubscribers();
+        return { drone };
+      }),
+
+    // ── Control lease (Tailscale Phase B2, pull-mode drones) ──
+    // The drone is the single lease arbiter; these proxy to the Hub's outbound
+    // connection. Only one Hub holds control at a time; commands require it.
+
+    // Current control status (which Hub holds the lease, are we connected, etc.)
+    controlStatus: publicProcedure
+      .input(z.object({ droneId: z.string() }))
+      .query(async ({ input }) => {
+        return { status: droneControlStatus(input.droneId) };
+      }),
+
+    // The drone's advertised capability manifest (per-payload typed commands).
+    capabilities: publicProcedure
+      .input(z.object({ droneId: z.string() }))
+      .query(async ({ input }) => {
+        return { manifest: droneCapabilities(input.droneId) };
+      }),
+
+    // Acquire (or renew) the single-writer control lease on a drone.
+    acquireControl: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await acquireDroneControl(input.droneId);
+        return { result, status: droneControlStatus(input.droneId) };
+      }),
+
+    // Release this Hub's control lease on a drone.
+    releaseControl: protectedProcedure
+      .input(z.object({ droneId: z.string() }))
+      .mutation(async ({ input }) => {
+        await releaseDroneControl(input.droneId);
+        return { status: droneControlStatus(input.droneId) };
+      }),
+
+    // Send a lease-gated command to a drone (requires holding control).
+    sendCommand: protectedProcedure
+      .input(z.object({
+        droneId: z.string(),
+        action: z.string().min(1),
+        params: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await sendDroneCommand(input.droneId, input.action, input.params);
+        return { result };
       }),
 
     // Update API key description

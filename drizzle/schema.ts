@@ -140,6 +140,15 @@ export const drones = sqliteTable("drones", {
   name: text("name"),
   lastSeen: integer("lastSeen", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   isActive: integer("isActive", { mode: "boolean" }).default(true).notNull(),
+  // Data-plane mode (Tailscale Phase B). "push" = companion POSTs to the Hub's
+  // REST ingest (legacy/benchtop default). "pull" = the Hub opens an outbound
+  // WebSocket to this drone's tailnet stream service and re-broadcasts. See
+  // docs/architecture/Quiver_Drone_Stream_Protocol.md.
+  ingestMode: text("ingestMode", { enum: ["push", "pull"] }).default("push").notNull(),
+  // How the Hub reaches this drone's stream service in pull mode: its MagicDNS
+  // name (e.g. quiver-001.<tailnet>.ts.net) or IP, and the stream port.
+  tailnetHost: text("tailnetHost"),
+  streamPort: integer("streamPort").default(8765).notNull(),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

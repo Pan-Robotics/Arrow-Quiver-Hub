@@ -35,7 +35,7 @@ if [ "${1:-}" = --local ]; then
     # repositories or an existing package cache; no GitHub download is attempted.
     cp -a -- "$ORIGINAL_DIR/." "$STAGING_DIR/"
     rm -f -- "$STAGING_DIR/.env" "$STAGING_DIR/forwarder.env"
-    for required in companion_config.py companion-config.example installer_common.sh installer_support.py requirements-companion.txt raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh update_companion_suite.sh firmware_puller.lua net_webserver_put.lua quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service; do
+    for required in companion_config.py companion-config.example installer_common.sh installer_support.py requirements-companion.txt raspberry_pi_client.py telemetry_forwarder.py logs_ota_service.py siyi_camera_controller.py camera_stream_service.py install_telemetry_forwarder.sh install_logs_ota.sh install_camera_services.sh update_companion_suite.sh bootstrap_companion.sh hublink_service.py install_hublink.sh firmware_puller.lua net_webserver_put.lua quiver-hub-client.service telemetry-forwarder.service logs-ota.service siyi-camera.service camera-stream.service; do
         [ -f "$STAGING_DIR/$required" ] || { echo "Local suite is missing $required" >&2; exit 1; }
     done
 else
@@ -109,7 +109,8 @@ try:
                 'telemetry-forwarder.service', 'logs-ota.service', 'siyi-camera.service',
                 'camera-stream.service', 'COMPANION_SERVICES.md', 'OTA_Setup_Guide.md',
                 'installer_support.py', 'requirements-companion.txt', 'diagnose_companion.sh',
-                'repair_companion_services.sh', 'update_companion_suite.sh']
+                'repair_companion_services.sh', 'update_companion_suite.sh',
+                'bootstrap_companion.sh', 'hublink_service.py', 'install_hublink.sh']
     missing = [name for name in required if not (root / name).is_file()]
     if missing:
         raise ValueError('Source is missing updated suite files: ' + ', '.join(missing) +

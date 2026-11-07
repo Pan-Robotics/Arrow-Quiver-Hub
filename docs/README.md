@@ -10,6 +10,8 @@ This directory contains all architecture documents, pipeline references, and spe
 |---|---|
 | [quiver-hub-architecture.md](architecture/quiver-hub-architecture.md) | Master architecture document — full system overview, all endpoints, database schema, companion scripts, frontend apps, and deployment topology |
 | [Quiver_Camera_Feed_Architecture.md](architecture/Quiver_Camera_Feed_Architecture.md) | Camera feed pipeline — SIYI A8 Mini, go2rtc, Tailscale funnel, WebRTC signaling, gimbal control protocol |
+| [Tailscale_Network_Architecture.md](architecture/Tailscale_Network_Architecture.md) | Tailnet topology for Hubs and drones, ACL tags, drone-as-a-service pull data plane, single-writer control lease, camera registration modes |
+| [Quiver_Drone_Stream_Protocol.md](architecture/Quiver_Drone_Stream_Protocol.md) | Wire contract between a drone's HubLink service and the Hub subscriber — frames, auth, lease, commands, capability manifest |
 | [flight-analytics-integration-analysis.md](architecture/flight-analytics-integration-analysis.md) | Integration analysis mapping the Flight-Log-Analyser tool to Quiver Hub infrastructure — parser reuse, chart rendering, storage, and implementation phases |
 
 ## Setup Guides

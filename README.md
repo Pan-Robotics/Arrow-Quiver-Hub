@@ -200,9 +200,10 @@ Five companion scripts run on the Raspberry Pi, each as a systemd service with a
 |---|---|---|---|
 | Telemetry Forwarder | `telemetry_forwarder.py` | `telemetry-forwarder.service` | MAVLink + UAVCAN telemetry relay to Hub |
 | Hub Client | `raspberry_pi_client.py` | `quiver-hub-client.service` | Job queue polling and file delivery |
-| Camera Stream | `camera_stream_service.py` | `camera-stream.service` | go2rtc + Tailscale WebRTC stream management |
+| Camera Stream | `camera_stream_service.py` | `camera-stream.service` | go2rtc WebRTC stream registration (tailnet / drone subnet / Funnel) |
 | SIYI Camera | `siyi_camera_controller.py` | `siyi-camera.service` | Gimbal control via SIYI UDP SDK |
 | Logs & OTA | `logs_ota_service.py` | `logs-ota.service` | FC log download, OTA flash, diagnostics, remote logs |
+| HubLink | `hublink_service.py` | `hublink.service` | Pull mode: Hubs subscribe to the drone over the tailnet; single-writer control lease |
 
 Each service has a corresponding install script (`install_*.sh`) that handles dependency installation, environment configuration, script deployment, and systemd service setup.
 
@@ -414,6 +415,10 @@ Everything is optional and lives in a `.env` file next to `package.json` (see [`
 ### Access control
 
 The operator UI has no login: whoever can reach the Hub's port is the single local admin operator. Companion computers authenticate to the REST API with per-drone API keys (Drone Configuration page). Keep the Hub on a trusted network (the drone subnet, a tailnet) or set `HOST=127.0.0.1` and reach it through an authenticated tunnel; anyone who can open the UI can queue a firmware flash.
+
+### Remote access over Tailscale (pull mode)
+
+For drones in the field, Hubs and companion Pis share one Tailscale tailnet: the Hub is exposed to operators with `tailscale serve` ([infra/tailscale/](infra/tailscale/)), and a drone switched to **pull** mode (Drone Configuration → Data Plane & Control) runs `hublink.service`, which the Hub subscribes to over the tailnet — many Hubs can monitor the same drone, and exactly one holds the control lease to send typed payload commands. Push mode (the default) is unchanged. Design: [docs/architecture/Tailscale_Network_Architecture.md](docs/architecture/Tailscale_Network_Architecture.md); wire protocol: [docs/architecture/Quiver_Drone_Stream_Protocol.md](docs/architecture/Quiver_Drone_Stream_Protocol.md).
 
 ### Data and backups
 

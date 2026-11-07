@@ -12,6 +12,7 @@ import restApiRouter from "../rest-api";
 import { startJobReaper } from "../droneJobsDb";
 import { migrateDb } from "../db";
 import { registerCompanionSuiteRoutes } from "../companionSuite";
+import { startDroneSubscribers } from "../droneSubscriber";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -83,6 +84,11 @@ async function startServer() {
 
     // Start the job reliability reaper (runs every 60s)
     startJobReaper(60_000);
+    // Start the outbound "pull" data plane for any drones in pull mode
+    // (Tailscale Phase B). No-op when every drone is in the default push mode.
+    startDroneSubscribers().catch((err) =>
+      console.error("[DroneSubscriber] Failed to start:", err)
+    );
   });
 }
 

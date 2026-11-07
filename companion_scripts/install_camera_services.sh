@@ -11,6 +11,7 @@
 # =============================================================================
 
 set -euo pipefail
+CAMERA_MODE=auto
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=installer_common.sh
@@ -107,7 +108,7 @@ write_generated_units() {
     go2rtc_bin_unit=$(unit_path "$GO2RTC_BIN")
     go2rtc_config_unit=$(unit_path "$INSTALL_DIR/go2rtc.yaml")
     config_helper_unit=$(unit_path "$INSTALL_DIR/companion_config.py")
-    tailscale_bin_unit=$(unit_path "$TAILSCALE_BIN")
+    tailscale_bin_unit=$( [ -n "${TAILSCALE_BIN:-}" ] && unit_path "$TAILSCALE_BIN" || printf '""' )
 
     quiver_privileged mkdir -p "$SYSTEMD_DIR"
 
@@ -139,6 +140,9 @@ SyslogIdentifier=go2rtc
 WantedBy=multi-user.target
 EOF
 
+    # Public Funnel exposure is opt-in (CAMERA_REGISTRATION=funnel). Other modes
+    # install no Funnel unit and never change Tailscale serve/funnel state.
+    [ "$CAMERA_MODE" = funnel ] || { quiver_privileged rm -f "$SYSTEMD_DIR/tailscale-funnel.service"; return 0; }
     # The variables are expanded by systemd from EnvironmentFile at each start;
     # they are intentionally not pinned to installation-time values.
     quiver_privileged tee "$SYSTEMD_DIR/tailscale-funnel.service" >/dev/null <<EOF
@@ -177,7 +181,13 @@ configure_camera_environment() {
     quiver_prompt STREAM_TYPE "RTSP stream type (main=4K, sub=720p)"
     quiver_prompt GO2RTC_API_PORT "go2rtc API port"
     quiver_prompt GO2RTC_WEBRTC_PORT "go2rtc WebRTC UDP port"
-    quiver_prompt TAILSCALE_FUNNEL_PORT "Tailscale Funnel HTTPS port (443, 8443, or 10000)"
+    quiver_prompt CAMERA_REGISTRATION "How the Hub reaches go2rtc: auto (tailnet else LAN), tailnet, lan, funnel, url"
+    CAMERA_MODE=$(quiver_get CAMERA_REGISTRATION); CAMERA_MODE=${CAMERA_MODE,,}; CAMERA_MODE=${CAMERA_MODE:-auto}
+    case "$CAMERA_MODE" in auto|tailnet|lan|funnel|url) quiver_set CAMERA_REGISTRATION "$CAMERA_MODE" ;; *) fail "CAMERA_REGISTRATION must be auto, tailnet, lan, funnel, or url" ;; esac
+    if [ "$CAMERA_MODE" = url ]; then quiver_prompt CAMERA_PUBLIC_URL "Base URL the Hub uses to reach go2rtc"; require_value CAMERA_PUBLIC_URL; fi
+    if [ "$CAMERA_MODE" = funnel ]; then
+        quiver_prompt TAILSCALE_FUNNEL_PORT "Tailscale Funnel HTTPS port (443, 8443, or 10000)"
+    fi
 
     stream_type=$(quiver_get STREAM_TYPE)
     case "$stream_type" in
@@ -193,7 +203,18 @@ configure_camera_environment() {
     require_port GO2RTC_WEBRTC_PORT
     require_port TAILSCALE_FUNNEL_PORT
     case "$(quiver_get TAILSCALE_FUNNEL_PORT)" in 443|8443|10000) ;; *) fail "Unsupported Funnel port" ;; esac
-    case "$(quiver_get GO2RTC_API_HOST)" in localhost) quiver_set GO2RTC_API_HOST 127.0.0.1 ;; 127.0.0.1) ;; *) fail "Funnel requires GO2RTC_API_HOST=127.0.0.1" ;; esac
+    if [ "$CAMERA_MODE" = funnel ]; then
+        # Funnel proxies to loopback; go2rtc must not be exposed directly.
+        case "$(quiver_get GO2RTC_API_HOST)" in localhost) quiver_set GO2RTC_API_HOST 127.0.0.1 ;; 127.0.0.1) ;; *) fail "Funnel requires GO2RTC_API_HOST=127.0.0.1" ;; esac
+    else
+        # The Hub reaches go2rtc directly (tailnet name or COMPANION_IP), so
+        # go2rtc must listen beyond loopback. Tailscale ACLs / the drone subnet
+        # bound who can reach it; the WHEP API itself is unauthenticated.
+        case "$(quiver_get GO2RTC_API_HOST)" in 127.0.0.1|localhost|::1|'')
+            quiver_set GO2RTC_API_HOST 0.0.0.0
+            echo "GO2RTC_API_HOST set to 0.0.0.0 so the Hub can reach go2rtc at this Pi's tailnet/drone-subnet address." ;;
+        esac
+    fi
     quiver_validate_config
 
     # RTSP_URL is an optional explicit override. Do not persist a derived URL:
@@ -244,12 +265,24 @@ install_go2rtc() {
 configure_tailscale() {
     local hostname funnel_port
     echo -e "${GREEN}[3/5] Checking Tailscale...${NC}"
+    TAILSCALE_BIN=""
+    if [ "$CAMERA_MODE" = lan ] || [ "$CAMERA_MODE" = url ]; then
+        echo "CAMERA_REGISTRATION=$CAMERA_MODE: Tailscale is not required and is left untouched."
+        return 0
+    fi
     if command -v tailscale >/dev/null 2>&1; then
         tailscale version
+    elif [ "$CAMERA_MODE" = auto ]; then
+        echo -e "${YELLOW}Tailscale is not installed; the camera will register at COMPANION_IP (drone subnet) instead.${NC}"
+        return 0
     else
         fail "Install Tailscale through its official signed OS package repository, authenticate with sudo tailscale up, then rerun. See https://tailscale.com/kb/1031/install-linux"
     fi
 
+    if ! tailscale status >/dev/null 2>&1 && [ "$CAMERA_MODE" = auto ]; then
+        echo -e "${YELLOW}Tailscale is installed but not connected (left untouched); the camera will register at COMPANION_IP.${NC}"
+        return 0
+    fi
     if ! tailscale status >/dev/null 2>&1; then
         if [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
             echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
@@ -267,7 +300,11 @@ configure_tailscale() {
     if [ -n "$hostname" ]; then
         quiver_set TAILSCALE_HOSTNAME "$hostname"
         funnel_port=$(quiver_get TAILSCALE_FUNNEL_PORT)
-        echo "Tailscale Funnel will publish https://${hostname}${funnel_port:+:$funnel_port} (443 omits the port after install)."
+        if [ "$CAMERA_MODE" = funnel ]; then
+            echo "Tailscale Funnel will publish https://${hostname}${funnel_port:+:$funnel_port} (443 omits the port after install)."
+        else
+            echo "The camera will register tailnet-privately at http://${hostname}:$(quiver_get GO2RTC_API_PORT) (no public exposure)."
+        fi
     else
         echo -e "${YELLOW}Tailscale hostname is not available yet; camera services will retry when it becomes available.${NC}"
     fi
@@ -303,9 +340,14 @@ install_services() {
 start_services() {
     echo -e "${GREEN}[5/5] Enabling and starting services...${NC}"
     systemctl daemon-reload
-    systemctl enable go2rtc.service tailscale-funnel.service siyi-camera.service camera-stream.service
+    if [ "$CAMERA_MODE" = funnel ]; then
+        systemctl enable go2rtc.service tailscale-funnel.service siyi-camera.service camera-stream.service
+    else
+        systemctl disable --now tailscale-funnel.service 2>/dev/null || true
+        systemctl enable go2rtc.service siyi-camera.service camera-stream.service
+    fi
     systemctl restart go2rtc.service
-    systemctl restart tailscale-funnel.service
+    [ "$CAMERA_MODE" = funnel ] && systemctl restart tailscale-funnel.service
     systemctl restart siyi-camera.service
     systemctl restart camera-stream.service
 }

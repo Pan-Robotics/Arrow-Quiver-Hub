@@ -1,5 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { io } from "socket.io-client";
 import { trpc } from "@/lib/trpc";
+import { DronePayloadCommands } from "@/components/DronePayloadCommands";
 import { buildCompanionEnvironment, buildCompanionInstallCommand, companionDefaults, defaultFcWebserverUrl, formatEnvironmentValue, hubAddressWarning } from "@/lib/companionEnvironment";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -60,7 +62,20 @@ import {
   Database,
   ChevronDown,
   ChevronRight,
+  Network,
+  Lock,
+  Unlock,
 } from "lucide-react";
+
+type ControlStatusUI = {
+  droneId: string;
+  state: "none" | "requesting" | "held" | "denied";
+  haveControl: boolean;
+  heldBy: string | null;
+  leaseId: string | null;
+  leaseExpiresAt: number | null;
+  connected: boolean;
+};
 
 export default function DroneConfig() {
   const { user, loading: authLoading, isAuthenticated } = useAuth();
@@ -115,6 +130,12 @@ export default function DroneConfig() {
     tested_at: string;
   } | null>(null);
   const [showTestResults, setShowTestResults] = useState(false);
+
+  // Data plane & control (Tailscale Phase B2)
+  const [dpMode, setDpMode] = useState<"push" | "pull">("push");
+  const [dpHost, setDpHost] = useState("");
+  const [dpPort, setDpPort] = useState<number>(8765);
+  const [controlStatus, setControlStatus] = useState<ControlStatusUI | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -286,6 +307,80 @@ export default function DroneConfig() {
       toast.error(`Delete failed: ${error.message}`);
     },
   });
+
+  // ── Data plane & control (Tailscale Phase B2) ──
+  const selectedDroneObj = useMemo(
+    () => drones.find((d: any) => d.droneId === selectedDrone),
+    [drones, selectedDrone]
+  );
+
+  // Sync the data-plane form when the selected drone (or its stored config) changes.
+  useEffect(() => {
+    if (selectedDroneObj) {
+      setDpMode((selectedDroneObj.ingestMode as "push" | "pull") ?? "push");
+      setDpHost(selectedDroneObj.tailnetHost ?? "");
+      setDpPort(selectedDroneObj.streamPort ?? 8765);
+    }
+  }, [
+    selectedDroneObj?.droneId,
+    selectedDroneObj?.ingestMode,
+    selectedDroneObj?.tailnetHost,
+    selectedDroneObj?.streamPort,
+  ]);
+
+  const { data: controlStatusData } = trpc.drones.controlStatus.useQuery(
+    { droneId: selectedDrone },
+    { enabled: !!selectedDrone, refetchInterval: 5000 }
+  );
+  useEffect(() => {
+    if (controlStatusData?.status) setControlStatus(controlStatusData.status as ControlStatusUI);
+  }, [controlStatusData]);
+
+  // Live control-status updates over Socket.IO (lease grants/denials/revocations).
+  useEffect(() => {
+    if (!selectedDrone) return;
+    const socket = io({ path: "/socket.io/", transports: ["websocket"] });
+    socket.on("connect", () => socket.emit("subscribe_control", selectedDrone));
+    socket.on("control_status", (s: ControlStatusUI) => {
+      if (s.droneId === selectedDrone) setControlStatus(s);
+    });
+    return () => {
+      socket.emit("unsubscribe_control", selectedDrone);
+      socket.disconnect();
+    };
+  }, [selectedDrone]);
+
+  const setConnectionMutation = trpc.drones.setConnection.useMutation({
+    onSuccess: () => {
+      toast.success("Data-plane settings saved");
+      utils.drones.list.invalidate();
+      utils.drones.controlStatus.invalidate({ droneId: selectedDrone });
+    },
+    onError: (error) => toast.error(`Failed to save: ${error.message}`),
+  });
+
+  const acquireControlMutation = trpc.drones.acquireControl.useMutation({
+    onSuccess: (data) => {
+      setControlStatus(data.status as ControlStatusUI);
+      if (data.result.granted) toast.success("Control acquired");
+      else toast.error(`Control denied${data.result.heldBy ? ` — held by ${data.result.heldBy}` : ""}`);
+    },
+    onError: (error) => toast.error(`Acquire failed: ${error.message}`),
+  });
+
+  const releaseControlMutation = trpc.drones.releaseControl.useMutation({
+    onSuccess: (data) => {
+      setControlStatus(data.status as ControlStatusUI);
+      toast.success("Control released");
+    },
+    onError: (error) => toast.error(`Release failed: ${error.message}`),
+  });
+
+  const dpDirty =
+    !!selectedDroneObj &&
+    (dpMode !== ((selectedDroneObj.ingestMode as string) ?? "push") ||
+      (dpHost || "") !== (selectedDroneObj.tailnetHost ?? "") ||
+      dpPort !== (selectedDroneObj.streamPort ?? 8765));
 
   // Derive base URL from current window location
   const baseUrl = useMemo(() => {
@@ -1187,6 +1282,154 @@ export default function DroneConfig() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ============================================= */}
+        {/* DATA PLANE & CONTROL (Tailscale Phase B2) */}
+        {/* ============================================= */}
+        <Card className="border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Network className="w-5 h-5" />
+              Data Plane & Control
+            </CardTitle>
+            <CardDescription>
+              Choose how this drone exchanges data with the Hub. <strong>Push</strong> (default): the
+              companion POSTs to the Hub. <strong>Pull</strong>: the Hub opens an outbound connection to the
+              drone's tailnet stream service and can take single-writer control. See{" "}
+              <span className="font-mono">docs/architecture/Quiver_Drone_Stream_Protocol.md</span>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Mode + endpoint */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label>Ingest mode</Label>
+                <Select value={dpMode} onValueChange={(v) => setDpMode(v as "push" | "pull")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="push">Push (companion → Hub)</SelectItem>
+                    <SelectItem value="pull">Pull (Hub → drone)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tailnet host {dpMode === "pull" && <span className="text-destructive">*</span>}</Label>
+                <Input
+                  placeholder="quiver-001.tailnet.ts.net"
+                  value={dpHost}
+                  onChange={(e) => setDpHost(e.target.value)}
+                  disabled={dpMode !== "pull"}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Stream port</Label>
+                <Input
+                  type="number"
+                  value={dpPort}
+                  onChange={(e) => setDpPort(parseInt(e.target.value || "8765", 10))}
+                  disabled={dpMode !== "pull"}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                disabled={
+                  !dpDirty ||
+                  setConnectionMutation.isPending ||
+                  (dpMode === "pull" && !dpHost.trim())
+                }
+                onClick={() =>
+                  setConnectionMutation.mutate({
+                    droneId: selectedDrone,
+                    ingestMode: dpMode,
+                    tailnetHost: dpMode === "pull" ? dpHost.trim() : null,
+                    streamPort: dpPort,
+                  })
+                }
+              >
+                {setConnectionMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4 mr-1.5" />
+                )}
+                Save data-plane settings
+              </Button>
+              {dpDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+            </div>
+
+            {/* Control lease — only meaningful in pull mode */}
+            {dpMode === "pull" && (selectedDroneObj?.ingestMode as string) === "pull" && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium">Single-writer control</span>
+                      {controlStatus?.connected ? (
+                        <Badge variant="outline" className="text-green-600 border-green-600/40">
+                          <CircleCheck className="w-3 h-3 mr-1" /> stream connected
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          <CircleX className="w-3 h-3 mr-1" /> not connected
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        disabled={
+                          !controlStatus?.connected ||
+                          controlStatus?.haveControl ||
+                          acquireControlMutation.isPending
+                        }
+                        onClick={() => acquireControlMutation.mutate({ droneId: selectedDrone })}
+                      >
+                        <Lock className="w-4 h-4 mr-1.5" /> Acquire
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!controlStatus?.haveControl || releaseControlMutation.isPending}
+                        onClick={() => releaseControlMutation.mutate({ droneId: selectedDrone })}
+                      >
+                        <Unlock className="w-4 h-4 mr-1.5" /> Release
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {controlStatus?.haveControl ? (
+                      <span className="text-green-600 font-medium">This Hub holds control — commands enabled.</span>
+                    ) : controlStatus?.state === "denied" && controlStatus?.heldBy ? (
+                      <span>
+                        Control held by <span className="font-mono">{controlStatus.heldBy}</span>. You can monitor
+                        but not command until it is released.
+                      </span>
+                    ) : controlStatus?.heldBy ? (
+                      <span>
+                        Held by <span className="font-mono">{controlStatus.heldBy}</span>.
+                      </span>
+                    ) : (
+                      <span>Control is available. Acquire it to send commands; other Hubs may still monitor.</span>
+                    )}
+                  </div>
+
+                  {/* Typed per-payload commands from the drone's capability manifest */}
+                  <Separator />
+                  <DronePayloadCommands
+                    droneId={selectedDrone}
+                    haveControl={!!controlStatus?.haveControl}
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* ============================================= */}
         {/* FILE UPLOAD & MANAGEMENT */}

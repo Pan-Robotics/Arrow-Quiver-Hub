@@ -15,6 +15,7 @@ Usage:
 
 Environment Variables:
     WEB_SERVER_URL - Quiver Hub base URL (e.g., https://your-domain.com)
+    TELEMETRY_HUB_URL - optional override: the local HubLink bridge in pull mode
     API_KEY - API key for authentication
     DRONE_ID - Drone identifier
     MAVLINK_URL - MAVLink connection URL (default: udpin://0.0.0.0:14540)
@@ -71,7 +72,9 @@ try:
 except (OSError, ValueError):
     CONFIG = {}
     CONFIG_ERROR = True
-WEB_SERVER_URL = CONFIG.get('WEB_SERVER_URL', '')
+# Pull mode: TELEMETRY_HUB_URL points the forwarder at the local HubLink bridge
+# (http://127.0.0.1:STREAM_PORT) instead of the Hub; Hubs then subscribe to it.
+WEB_SERVER_URL = CONFIG.get('TELEMETRY_HUB_URL', '').strip() or CONFIG.get('WEB_SERVER_URL', '')
 API_KEY = CONFIG.get('API_KEY', '')
 DRONE_ID = CONFIG.get('DRONE_ID', 'quiver_001')
 MAVLINK_URL = CONFIG.get('MAVLINK_URL', 'udpin://0.0.0.0:14540')

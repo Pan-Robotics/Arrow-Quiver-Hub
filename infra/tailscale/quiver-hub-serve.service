@@ -1,0 +1,18 @@
+[Unit]
+# Expose the Quiver Hub web UI + API on the tailnet over HTTPS.
+# Operators on the tailnet reach it at https://<hostname>.<tailnet>.ts.net
+# (HTTPS terminated by Tailscale, proxied to the local Hub on 127.0.0.1:3000).
+# Requires MagicDNS + HTTPS enabled in the Tailscale admin console.
+Description=Tailscale Serve — expose Quiver Hub on the tailnet (HTTPS)
+After=tailscaled.service quiver-hub.service
+Wants=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Adjust the target port if the Hub runs on a non-default PORT.
+ExecStart=/usr/bin/tailscale serve --bg --https=443 http://127.0.0.1:3000
+ExecStop=/usr/bin/tailscale serve --https=443 off
+
+[Install]
+WantedBy=multi-user.target

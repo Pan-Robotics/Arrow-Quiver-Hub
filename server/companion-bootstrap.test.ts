@@ -169,6 +169,12 @@ describe("bootstrap_companion.sh", () => {
     expect(result.stdout).toContain("The Hub client suite is always installed first; services: hub,telemetry,camera");
     expect(result.stdout).toContain("install_camera_services.sh");
     expect(result.stdout).not.toContain("keep me");
+    const pull = await bash(["--dry-run", "--install-dir", install, "--services", "hublink", "--no-start"], {
+      env: { QUIVER_NONINTERACTIVE: "1" },
+    });
+    expect(pull.status, pull.stderr + pull.stdout).toBe(0);
+    expect(pull.stdout).toContain("install_hublink.sh");
+    expect(pull.stdout).toContain("--no-start: quiver-hub-client will not be enabled/started");
     // Dry run must not modify the existing configuration.
     expect(readFileSync(join(install, ".env"), "utf8")).toContain('API_KEY="keep me"');
   });

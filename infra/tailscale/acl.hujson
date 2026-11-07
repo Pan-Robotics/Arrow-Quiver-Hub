@@ -1,0 +1,109 @@
+// Quiver tailnet ACL policy (example).
+//
+// Paste/merge this into the Tailscale admin console (Access controls). HuJSON
+// allows comments and trailing commas. This encodes the Quiver tenancy model:
+//
+//   • Hubs are tagged tag:hub plus a per-operator tag (tag:hub-<op>).
+//   • Drones (Quiver drones) are tagged tag:drone plus a per-fleet tag
+//     (tag:fleet-<name>).
+//   • Grants decide which hubs may reach which fleets, on which service ports.
+//   • Drones cannot reach each other (least privilege).
+//
+// See docs/architecture/Tailscale_Network_Architecture.md for the full model.
+{
+  // ── Who may own/assign each tag (auth keys / OAuth clients use these) ──────
+  // Replace the owners with your admin group/user or an OAuth client identity.
+  "tagOwners": {
+    "tag:hub":          ["autogroup:admin"],
+    "tag:hub-op1":      ["autogroup:admin"],
+    "tag:hub-op2":      ["autogroup:admin"],
+    "tag:drone":        ["autogroup:admin"],
+    "tag:fleet-acme":   ["autogroup:admin"],
+    "tag:fleet-blue":   ["autogroup:admin"],
+    "tag:fleet-shared": ["autogroup:admin"],
+  },
+
+  // ── Named groups: which human operators drive which hub/fleet ─────────────
+  "groups": {
+    "group:operators-acme": ["alice@example.com"],
+    "group:operators-blue": ["bob@example.com"],
+  },
+
+  // ── Service ports a drone (Quiver drone) exposes on its MagicDNS name ───────
+  "hosts": {},
+  // (Documented for readers; grants reference the raw ports below.)
+  //   1984/tcp  go2rtc WHEP signaling (camera)
+  //   8555/udp  go2rtc WebRTC media (browser <-> drone, peer-to-peer)
+  //   8765/tcp  telemetry / data stream (HubLink, Phase B)
+  //   9000-9100 per-payload endpoints (heterogeneous loadouts)
+
+  "grants": [
+    // ── 1 hub : fleet of drones (the common case) ─────────────────────────
+    // op1's hub may reach every drone in fleet-acme on the service ports.
+    {
+      "src": ["tag:hub-op1"],
+      "dst": ["tag:fleet-acme"],
+      "ip":  ["tcp:1984", "tcp:8765", "tcp:9000-9100"],
+    },
+
+    // ── Multi-operator: two hubs monitoring the SAME fleet ────────────────
+    // Both op1 and op2 hubs may reach fleet-shared (shared monitoring).
+    {
+      "src": ["tag:hub-op1", "tag:hub-op2"],
+      "dst": ["tag:fleet-shared"],
+      "ip":  ["tcp:1984", "tcp:8765", "tcp:9000-9100"],
+    },
+
+    // ── Isolation: fleet-blue is reachable ONLY by op2's hub ──────────────
+    {
+      "src": ["tag:hub-op2"],
+      "dst": ["tag:fleet-blue"],
+      "ip":  ["tcp:1984", "tcp:8765", "tcp:9000-9100"],
+    },
+
+    // ── Operator browsers: WebRTC camera media is peer-to-peer ────────────
+    // The operator's own device (Tailscale on laptop/tablet) needs a path to
+    // the drone for go2rtc WebRTC media (UDP). Signaling goes via the hub proxy.
+    {
+      "src": ["group:operators-acme"],
+      "dst": ["tag:fleet-acme", "tag:fleet-shared"],
+      "ip":  ["udp:8555"],
+    },
+    {
+      "src": ["group:operators-blue"],
+      "dst": ["tag:fleet-blue", "tag:fleet-shared"],
+      "ip":  ["udp:8555"],
+    },
+
+    // ── Operators reach their hub's web UI (tailscale serve, HTTPS 443) ───
+    {
+      "src": ["group:operators-acme"],
+      "dst": ["tag:hub-op1"],
+      "ip":  ["tcp:443"],
+    },
+    {
+      "src": ["group:operators-blue"],
+      "dst": ["tag:hub-op2"],
+      "ip":  ["tcp:443"],
+    },
+
+    // NOTE: there is deliberately NO drone -> drone and NO drone -> hub inbound
+    // grant. Drones are pure services that hubs pull from; the uplink is the
+    // hub connecting OUT to the drone. (If a benchtop push mode is used, add a
+    // narrow drone -> hub grant for the REST ingest port and remove it for prod.)
+  ],
+
+  // ── Auto-approve tagged auth keys so fleet onboarding is zero-touch ───────
+  // (Routes/exit-nodes not used by Quiver; left empty.)
+  "autoApprovers": {},
+
+  // ── Optional: tailnet-wide SSH for admin into hubs (not drones) ───────────
+  "ssh": [
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["tag:hub"],
+      "users":  ["autogroup:nonroot", "quiver"],
+    },
+  ],
+}

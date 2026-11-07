@@ -89,6 +89,42 @@ GO2RTC_EXTERNAL = CONFIG.get("GO2RTC_EXTERNAL", "false").lower() in ("1", "true"
 TAILSCALE_FUNNEL_PORT = CONFIG.get("TAILSCALE_FUNNEL_PORT", "443")
 ALLOWED_FUNNEL_PORTS = frozenset({443, 8443, 10000})
 
+# How the Hub reaches go2rtc for WHEP signalling (see companion-config.example):
+#   auto    - tailnet MagicDNS name when Tailscale is connected, else COMPANION_IP (LAN)
+#   tailnet - this Pi's Tailscale MagicDNS name (tailnet-private; nothing public)
+#   lan     - COMPANION_IP on the drone subnet (Hub on the same network)
+#   funnel  - public Tailscale Funnel HTTPS (Hub outside the tailnet)
+#   url     - CAMERA_PUBLIC_URL exactly as given
+CAMERA_REGISTRATION = CONFIG.get("CAMERA_REGISTRATION", "auto").strip().lower() or "auto"
+CAMERA_PUBLIC_URL = CONFIG.get("CAMERA_PUBLIC_URL", "").strip()
+COMPANION_IP = CONFIG.get("COMPANION_IP", "").strip()
+ALLOWED_REGISTRATIONS = frozenset({"auto", "tailnet", "lan", "funnel", "url"})
+
+
+def get_tailscale_dnsname(max_retries: int = 15, retry_interval: float = 2.0) -> Optional[str]:
+    """Return this node's Tailscale MagicDNS name (no scheme/port), or None.
+
+    Used for tailnet-private stream registration: the Hub reaches go2rtc
+    directly over the tailnet, with no public exposure. Tailscale state is only
+    read, never changed.
+    """
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                dns_name = json.loads(result.stdout).get("Self", {}).get("DNSName", "").rstrip(".")
+                if dns_name:
+                    return dns_name
+            logger.debug(f"No Tailscale DNSName yet (attempt {attempt + 1}/{max_retries})")
+        except FileNotFoundError:
+            logger.info("Tailscale not installed; tailnet registration unavailable")
+            return None
+        except (json.JSONDecodeError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"Tailscale detection error (attempt {attempt + 1}/{max_retries}): {e}")
+        if attempt < max_retries - 1:
+            time.sleep(retry_interval)
+    return None
+
 
 def normalize_go2rtc_api_url(api_url: str, api_port: Optional[int] = None) -> Tuple[str, str, int]:
     """Return a canonical API base URL together with its host and port.
@@ -320,7 +356,8 @@ class WebRTCStreamingService:
                  drone_id: Optional[str] = None,
                  api_key: Optional[str] = None,
                  public_url: Optional[str] = None,
-                 skip_funnel_setup: bool = False):
+                 skip_funnel_setup: bool = False,
+                 registration: str = CAMERA_REGISTRATION):
         
         self.stream_type = stream_type
         self.rtsp_url = rtsp_url or RTSP_STREAMS.get(stream_type, RTSP_STREAMS["sub"])
@@ -334,6 +371,11 @@ class WebRTCStreamingService:
         self.api_key = api_key
         self.public_url = public_url  # Override: skip Tailscale detection
         self.skip_funnel_setup = skip_funnel_setup
+        if registration not in ALLOWED_REGISTRATIONS:
+            raise ValueError(f"CAMERA_REGISTRATION must be one of {sorted(ALLOWED_REGISTRATIONS)}")
+        self.registration = registration
+        if registration == "url" and not public_url:
+            raise ValueError("CAMERA_REGISTRATION=url requires CAMERA_PUBLIC_URL (or --public-url)")
         self._stream_registered = False
         self._last_registration_attempt = 0.0  # epoch timestamp
         self._registration_retry_interval = 30.0  # seconds between retries
@@ -468,21 +510,36 @@ class WebRTCStreamingService:
             url = f"{self.public_url.rstrip('/')}/api/webrtc?src=camera"
             logger.info(f"Using explicit public URL: {url}")
             return url
-        
-        # Try Tailscale auto-detection
-        funnel_url = get_tailscale_funnel_url(
-            funnel_port=self.funnel_port,
-            max_retries=15,
-            retry_interval=2.0
-        )
-        
-        if funnel_url:
-            url = f"{funnel_url}/api/webrtc?src=camera"
-            logger.info(f"Using Tailscale funnel URL: {url}")
+
+        mode = self.registration
+        if mode == "funnel":
+            funnel_url = get_tailscale_funnel_url(funnel_port=self.funnel_port, max_retries=15, retry_interval=2.0)
+            if funnel_url:
+                url = f"{funnel_url}/api/webrtc?src=camera"
+                logger.info(f"Using public Tailscale funnel URL: {url}")
+                return url
+            logger.warning("Tailscale funnel URL unavailable; falling back to tailnet/LAN registration")
+            mode = "auto"
+
+        if mode in ("auto", "tailnet"):
+            dns_name = get_tailscale_dnsname(max_retries=15 if mode == "tailnet" else 3, retry_interval=2.0)
+            if dns_name:
+                url = f"http://{dns_name}:{self.api_port}/api/webrtc?src=camera"
+                logger.info(f"Using tailnet-private registration: {url}")
+                return url
+            if mode == "tailnet":
+                logger.error("CAMERA_REGISTRATION=tailnet but no Tailscale MagicDNS name is available")
+
+        if mode in ("auto", "lan", "tailnet") and COMPANION_IP:
+            url = f"http://{COMPANION_IP}:{self.api_port}/api/webrtc?src=camera"
+            logger.info(f"Using drone-subnet (LAN) registration at COMPANION_IP: {url}")
+            if self.api_host in ("127.0.0.1", "localhost", "::1"):
+                logger.warning("go2rtc listens on loopback only (GO2RTC_API_HOST); the Hub cannot reach "
+                               f"{url}. Set GO2RTC_API_HOST=0.0.0.0 and restart go2rtc.")
             return url
-        
-        # Fallback to local (won't work remotely)
-        logger.warning("No public URL available. Stream will only be accessible on LAN.")
+
+        # Fallback to local (won't work from another host)
+        logger.warning("No reachable registration address available. Stream will only be accessible on this host.")
         url = f"{self.go2rtc_api}/api/webrtc?src=camera"
         return url
     
@@ -568,8 +625,9 @@ class WebRTCStreamingService:
         """Main service loop."""
         self.running = True
         
-        # Setup Tailscale funnel if not skipped and no explicit public URL
-        if not self.skip_funnel_setup and not self.public_url:
+        # Public Funnel exposure is opt-in (CAMERA_REGISTRATION=funnel); the default
+        # registrations are tailnet-private or drone-subnet and touch no Tailscale state.
+        if self.registration == "funnel" and not self.skip_funnel_setup and not self.public_url:
             logger.info("Setting up Tailscale funnel...")
             if not await asyncio.to_thread(setup_tailscale_funnel, self.api_port, self.funnel_port):
                 logger.warning("Tailscale funnel setup failed. "
@@ -703,7 +761,8 @@ class CombinedCameraService:
                  webrtc_port: int = GO2RTC_WEBRTC_PORT,
                  funnel_port: int = TAILSCALE_FUNNEL_PORT,
                  public_url: Optional[str] = None,
-                 skip_funnel_setup: bool = False):
+                 skip_funnel_setup: bool = False,
+                 registration: str = CAMERA_REGISTRATION):
         
         # Import camera controller
         from siyi_camera_controller import CameraWebSocketBridge
@@ -721,6 +780,7 @@ class CombinedCameraService:
             api_key=api_key,
             public_url=public_url,
             skip_funnel_setup=skip_funnel_setup,
+            registration=registration,
         )
         
     async def run(self):
@@ -765,8 +825,10 @@ async def main():
                        help='Drone identifier (default: DRONE_ID)')
     parser.add_argument('--api-key', type=str, default=CONFIG.get('API_KEY', ''),
                        help='API key for Quiver Hub authentication (default: API_KEY)')
-    parser.add_argument('--public-url', type=str, default=None,
-                       help='Override public URL (skip Tailscale auto-detection)')
+    parser.add_argument('--public-url', type=str, default=CAMERA_PUBLIC_URL or None,
+                       help='Override the registered base URL (default: CAMERA_PUBLIC_URL)')
+    parser.add_argument('--registration', type=str, choices=sorted(ALLOWED_REGISTRATIONS), default=CAMERA_REGISTRATION,
+                       help='How the Hub reaches go2rtc: auto|tailnet|lan|funnel|url (default: CAMERA_REGISTRATION)')
     parser.add_argument('--skip-funnel-setup', action='store_true',
                        default=CONFIG.get('SKIP_FUNNEL_SETUP', 'false').lower() in ('1', 'true', 'yes', 'on'),
                        help='Skip Tailscale funnel setup (if already configured)')
@@ -811,6 +873,7 @@ async def main():
             funnel_port=args.funnel_port,
             public_url=args.public_url,
             skip_funnel_setup=args.skip_funnel_setup,
+            registration=args.registration,
         )
     else:
         service = WebRTCStreamingService(
@@ -825,6 +888,7 @@ async def main():
             api_key=args.api_key or None,
             public_url=args.public_url,
             skip_funnel_setup=args.skip_funnel_setup,
+            registration=args.registration,
         )
     
     # Handle shutdown signals
