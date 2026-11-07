@@ -14,6 +14,10 @@
  *   QUIVER_PORT (or PORT)  preferred port (default 3000; the server auto-bumps
  *                           if busy and the launcher follows the real port).
  *   QUIVER_NO_BROWSER=1    start the server but don't open a browser.
+ *   QUIVER_NO_BUILD=1      never (re)build; start whatever is in dist/.
+ *
+ * A build is redone automatically when any source input is newer than
+ * dist/index.js (e.g. after `git pull`), so the icon always runs current code.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -100,11 +104,18 @@ function openBrowser(url) {
   }
 }
 
-/** Read the server's actual listening port from its log (handles auto-bump). */
-function portFromLog() {
+/**
+ * Read the server's actual listening port from its log (handles auto-bump).
+ * Only lines written after `marker` (this launch's header) count: the log is
+ * appended across runs, and a stale "Server running" line from a previous run
+ * must never satisfy this launch's readiness check.
+ */
+function portFromLog(marker) {
   try {
     const text = fs.readFileSync(logFile, "utf8");
-    const matches = [...text.matchAll(/Server running on http:\/\/localhost:(\d+)\//g)];
+    const start = marker ? text.lastIndexOf(marker) : -1;
+    const scope = start >= 0 ? text.slice(start) : text;
+    const matches = [...scope.matchAll(/Server running on http:\/\/localhost:(\d+)\//g)];
     if (matches.length) return Number(matches[matches.length - 1][1]);
   } catch {
     /* no log yet */
@@ -114,11 +125,96 @@ function portFromLog() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The Hub this checkout already runs, if any: { pid, port } or null. */
+function runningInstance() {
+  let pid = null;
+  try {
+    pid = Number(fs.readFileSync(pidFile, "utf8").trim()) || null;
+    if (pid) process.kill(pid, 0); // throws when the pid is gone
+  } catch {
+    pid = null;
+  }
+  if (pid === null && process.platform !== "win32") {
+    // pnpm start / a previous launcher whose pidfile is gone: a server running
+    // dist/index.js with this repo as its cwd.
+    const found = spawnSync("pgrep", ["-f", "[d]ist/index.js"], { encoding: "utf8" }).stdout || "";
+    for (const line of found.split("\n")) {
+      const candidate = Number(line.trim());
+      if (!candidate) continue;
+      try {
+        if (fs.readlinkSync(`/proc/${candidate}/cwd`) === repoRoot) { pid = candidate; break; }
+      } catch { /* not linux or not ours */ }
+    }
+  }
+  if (!pid) return null;
+  // Which port? The listening socket of that pid (Linux), else the last port it logged.
+  let port = null;
+  if (process.platform === "linux") {
+    const ss = spawnSync("ss", ["-ltnp"], { encoding: "utf8" }).stdout || "";
+    const m = ss.split("\n").find((l) => l.includes(`pid=${pid},`));
+    const pm = m && m.match(/:(\d+)\s+\S+\s+users:/);
+    if (pm) port = Number(pm[1]);
+  }
+  if (!port) port = portFromLog(null);
+  return port ? { pid, port } : null;
+}
+
+/** pnpm, even when the desktop session has no pnpm on PATH: the repo's own copy first. */
+function pnpmCommand() {
+  const local = path.join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "pnpm.cmd" : "pnpm");
+  if (fs.existsSync(local)) return [local, []];
+  if (has("pnpm")) return ["pnpm", []];
+  if (has("corepack")) return ["corepack", ["pnpm"]];
+  return null;
+}
+
+/** Newest mtime under a path (files only), or 0 when it does not exist. */
+function newestMtime(p) {
+  let newest = 0;
+  const visit = (entry) => {
+    let st;
+    try { st = fs.statSync(entry); } catch { return; }
+    if (st.isDirectory()) {
+      for (const name of fs.readdirSync(entry)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        visit(path.join(entry, name));
+      }
+    } else if (st.mtimeMs > newest) {
+      newest = st.mtimeMs;
+    }
+  };
+  visit(p);
+  return newest;
+}
+
+/**
+ * The build is stale when any source input is newer than dist/index.js. A
+ * packaged release has no source tree, so it is never considered stale.
+ */
+function buildIsStale() {
+  if (!fs.existsSync(serverEntry)) return true;
+  if (!fs.existsSync(path.join(repoRoot, "server")) || !fs.existsSync(path.join(repoRoot, "client", "src"))) return false;
+  const built = fs.statSync(serverEntry).mtimeMs;
+  const inputs = ["server", "shared", "client/src", "client/index.html", "client/public", "drizzle/schema.ts", "package.json", "vite.config.ts", "tsconfig.json"];
+  return inputs.some((p) => newestMtime(path.join(repoRoot, p)) > built);
+}
+
 async function ensureBuilt() {
-  if (fs.existsSync(serverEntry)) return;
-  log("first run — building the app (one-time, ~30s)…");
-  notify("Quiver Hub", "Building (first run)…");
-  const res = spawnSync("pnpm", ["build"], { cwd: repoRoot, stdio: "inherit" });
+  const firstRun = !fs.existsSync(serverEntry);
+  if (!firstRun && !buildIsStale()) return;
+  if (process.env.QUIVER_NO_BUILD === "1") {
+    if (firstRun) throw new Error("no build and QUIVER_NO_BUILD=1");
+    log("sources changed since the last build, but QUIVER_NO_BUILD=1 — starting the existing build");
+    return;
+  }
+  const pnpm = pnpmCommand();
+  if (!pnpm) {
+    notify("Quiver Hub", "Build needed but pnpm was not found");
+    throw new Error("pnpm not found (install pnpm, or run `pnpm install` once in the repo)");
+  }
+  log(firstRun ? "first run — building the app (one-time, ~30s)…" : "sources changed since the last build — rebuilding…");
+  notify("Quiver Hub", firstRun ? "Building (first run)…" : "Rebuilding (sources changed)…");
+  const res = spawnSync(pnpm[0], [...pnpm[1], "build"], { cwd: repoRoot, stdio: "inherit" });
   if (res.status !== 0 || !fs.existsSync(serverEntry)) {
     notify("Quiver Hub", "Build failed — see terminal/log");
     throw new Error("build failed");
@@ -131,7 +227,20 @@ async function main() {
   // Already running? Just open it.
   if (await httpUp(PORT)) {
     log(`already running on :${PORT} — opening browser`);
+    if (buildIsStale()) {
+      log("note: sources changed since the running build — use Stop, then Start, to run the new code");
+      notify("Quiver Hub", "Running an older build — Stop, then Start, to update");
+    }
     openBrowser(`http://localhost:${PORT}/`);
+    return;
+  }
+  // Running on a different port (pidfile from an earlier launch, or `pnpm start`)?
+  // One checkout is one Hub with one ./data directory: never start a second
+  // server over the same SQLite file and the same drones. Open the live one.
+  const live = runningInstance();
+  if (live) {
+    log(`already running on :${live.port} (pid ${live.pid}) — opening browser (asked for :${PORT}; stop it first to change port)`);
+    openBrowser(`http://localhost:${live.port}/`);
     return;
   }
 
@@ -139,7 +248,8 @@ async function main() {
 
   log(`starting server on :${PORT}…`);
   const out = fs.openSync(logFile, "a");
-  fs.writeSync(out, `\n=== launch ${new Date().toISOString()} (PORT=${PORT}) ===\n`);
+  const marker = `=== launch ${new Date().toISOString()} (PORT=${PORT}) ===`;
+  fs.writeSync(out, `\n${marker}\n`);
   const child = spawn(process.execPath, [serverEntry], {
     cwd: repoRoot,
     env: { ...process.env, NODE_ENV: "production", PORT },
@@ -154,7 +264,7 @@ async function main() {
   let actualPort = null;
   while (Date.now() < deadline) {
     await sleep(500);
-    const p = portFromLog();
+    const p = portFromLog(marker);
     if (p && (await httpUp(p))) {
       actualPort = p;
       break;

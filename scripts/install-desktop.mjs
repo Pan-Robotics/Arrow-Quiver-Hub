@@ -4,7 +4,7 @@
  *
  * Builds the app once, then writes "Quiver Hub" (start) and "Quiver Hub (Stop)"
  * entries into ~/.local/share/applications so they appear in your app grid /
- * launcher search. Exec paths are absolute (this node binary + the scripts), so
+ * launcher search. Exec goes through scripts/quiver-hub (which finds Node at click time), so
  * clicking works regardless of nvm/PATH.
  *
  * Run: pnpm app:install
@@ -22,8 +22,12 @@ if (process.platform !== "linux") {
 }
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const node = process.execPath;
+// Exec goes through scripts/quiver-hub, which locates Node (PATH, nvm, fnm,
+// volta, ...) at click time. Pinning process.execPath here would break the icon
+// on the next `nvm install`.
+const wrapper = path.join(repoRoot, "scripts", "quiver-hub");
 const appsDir = path.join(os.homedir(), ".local", "share", "applications");
+const iconsDir = path.join(os.homedir(), ".local", "share", "icons", "hicolor", "512x512", "apps");
 const serverEntry = path.join(repoRoot, "dist", "index.js");
 // Logo from source (client/public) or a built/released tree (dist/public).
 const icon =
@@ -55,36 +59,64 @@ const execLine = (...args) => args.map(execArg).join(" ");
 const bakedPort = (process.env.QUIVER_PORT || "").trim();
 const envPrefix = /^\d+$/.test(bakedPort) ? `env QUIVER_PORT=${bakedPort} ` : "";
 
-function writeDesktop(filename, fields) {
+try {
+  fs.chmodSync(wrapper, 0o755);
+} catch {
+  /* read-only checkout; the file is committed executable */
+}
+
+// Install the logo as a themed icon so the entry survives a repo move and
+// follows icon-theme lookups; fall back to the absolute path if that fails.
+let iconRef = icon;
+if (icon) {
+  try {
+    fs.mkdirSync(iconsDir, { recursive: true });
+    fs.copyFileSync(icon, path.join(iconsDir, "quiver-hub.png"));
+    iconRef = "quiver-hub";
+  } catch {
+    iconRef = icon;
+  }
+}
+
+function writeDesktop(filename, fields, extraSections = "") {
   const body =
     "[Desktop Entry]\n" +
     Object.entries(fields)
       .map(([k, v]) => `${k}=${v}`)
       .join("\n") +
-    "\n";
+    "\n" +
+    extraSections;
   const dest = path.join(appsDir, filename);
   fs.writeFileSync(dest, body, { mode: 0o755 });
   return dest;
 }
 
-const start = writeDesktop("quiver-hub.desktop", {
-  Type: "Application",
-  Name: "Quiver Hub",
-  Comment: "Quiver UAV ground station — boots the local server and opens it in your browser",
-  Exec: envPrefix + execLine(node, path.join(repoRoot, "scripts", "launch.mjs")),
-  Icon: icon,
-  Terminal: "false",
-  Categories: "Utility;",
-  Keywords: "quiver;drone;uav;ground station;telemetry;",
-  StartupNotify: "true",
-});
+const start = writeDesktop(
+  "quiver-hub.desktop",
+  {
+    Type: "Application",
+    Name: "Quiver Hub",
+    Comment: "Quiver UAV ground station — boots the local server and opens it in your browser",
+    TryExec: wrapper,
+    Exec: envPrefix + execLine(wrapper, "start"),
+    Icon: iconRef,
+    Terminal: "false",
+    Categories: "Utility;",
+    Keywords: "quiver;drone;uav;ground station;telemetry;",
+    StartupNotify: "true",
+    // Right-click / long-press action on the same icon.
+    Actions: "stop;",
+  },
+  `\n[Desktop Action stop]\nName=Stop Quiver Hub\nExec=${envPrefix}${execLine(wrapper, "stop")}\n`
+);
 
 const stop = writeDesktop("quiver-hub-stop.desktop", {
   Type: "Application",
   Name: "Quiver Hub (Stop)",
   Comment: "Stop the running Quiver Hub server",
-  Exec: envPrefix + execLine(node, path.join(repoRoot, "scripts", "stop.mjs")),
-  Icon: icon,
+  TryExec: wrapper,
+  Exec: envPrefix + execLine(wrapper, "stop"),
+  Icon: iconRef,
   Terminal: "false",
   Categories: "Utility;",
   StartupNotify: "false",

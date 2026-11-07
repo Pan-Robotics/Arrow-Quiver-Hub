@@ -415,7 +415,12 @@ pnpm app        # build-if-needed, start the server, open the browser
 pnpm app:stop   # stop the running instance, however it was started and on any port
 ```
 
-Notes: uses a Chromium/Chrome app window when one is installed, else `xdg-open`; port via `QUIVER_PORT` (default `3000`, bake it into the launcher with `QUIVER_PORT=<n> pnpm app:install` to match the port the drone's `.env` points at); `QUIVER_NO_BROWSER=1` starts headless; logs in `data/hub.log`, pid in `data/hub.pid`. It runs the production build and shares `./data` with it — do not run it alongside `pnpm dev` on the same data directory.
+How it behaves:
+
+- The icons run `scripts/quiver-hub`, which finds a **Node 22+** at click time (PATH, then nvm's default/newest, fnm, volta, system paths — an old distro `/usr/bin/node` is skipped), so upgrading Node with nvm does not break the icon. Re-run `pnpm app:install` only if you move the repository.
+- **Auto-rebuild:** a click rebuilds first whenever any source input (`server/`, `client/`, `shared/`, `drizzle/schema.ts`, …) is newer than `dist/index.js` — e.g. after `git pull`. If the Hub is already running on an older build you get a notification to Stop, then Start. `QUIVER_NO_BUILD=1` disables rebuilding.
+- **One checkout = one Hub.** A click never starts a second server over the same `./data`; if a Hub from this checkout is already running (on any port), the click just opens it. "Stop" stops the Hub of this checkout however it was started. The icon also has a right-click **Stop Quiver Hub** action.
+- Uses a Chromium/Chrome app window when one is installed, else `xdg-open`; port via `QUIVER_PORT` (default `3000`, bake it in with `QUIVER_PORT=<n> pnpm app:install`); `QUIVER_NO_BROWSER=1` starts headless; logs in `data/hub.log`, pid in `data/hub.pid`. Do not run it alongside `pnpm dev` on the same data directory.
 
 ### Download & install a packaged release
 

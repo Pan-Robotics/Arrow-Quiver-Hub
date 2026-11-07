@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Quiver Hub launcher wrapper: the Exec target of the desktop entries.
+#
+# A .desktop Exec line does not run through a login shell, so a Node installed
+# with nvm/fnm/volta (the usual case on a developer laptop) is not on PATH when
+# the icon is clicked. This wrapper finds Node the way a shell would, puts its
+# bin directory (and therefore pnpm/corepack) on PATH, and runs the launcher.
+# Pinning an absolute node path into the .desktop file instead breaks the icon
+# on the next `nvm install`.
+#
+#   quiver-hub start   (default)   boot the server and open the browser
+#   quiver-hub stop                stop the running Hub
+set -euo pipefail
+HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ACTION=${1:-start}; [ "$#" -gt 0 ] && shift
+
+MIN_MAJOR=22
+
+node_ok() {  # node_ok /path/to/node -> 0 when it is Node >= MIN_MAJOR
+  local v
+  v=$("$1" --version 2>/dev/null) || return 1
+  v=${v#v}; v=${v%%.*}
+  [ "${v:-0}" -ge "$MIN_MAJOR" ] 2>/dev/null
+}
+
+find_node() {
+  # 1. Whatever a shell would run, if it is new enough (a distro /usr/bin/node
+  #    is often far too old and must not shadow an nvm/fnm/volta install).
+  local candidate
+  if candidate=$(command -v node 2>/dev/null) && node_ok "$candidate"; then printf '%s\n' "$candidate"; return; fi
+  # 2. nvm: the default alias, then the newest installed version.
+  local nvm_dir=${NVM_DIR:-$HOME/.nvm}
+  if [ -s "$nvm_dir/nvm.sh" ]; then
+    # shellcheck disable=SC1091
+    candidate=$(NVM_DIR=$nvm_dir bash -c '. "$NVM_DIR/nvm.sh" >/dev/null 2>&1 && nvm which default 2>/dev/null' || true)
+    [ -n "$candidate" ] && node_ok "$candidate" && { printf '%s\n' "$candidate"; return; }
+  fi
+  local newest=""
+  for candidate in "$nvm_dir"/versions/node/*/bin/node; do
+    [ -x "$candidate" ] && node_ok "$candidate" && newest=$candidate
+  done
+  [ -n "$newest" ] && { printf '%s\n' "$newest"; return; }
+  # 3. Other managers and system locations.
+  for candidate in "$HOME/.local/share/fnm/aliases/default/bin/node" "$HOME/.volta/bin/node" \
+                   /usr/local/bin/node /opt/homebrew/bin/node /snap/bin/node /usr/bin/node; do
+    [ -x "$candidate" ] && node_ok "$candidate" && { printf '%s\n' "$candidate"; return; }
+  done
+  return 1
+}
+
+NODE=$(find_node) || {
+  msg="Quiver Hub: Node.js $MIN_MAJOR+ was not found (checked PATH, nvm, fnm, volta, /usr/local/bin, /usr/bin)."
+  command -v notify-send >/dev/null 2>&1 && notify-send -a "Quiver Hub" "Quiver Hub" "$msg" || true
+  echo "$msg" >&2; exit 1
+}
+export PATH="$(dirname -- "$NODE"):$HERE/../node_modules/.bin:$PATH"
+
+case "$ACTION" in
+  start) exec "$NODE" "$HERE/launch.mjs" "$@" ;;
+  stop)  exec "$NODE" "$HERE/stop.mjs" "$@" ;;
+  *) echo "usage: quiver-hub [start|stop]" >&2; exit 2 ;;
+esac
