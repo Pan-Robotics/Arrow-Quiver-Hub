@@ -3,6 +3,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+// Service account the installers are driven against. The Pi image and CI have
+// "ubuntu"; set QUIVER_TEST_SERVICE_USER to run these suites on another machine
+// (inside a user namespace, for instance, where only root exists).
+const SERVICE_USER = process.env.QUIVER_TEST_SERVICE_USER || "ubuntu";
 
 const suite = resolve("companion_scripts");
 const temporary: string[] = [];
@@ -106,7 +110,7 @@ describe("Companion bootstrap downloads", () => {
 function mockInstallation(script: string, choices: string, options: { local?: boolean; pipExit?: number } = {}) {
   const root = temp(), bin = join(root, "bin"), install = join(root, "my companion"), envFile = join(install, ".env"), units = join(root, "units"), log = join(root, "commands.log");
   mkdirSync(bin); mkdirSync(install);
-  writeFileSync(envFile, `# retained comment\nWEB_SERVER_URL=https://hub.invalid\nAPI_KEY=test-secret\nDRONE_ID=demo-drone\nINSTALL_DIR="${install}"\nSERVICE_USER=ubuntu\nFC_IP=10.42.0.51\nCOMPANION_IP=10.42.0.49\nLOG_STORE_DIR="${root}/fc logs"\nUNRELATED=preserve-me\n`);
+  writeFileSync(envFile, `# retained comment\nWEB_SERVER_URL=https://hub.invalid\nAPI_KEY=test-secret\nDRONE_ID=demo-drone\nINSTALL_DIR="${install}"\nSERVICE_USER=${SERVICE_USER}\nFC_IP=10.42.0.51\nCOMPANION_IP=10.42.0.49\nLOG_STORE_DIR="${root}/fc logs"\nUNRELATED=preserve-me\n`);
   writeFileSync(join(root, "active"), "inactive\n");
   for (const command of ["apt-get", "usermod"]) {
     const path = join(bin, command);
@@ -115,7 +119,7 @@ function mockInstallation(script: string, choices: string, options: { local?: bo
   const systemctl = join(bin, "systemctl");
   writeFileSync(systemctl, `#!/bin/bash\nprintf 'systemctl %s\\n' "$*" >> "$MOCK_LOG"\ncase "$1" in\n  is-active) [ "$(cat "$MOCK_STATE")" = active ] ;;\n  stop) echo inactive > "$MOCK_STATE" ;;\n  start|restart) echo active > "$MOCK_STATE" ;;\n  *) exit 0 ;;\nesac\n`); chmodSync(systemctl, 0o755);
   const runuser = join(bin, "runuser");
-  writeFileSync(runuser, `#!/bin/bash\nprintf 'runuser %s\\n' "$*" >> "$MOCK_LOG"\n[ "$1" = --user ] && [ "$2" = ubuntu ] && [ "$3" = -- ] && [ "$4" = /usr/bin/python3 ] && [ "$5" = -s ] || exit 99\ncase " $* " in\n  *' --check '*|*' --test-run '*) exit 0 ;;\n  *) echo 'Unexpected runuser call; refusing hardware/network execution' >&2; exit 99 ;;\nesac\n`); chmodSync(runuser, 0o755);
+  writeFileSync(runuser, `#!/bin/bash\nprintf 'runuser %s\\n' "$*" >> "$MOCK_LOG"\n[ "$1" = --user ] && [ "$2" = ${SERVICE_USER} ] && [ "$3" = -- ] && [ "$4" = /usr/bin/python3 ] && [ "$5" = -s ] || exit 99\ncase " $* " in\n  *' --check '*|*' --test-run '*) exit 0 ;;\n  *) echo 'Unexpected runuser call; refusing hardware/network execution' >&2; exit 99 ;;\nesac\n`); chmodSync(runuser, 0o755);
   const dispatcher = join(bin, "python3");
   writeFileSync(dispatcher, `#!/bin/bash\nif [ "$1" = -m ] && [ "$2" = pip ]; then\n  printf 'pip %s\\n' "$*" >> "$MOCK_LOG"\n  exit "\${MOCK_PIP_EXIT:-0}"\nfi\nif [[ "$1" == */installer_support.py ]] && [ "$2" = sdk-preflight ]; then\n  printf 'sdk-preflight stub\\n' >> "$MOCK_LOG"\n  exit 0\nfi\nexec /usr/bin/python3 "$@"\n`); chmodSync(dispatcher, 0o755);
   // Only package/service commands are stubbed; real Python/.env/filesystem behavior
@@ -187,7 +191,7 @@ describe("Portable installer integration (mocked privileged operations)", () => 
   it("supports rerunning a secondary installer directly from its installed directory", () => {
     const run = mockInstallation("install_telemetry_forwarder.sh", "\n".repeat(30));
     expect(run.result.status, run.result.stderr).toBe(0);
-    const result = spawnSync("bash", ["-c", `set -euo pipefail; SCRIPT_DIR="$1"; INSTALL_DIR="$1"; SERVICE_USER=ubuntu; SERVICE_GROUP=ubuntu; source "$1/installer_common.sh"; quiver_copy telemetry_forwarder.py; quiver_install_helpers`, "test", run.install], { encoding: "utf8", timeout: 10000 });
+    const result = spawnSync("bash", ["-c", `set -euo pipefail; SCRIPT_DIR="$1"; INSTALL_DIR="$1"; SERVICE_USER=${SERVICE_USER}; SERVICE_GROUP=$(id -gn ${SERVICE_USER}); source "$1/installer_common.sh"; quiver_copy telemetry_forwarder.py; quiver_install_helpers`, "test", run.install], { encoding: "utf8", timeout: 10000 });
     expect(result.status, result.stderr).toBe(0);
   });
   it("has valid Bash syntax for every installer", () => {
@@ -223,7 +227,7 @@ describe("All retained companion service templates", () => {
   const replacements:Record<string,string>={
    INSTALL_DIR_PLACEHOLDER:word(install), WORKING_DIRECTORY_PLACEHOLDER:literal(install),
    ENV_FILE_PLACEHOLDER:literal(envFile), ENV_ASSIGNMENT_PLACEHOLDER:word(`QUIVER_ENV_FILE=${envFile}`),
-   SERVICE_USER_PLACEHOLDER:"ubuntu", SERVICE_GROUP_PLACEHOLDER:"ubuntu",
+   SERVICE_USER_PLACEHOLDER:SERVICE_USER, SERVICE_GROUP_PLACEHOLDER:SERVICE_USER,
   };
   for(const [key,file] of Object.entries({HUB_CLIENT_SCRIPT_PLACEHOLDER:"raspberry_pi_client.py",TELEMETRY_FORWARDER_SCRIPT_PLACEHOLDER:"telemetry_forwarder.py",LOGS_OTA_SCRIPT_PLACEHOLDER:"logs_ota_service.py",CAMERA_STREAM_SCRIPT_PLACEHOLDER:"camera_stream_service.py",SIYI_CONTROLLER_SCRIPT_PLACEHOLDER:"siyi_camera_controller.py"})) replacements[key]=word(join(install,file));
   const names=["quiver-hub-client.service","telemetry-forwarder.service","logs-ota.service","camera-stream.service","siyi-camera.service"];

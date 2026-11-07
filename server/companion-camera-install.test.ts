@@ -3,6 +3,10 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+// Service account the installers are driven against. The Pi image and CI have
+// "ubuntu"; set QUIVER_TEST_SERVICE_USER to run these suites on another machine
+// (inside a user namespace, for instance, where only root exists).
+const SERVICE_USER = process.env.QUIVER_TEST_SERVICE_USER || "ubuntu";
 
 const suite = resolve("companion_scripts");
 const temporary: string[] = [];
@@ -45,7 +49,7 @@ ExecStart=/usr/bin/true
   expect(result.stderr.trim()).toBe("");
 }
 
-function runMockedCameraInstallation() {
+function runMockedCameraInstallation(registration: "funnel" | "auto" | "lan" = "funnel") {
   const root = temp();
   const bin = join(root, "bin");
   const install = join(root, "my camera companion");
@@ -62,7 +66,7 @@ function runMockedCameraInstallation() {
     "API_KEY=\"test-secret\"",
     "DRONE_ID=\"camera-demo\"",
     `INSTALL_DIR=\"${install}\"`,
-    "SERVICE_USER=\"ubuntu\"",
+    `SERVICE_USER="${SERVICE_USER}"`,
     "SIYI_CAMERA_IP=\"10.42.0.25\"",
     "SIYI_RTSP_PORT=\"9554\"",
     "STREAM_TYPE=\"sub\"",
@@ -70,6 +74,7 @@ function runMockedCameraInstallation() {
     "GO2RTC_API_PORT=\"2984\"",
     "GO2RTC_WEBRTC_PORT=\"9555\"",
     "TAILSCALE_FUNNEL_PORT=\"8443\"",
+    `CAMERA_REGISTRATION="${registration}"`,
     "UNRELATED=\"preserve-me\"",
     "",
   ].join("\n"));
@@ -137,6 +142,31 @@ exec "$@"
   );
   return { result, root, install, envFile, units, log };
 }
+
+describe("Camera services installer registration modes", () => {
+  it("auto (default): tailnet-private registration, no Funnel unit, go2rtc reachable beyond loopback", () => {
+    const run = runMockedCameraInstallation("auto");
+    expect(run.result.status, run.result.stderr + run.result.stdout).toBe(0);
+    for (const name of ["go2rtc.service", "camera-stream.service", "siyi-camera.service"]) {
+      expect(existsSync(join(run.units, name)), name).toBe(true);
+    }
+    expect(existsSync(join(run.units, "tailscale-funnel.service"))).toBe(false);
+    const env = readFileSync(run.envFile, "utf8");
+    expect(env).toMatch(/^GO2RTC_API_HOST="?0\.0\.0\.0"?$/m);
+    expect(readFileSync(join(run.install, "go2rtc.yaml"), "utf8")).toContain('listen: "0.0.0.0:2984"');
+    const log = readFileSync(run.log, "utf8");
+    expect(log).not.toMatch(/tailscale (up|funnel)/);
+    expect(log).not.toContain("tailscale-funnel.service");
+    expect(run.result.stdout).toContain("register tailnet-privately at http://");
+  });
+  it("lan: no Tailscale needed at all", () => {
+    const run = runMockedCameraInstallation("lan");
+    expect(run.result.status, run.result.stderr + run.result.stdout).toBe(0);
+    expect(existsSync(join(run.units, "tailscale-funnel.service"))).toBe(false);
+    expect(run.result.stdout).toContain("Tailscale is not required and is left untouched");
+    expect(readFileSync(run.log, "utf8")).not.toMatch(/tailscale/);
+  });
+});
 
 describe("Camera services installer (mocked privileged integration)", () => {
   it("renders portable shared-environment units and regenerates go2rtc config without touching real services", () => {

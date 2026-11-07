@@ -434,6 +434,16 @@ pnpm app:install        # Linux launcher — or `pnpm app` on any platform
 
 A release is the prebuilt app (`dist/`), the DB migrations, the launcher scripts and `companion_scripts/` (the Hub serves the Pi installer from it), with a `release.json` recording the exact commit. Build one locally with `pnpm package` → `release/quiver-hub-<version>.tar.gz`. Prerequisites: Node.js 22+ and pnpm.
 
+### Tests
+
+```bash
+pnpm check              # TypeScript
+pnpm test               # 1,419 tests; the 37 companion-installer tests that need root are skipped-as-failed without passwordless sudo
+pnpm test:privileged    # all 1,456: runs vitest in an unprivileged user namespace with a passthrough sudo (Linux)
+```
+
+The installer suites drive the real `install_*.sh` scripts against stubbed `apt-get`/`pip`/`systemctl` and need uid 0; `test:privileged` provides that without touching the host. They assume a service account named `ubuntu` (Pi image / CI) — override with `QUIVER_TEST_SERVICE_USER`.
+
 ### Configuration
 
 Everything is optional and lives in a `.env` file next to `package.json` (see [`.env.example`](.env.example)):

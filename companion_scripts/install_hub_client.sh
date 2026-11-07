@@ -11,7 +11,7 @@ if [ "${1:-}" = --local ]; then
     # A bootstrap that staged the suite records where it really came from.
     SOURCE_URL="${QUIVER_COMPANION_SOURCE:-$ORIGINAL_DIR}"
 else
-    if [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+    if [ -z "${QUIVER_NONINTERACTIVE:-}" ]; then
         read -r -p "Companion source folder [$DEFAULT_SOURCE]: " SOURCE_URL
     else
         SOURCE_URL=""

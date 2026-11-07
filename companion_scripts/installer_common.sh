@@ -5,18 +5,21 @@ quiver_privileged() {
     if [ "${EUID}" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
-# Interactive prompts need a terminal on stdin. Under `curl ... | bash` (the
-# single-command bootstrap) or QUIVER_NONINTERACTIVE=1 every prompt takes its
-# default/existing value and says so; nothing is read from the piped script.
+# With QUIVER_NONINTERACTIVE=1 (set by the single-command bootstrap, whose
+# stdin is the piped script) every prompt takes its default/existing value and
+# says so. Otherwise prompts read stdin as before, so answers may still be
+# piped in by an operator or a test harness.
 quiver_interactive() {
-    [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]
+    [ -z "${QUIVER_NONINTERACTIVE:-}" ]
 }
 
 # quiver_read VAR "label" "default": read one answer or take the default.
 quiver_read() {
     local __target="$1" label="$2" default="${3:-}" answer=""
     if quiver_interactive; then
-        read -r -p "$label [$default]: " answer
+        # EOF on stdin (piped answers ran out) means "take the default", never a
+        # silent exit under set -e.
+        read -r -p "$label [$default]: " answer || answer=""
     else
         printf '%s [%s]: (non-interactive, keeping default)\n' "$label" "$default"
     fi
@@ -27,7 +30,7 @@ quiver_read() {
 quiver_confirm() {
     local label="$1" default="${2:-Y}" answer=""
     if quiver_interactive; then
-        read -r -p "$label [$([ "$default" = Y ] && printf 'Y/n' || printf 'y/N')]: " answer
+        read -r -p "$label [$([ "$default" = Y ] && printf 'Y/n' || printf 'y/N')]: " answer || answer=""
     else
         printf '%s: (non-interactive, default %s)\n' "$label" "$default"
     fi
@@ -55,10 +58,10 @@ quiver_prompt() {
             printf '%s [%s]: (non-interactive, keeping configured value)\n' "$label" "$current"
         fi
     elif [ "$mode" = secret ]; then
-        read -r -s -p "$label (blank keeps existing): " answer
+        read -r -s -p "$label (blank keeps existing): " answer || answer=""
         printf '\n'
     else
-        read -r -p "$label [$current]: " answer
+        read -r -p "$label [$current]: " answer || answer=""
     fi
     answer=${answer:-$current}
     quiver_set "$key" "$answer"

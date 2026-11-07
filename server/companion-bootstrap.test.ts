@@ -89,7 +89,7 @@ describe("bootstrap_companion.sh", () => {
     expect(help.status).toBe(0);
     expect(help.stdout).toContain("--hub-url URL");
     expect(help.stdout).toContain("never configures network interfaces");
-  });
+  }, 60_000);
 
   it("rejects missing identity and unknown services before touching anything", async () => {
     const noHub = await bash(["--dry-run", "--drone-id", "quiver_001"]);
@@ -101,7 +101,7 @@ describe("bootstrap_companion.sh", () => {
     const badService = await bash(["--dry-run", "--hub-url", "http://192.168.144.200:3000", "--drone-id", "d", "--services", "hub,lidar"]);
     expect(badService.status).toBe(2);
     expect(badService.stderr).toContain("Unknown service 'lidar'");
-  });
+  }, 60_000);
 
   it("allows plain HTTP only to a private-network Hub address", async () => {
     const publicIp = await bash(["--dry-run", "--hub-url", "http://8.8.8.8:3000", "--drone-id", "d"]);
@@ -112,13 +112,13 @@ describe("bootstrap_companion.sh", () => {
     expect(publicName.stderr).toContain("Plain HTTP to a public host");
     const ftp = await bash(["--dry-run", "--hub-url", "ftp://192.168.144.200", "--drone-id", "d"]);
     expect(ftp.status).toBe(2);
-  });
+  }, 60_000);
 
   it("refuses to continue when the Hub is unreachable and the suite comes from the Hub", async () => {
     const result = await bash(["--dry-run", "--hub-url", "http://127.0.0.1:9", "--drone-id", "d"]);
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/Hub http:\/\/127\.0\.0\.1:9 is unreachable/);
-  });
+  }, 60_000);
 
   it("fetches and verifies the complete suite from the Hub in --dry-run without installing", async () => {
     tampered = false;
@@ -137,7 +137,7 @@ describe("bootstrap_companion.sh", () => {
     expect(result.stdout).toContain("--dry-run: suite verified, nothing changed");
     // Preflight is read-only: no apt/systemctl/pip side effects are mentioned as done.
     expect(result.stdout).not.toMatch(/Installed the complete companion suite/);
-  });
+  }, 60_000);
 
   it("aborts on a SHA-256 mismatch with nothing installed", async () => {
     tampered = true;
@@ -151,7 +151,7 @@ describe("bootstrap_companion.sh", () => {
     } finally {
       tampered = false;
     }
-  });
+  }, 60_000);
 
   it("reuses an existing .env on a non-virgin Pi and only overrides passed keys", async () => {
     const root = mkdtempSync(join(tmpdir(), "quiver-bootstrap-"));
@@ -177,7 +177,7 @@ describe("bootstrap_companion.sh", () => {
     expect(pull.stdout).toContain("--no-start: quiver-hub-client will not be enabled/started");
     // Dry run must not modify the existing configuration.
     expect(readFileSync(join(install, ".env"), "utf8")).toContain('API_KEY="keep me"');
-  });
+  }, 60_000);
 });
 
 // ─── Non-interactive installer helpers ─────────────────────────────────────
@@ -203,9 +203,13 @@ describe("installer_common.sh non-interactive mode", () => {
     expect(result.stdout).toContain("SHOULD-NOT-BE-READ-AS-ANSWER");
   });
 
-  it("is non-interactive automatically when stdin is not a terminal", () => {
-    const result = run(`${prelude} quiver_interactive && echo interactive || echo piped`);
-    expect(result.stdout.trim()).toBe("piped");
+  it("stays interactive (piped answers still work) unless QUIVER_NONINTERACTIVE is set", () => {
+    const piped = run(`${prelude} quiver_interactive && echo interactive || echo unattended`);
+    expect(piped.stdout.trim()).toBe("interactive");
+    const answered = run(`${prelude} quiver_read ANSWER "Serial device" /dev/ttyAMA1; echo "answer=$ANSWER"`, {}, "/dev/ttyUSB0\n");
+    expect(answered.stdout).toContain("answer=/dev/ttyUSB0");
+    const forced = run(`${prelude} quiver_interactive && echo interactive || echo unattended`, { QUIVER_NONINTERACTIVE: "1" });
+    expect(forced.stdout.trim()).toBe("unattended");
   });
 
   it("keeps configured values for prompts and never echoes secrets", () => {

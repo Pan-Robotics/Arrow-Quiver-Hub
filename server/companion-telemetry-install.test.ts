@@ -11,6 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+// Service account the installers are driven against. The Pi image and CI have
+// "ubuntu"; set QUIVER_TEST_SERVICE_USER to run these suites on another machine
+// (inside a user namespace, for instance, where only root exists).
+const SERVICE_USER = process.env.QUIVER_TEST_SERVICE_USER || "ubuntu";
 
 const suite = resolve("companion_scripts");
 const roots: string[] = [];
@@ -57,7 +61,7 @@ function fixture(options: Options = {}) {
   writeFileSync(state, options.active === false ? "inactive\n" : "active\n");
   writeFileSync(log, "");
   const secret = "fixture-private-api-key";
-  const config = `# retained operator comment\nHUB_URL=https://hub.invalid/prefix\nWEB_SERVER_URL=https://hub.invalid/prefix\nAPI_KEY=${secret}\nDRONE_ID=fixture-drone\nINSTALL_DIR="${install}"\nSERVICE_USER=ubuntu\nFC_IP=10.42.0.51\nCOMPANION_IP=10.42.0.49\nMAVLINK_URL=udpin://0.0.0.0:14540\nCAN_INTERFACE=${missingCan}\nENABLE_UAVCAN=${options.canEnabled ? "true" : "false"}\nUPDATE_RATE_HZ=8\nLOG_STORE_DIR="${install}/logs"\nUNRELATED="$(touch ${root}/env-was-executed)"\n`;
+  const config = `# retained operator comment\nHUB_URL=https://hub.invalid/prefix\nWEB_SERVER_URL=https://hub.invalid/prefix\nAPI_KEY=${secret}\nDRONE_ID=fixture-drone\nINSTALL_DIR="${install}"\nSERVICE_USER=${SERVICE_USER}\nFC_IP=10.42.0.51\nCOMPANION_IP=10.42.0.49\nMAVLINK_URL=udpin://0.0.0.0:14540\nCAN_INTERFACE=${missingCan}\nENABLE_UAVCAN=${options.canEnabled ? "true" : "false"}\nUPDATE_RATE_HZ=8\nLOG_STORE_DIR="${install}/logs"\nUNRELATED="$(touch ${root}/env-was-executed)"\n`;
   writeFileSync(envFile, config);
   function executable(name: string, body: string) {
     const path = join(bin, name);
@@ -103,7 +107,7 @@ exec /usr/bin/python3 "$@"`
   executable(
     "runuser",
     `printf 'runuser %s\\n' "$*" >> "$MOCK_LOG"
-[ "$1" = --user ] && [ "$2" = ubuntu ] && [ "$3" = -- ] && [ "$4" = /usr/bin/python3 ] && [ "$5" = -s ]
+[ "$1" = --user ] && [ "$2" = ${SERVICE_USER} ] && [ "$3" = -- ] && [ "$4" = /usr/bin/python3 ] && [ "$5" = -s ]
 [ "$6" = "$QUIVER_INSTALL_DIR/installer_support.py" ] && [ "$7" = service-run ] && [ "$8" = "$QUIVER_ENV_FILE" ]
 [ "$9" = /usr/bin/python3 ] && [ "\${10}" = -s ] && [ "\${11}" = "$QUIVER_INSTALL_DIR/telemetry_forwarder.py" ]
 case "\${12:-}" in
@@ -212,7 +216,7 @@ describe("Telemetry installer health gate (hermetic privileged-command simulatio
       "systemctl is-active",
     ]);
     expect(log).toContain(
-      `runuser --user ubuntu -- /usr/bin/python3 -s ${f.install}/installer_support.py service-run ${f.envFile} /usr/bin/python3 -s ${f.install}/telemetry_forwarder.py --check`
+      `runuser --user ${SERVICE_USER} -- /usr/bin/python3 -s ${f.install}/installer_support.py service-run ${f.envFile} /usr/bin/python3 -s ${f.install}/telemetry_forwarder.py --check`
     );
     expect(log).not.toContain(f.secret);
     expect(

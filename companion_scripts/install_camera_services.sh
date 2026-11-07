@@ -142,7 +142,14 @@ EOF
 
     # Public Funnel exposure is opt-in (CAMERA_REGISTRATION=funnel). Other modes
     # install no Funnel unit and never change Tailscale serve/funnel state.
-    [ "$CAMERA_MODE" = funnel ] || { quiver_privileged rm -f "$SYSTEMD_DIR/tailscale-funnel.service"; return 0; }
+    if [ "$CAMERA_MODE" != funnel ]; then
+        # A Funnel unit from an earlier funnel-mode install is retired here.
+        if [ -f "$SYSTEMD_DIR/tailscale-funnel.service" ]; then
+            systemctl disable --now tailscale-funnel.service 2>/dev/null || true
+            quiver_privileged rm -f "$SYSTEMD_DIR/tailscale-funnel.service"
+        fi
+        return 0
+    fi
     # The variables are expanded by systemd from EnvironmentFile at each start;
     # they are intentionally not pinned to installation-time values.
     quiver_privileged tee "$SYSTEMD_DIR/tailscale-funnel.service" >/dev/null <<EOF
@@ -284,7 +291,7 @@ configure_tailscale() {
         return 0
     fi
     if ! tailscale status >/dev/null 2>&1; then
-        if [ -z "${QUIVER_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+        if [ -z "${QUIVER_NONINTERACTIVE:-}" ]; then
             echo -e "${YELLOW}Tailscale is not connected. Running 'tailscale up'...${NC}"
             tailscale up
             read -r -p "Press Enter after authenticating Tailscale..." _
@@ -343,7 +350,6 @@ start_services() {
     if [ "$CAMERA_MODE" = funnel ]; then
         systemctl enable go2rtc.service tailscale-funnel.service siyi-camera.service camera-stream.service
     else
-        systemctl disable --now tailscale-funnel.service 2>/dev/null || true
         systemctl enable go2rtc.service siyi-camera.service camera-stream.service
     fi
     systemctl restart go2rtc.service
